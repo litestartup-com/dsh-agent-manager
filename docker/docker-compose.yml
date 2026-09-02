@@ -18,8 +18,11 @@ services:
       #   NPM_REGISTRY: https://registry.npmmirror.com
     image: ohdsh/dsh-node:0.1.0
     container_name: dsh-node
+    # 单机测试：只绑宿主机 loopback（公网不可达；同机 manager 可访问）。
+    # 跨机部署时才改成 "0.0.0.0:3080:3080"，且必须配合防火墙只放行网关路径
+    # —— 0.0.0.0 会把 DSH Web GUI 也暴露出去。
     ports:
-      - "3080:3080"
+      - "127.0.0.1:3080:3080"
     environment:
       DSH_HOME: /data
       # 网关 API 密钥：容器外访问 /api-gw/v1/proxy/* 用这把 key
