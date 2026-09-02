@@ -39,6 +39,28 @@ export GW_KEY=<与 .env 一致>
 - [ ] （可选）manager 方案 B 指向本节点：`url: http://<host>:3080`、
   `prefix: /api-gw/v1/proxy`、`key_ref: GW_KEY_<node>`，跑 `npx tsx scripts/smoke-proxy-b.ts http://<host>:3080/api-gw/v1/proxy`
 
+## manager 同机联调
+
+同一台机器上跑 manager + 容器节点时，**必须走方案 B（经网关）**：
+`/api` 的 loopback 栅栏会挡住 docker 网络边界的连接（设计如此），直连不可用。
+
+```yaml
+# manager.config.yaml
+endpoints:
+  A:
+    url: http://127.0.0.1:3080
+    driver: apiproxy
+    prefix: /api-gw/v1/proxy
+    key_ref: GW_KEY_A      # manager .env 里填容器 .env 那把 GW_KEY
+
+agents:
+  personal:
+    workspace: <宿主机绝对路径>/docker/workspace   # 与 compose 挂载一致
+```
+
+验收：`npx tsx scripts/smoke-proxy-b.ts http://127.0.0.1:3080/api-gw/v1/proxy`
+（`SMOKE_KEY` 填容器 `GW_KEY`）。
+
 ## 环境变量
 
 | 变量 | 必填 | 说明 |

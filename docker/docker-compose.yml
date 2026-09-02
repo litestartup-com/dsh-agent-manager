@@ -31,10 +31,11 @@ services:
       DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
     volumes:
       - dsh-data:/data          # 会话/settings/skills 持久化
-      - dsh-workspace:/workspace # agent 工作区根
+      # agent 工作区根：挂宿主机目录，同机 manager 的 agent.workspace 指向这里
+      # （容器命名卷宿主机摸不到，manager 的快照/计费没法落）。
+      - ./workspace:/workspace
       # - ./packages:/packages:ro  # 本地 gateway tgz（国内 GitHub 不通时启用）
     restart: unless-stopped
 
 volumes:
   dsh-data:
-  dsh-workspace:
