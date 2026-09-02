@@ -1,0 +1,37 @@
+# DSH 节点：一个容器 = 一个 DSH agent 节点（DSH + dsh-api-gateway）
+#
+# 用法：
+#   cp .env.example .env    # 填 GW_KEY / DEEPSEEK_API_KEY
+#   docker compose up -d --build
+#   ./smoke.sh              # 外部调用验收
+#
+# 国内构建（Docker Hub / GitHub 不通时）：
+#   - 基础镜像：取消下面 build.args 里 NODE_IMAGE 的注释，换加速器地址
+#   - npm 源：  NPM_REGISTRY 换 https://registry.npmmirror.com
+#   - gateway 插件：本机 pnpm pack 打 tgz 放进 ./packages/（entrypoint 自动优先用）
+services:
+  dsh-node:
+    build:
+      context: .
+      # args:
+      #   NODE_IMAGE: docker.m.daocloud.io/library/node:22-bookworm-slim
+      #   NPM_REGISTRY: https://registry.npmmirror.com
+    image: ohdsh/dsh-node:0.1.0
+    container_name: dsh-node
+    ports:
+      - "3080:3080"
+    environment:
+      DSH_HOME: /data
+      # 网关 API 密钥：容器外访问 /api-gw/v1/proxy/* 用这把 key
+      GW_KEY: "${GW_KEY:?请在 .env 中设置 GW_KEY}"
+      # 模型密钥（credentials 分层：环境变量优先级最高；也可留空走 GUI 配）
+      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
+    volumes:
+      - dsh-data:/data          # 会话/settings/skills 持久化
+      - dsh-workspace:/workspace # agent 工作区根
+      # - ./packages:/packages:ro  # 本地 gateway tgz（国内 GitHub 不通时启用）
+    restart: unless-stopped
+
+volumes:
+  dsh-data:
+  dsh-workspace:

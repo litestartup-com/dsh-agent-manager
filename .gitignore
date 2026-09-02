@@ -1,0 +1,24 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# 密钥与本地配置：绝不进 git
+.env
+.env.local
+# 个人配置（真实路径），公开模板见 manager.config.example.yaml
+manager.config.yaml
+
+# 运行时数据（SQLite 库、日志）
+data/
+*.db
+*.db-wal
+*.db-shm
+logs/
+*.log
+
+# 各 agent 的工作区由各自的 git 仓库管理，不进 manager 仓库
+workspaces/
+
+# 文档：内部工作文档（计划/设计/头脑风暴），不随仓库公开
+# 公开面只有 README.md / README.zh.md / LICENSE
+docs/

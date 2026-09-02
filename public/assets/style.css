@@ -1,0 +1,1749 @@
+/* Design tokens.
+ *
+ * The visual language follows DSH's own web UI so the two feel like one system:
+ * a light, airy surface; hairline borders instead of heavy ones; depth from soft
+ * shadows; exactly one saturated colour, reserved for the primary action.
+ *
+ * Every colour, radius and space value in the app comes from here. Nothing below
+ * this block hard-codes a hex value, so retuning the palette is one edit.
+ */
+
+:root {
+  /* Surfaces, lightest to most raised. */
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-sunken: #f2f3f5;
+  --surface-hover: #eef0f3;
+
+  /* Borders are deliberately faint; DSH separates with light and space. */
+  --border: #e6e8ec;
+  --border-strong: #d7dae0;
+
+  --text: #1c1e21;
+  --text-2: #5b6270;
+  --muted: #98a0ac;
+
+  /* The only saturated colour. Used for the primary action and nothing else. */
+  --accent: #4a7cf7;
+  --accent-hover: #3b6ce8;
+  --accent-fg: #ffffff;
+  --accent-soft: #eef3ff;
+
+  /* Semantic colours each carry a text, tint and border variant so state can be
+   * shown by a whole element rather than only by colouring its text. */
+  --ok: #15803d;
+  --ok-bg: #f0fdf4;
+  --ok-border: #bbf7d0;
+  --warn: #b45309;
+  --warn-bg: #fffbeb;
+  --warn-border: #fde68a;
+  --bad: #b91c1c;
+  --bad-bg: #fef2f2;
+  --bad-border: #fecaca;
+
+  --r-sm: 6px;
+  --r: 8px;
+  --r-lg: 14px;
+  --r-pill: 999px;
+
+  --sh-1: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+  --sh-2: 0 2px 4px rgba(16, 24, 40, 0.04), 0 8px 24px rgba(16, 24, 40, 0.07);
+
+  --sidebar-w: 260px;
+  /* Zero while the sidebar is docked; the narrow-screen block raises it to the
+     app bar's height. The conversation page sizes itself off this, so it never
+     has to know which layout mode is in effect. */
+  --topbar-h: 0px;
+
+  --font:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Roboto,
+    sans-serif;
+  --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+
+  /* Aliases kept so the board stylesheet can share these tokens verbatim. */
+  --card: var(--surface);
+  --line: var(--border);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Class-based display rules outrank the UA's [hidden] rule, so anything given
+   `display` below would ignore the attribute without this. */
+[hidden] {
+  display: none !important;
+}
+
+html {
+  /* Native form controls and scrollbars should match the light surface. */
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.6 var(--font);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--accent);
+}
+
+code {
+  font: 12px/1.5 var(--mono);
+  color: var(--text-2);
+  background: var(--surface-sunken);
+  border-radius: var(--r-sm);
+  padding: 1px 5px;
+}
+
+/* One focus style everywhere. Keyboard users should never lose the cursor. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.small {
+  font-size: 12px;
+}
+
+.grow {
+  flex: 1;
+}
+
+.ok {
+  color: var(--ok);
+}
+
+.warn {
+  color: var(--warn);
+}
+
+.error {
+  color: var(--bad);
+  font-size: 13px;
+  margin: 6px 0 0;
+}
+
+/* ==========================================================================
+   shell: sidebar + content
+   ========================================================================== */
+
+.shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.sidebar {
+  background: var(--bg);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 12px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+}
+
+/* An anchor, not a heading: it is how you get home from anywhere, which is why
+   no page needs its own 返回 button. */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 4px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.brand-badge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: var(--text);
+  color: var(--surface);
+  border-radius: var(--r-sm);
+  padding: 2px 5px;
+}
+
+/* The sidebar's primary action, mirroring DSH's "New Session": full width,
+   outlined rather than filled, so the blue send button stays the only fill. */
+.side-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  box-shadow: var(--sh-1);
+  color: var(--text);
+  font: 500 13px/1 var(--font);
+  padding: 9px 12px;
+  cursor: pointer;
+  /* An anchor now, so it keeps working as 派活 from pages that have no composer. */
+  text-decoration: none;
+  box-sizing: border-box;
+}
+
+.side-action:hover {
+  border-color: var(--border-strong);
+}
+
+.side-section {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.tree {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow-y: auto;
+  flex: 1;
+  margin: 0 -4px;
+  padding: 0 4px;
+}
+
+/* One group per agent: a row that expands, with the agent's conversations under
+   it. The row toggles instead of navigating because conversations are a daily
+   action and the board an occasional one, so the easy click goes to the frequent
+   thing; the board keeps its own button (UI.md §2). */
+.tree-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.tree-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  text-decoration: none;
+  font-size: 13px;
+  min-width: 0;
+}
+
+.tree-item:hover {
+  background: var(--surface-hover);
+}
+
+.tree-item.on {
+  background: var(--surface-sunken);
+  color: var(--text);
+}
+
+.tree-item .label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Tiny right-aligned metadata, as DSH does with relative timestamps. */
+.tree-item .meta {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+  flex: 0 0 auto;
+}
+
+.tree-item .dot {
+  margin-left: auto;
+}
+
+.tree-item .meta + .dot {
+  margin-left: 0;
+}
+
+/* The expanding part of the row. A button, not a link: it changes what the
+   sidebar shows and navigates nowhere, so it must not offer a new tab. */
+.tree-toggle {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tree-toggle .chev {
+  flex: 0 0 auto;
+  display: inline-flex;
+  color: var(--muted);
+  transition: transform 0.14s;
+}
+
+.tree-group.open .tree-toggle .chev {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tree-toggle .chev {
+    transition: none;
+  }
+}
+
+/* The board entry. Sized as a hit target rather than an icon, since it sits
+   between two other controls on a 13px row. */
+.tree-side {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+}
+
+.tree-side:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.tree-children {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  /* Indented to the parent's label, and a rule to carry the eye down a long
+     list without needing a box around it. */
+  margin: 1px 0 4px 15px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+}
+
+.tree-child {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 7px;
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  text-decoration: none;
+  font-size: 12.5px;
+  min-width: 0;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tree-child > svg {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.tree-child .label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-child .meta {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+  flex: 0 0 auto;
+}
+
+.tree-child:hover {
+  background: var(--surface-hover);
+}
+
+.tree-child.active {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.tree-child.active > svg {
+  color: var(--accent);
+}
+
+.tree-child.more,
+.tree-child.new {
+  color: var(--muted);
+}
+
+.tree-child.new:hover {
+  color: var(--text);
+}
+
+.tree-child.new:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: 0 0 auto;
+}
+
+.dot.ok {
+  background: #22c55e;
+}
+
+.dot.warn {
+  background: #f59e0b;
+}
+
+.dot.bad {
+  background: #ef4444;
+}
+
+/* An agent mid-turn. A pulse rather than a spinner: it is a state, not progress,
+   and there is no percentage to report. */
+.dot.busy {
+  background: #f59e0b;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot.busy {
+    animation: none;
+  }
+}
+
+/* The commit a run produced. Monospace and dim: it is evidence you can go look
+   up, not something to read on every row. */
+.commit {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 1px 5px;
+  margin-right: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-sunken);
+  color: var(--text-2);
+}
+
+.files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 5px;
+}
+.files code {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: var(--r-sm);
+  background: var(--surface-sunken);
+  color: var(--text-2);
+}
+
+/* The board supplies its own full-bleed padding and a sticky header, both of
+   which the standard content inset would break. */
+.content-flush {
+  padding: 0;
+}
+
+/* A month of daily bars, or a cron's full prompt, need more than the home
+   page's reading width. */
+.content.wide .wrap {
+  max-width: 900px;
+}
+
+/* Every page's title row. Replaces the per-page 返回 button, which was a worse
+   version of a frame that never leaves. */
+.page-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.page-head h1 {
+  margin: 0;
+  font-size: 20px;
+}
+
+/* Pinned to the bottom of the sidebar as a group, so the agent list above keeps
+   whatever height it needs. */
+.side-links {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: auto;
+}
+
+.side-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  font-size: 13px;
+  text-decoration: none;
+}
+.side-link:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+/* Says where you are. The whole point of keeping the frame on every page is
+   lost if the frame looks identical everywhere. */
+.side-link.active,
+.tree-item.active {
+  background: var(--surface-hover);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.side-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 0;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px;
+}
+
+.icon-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text-2);
+}
+
+.content {
+  padding: 28px 32px 56px;
+  min-width: 0;
+}
+
+.wrap {
+  max-width: 860px;
+  margin: 0 auto;
+}
+
+/* ==========================================================================
+   banners
+   ========================================================================== */
+
+.banner {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border-radius: var(--r);
+  padding: 11px 13px;
+  font-size: 13px;
+  margin-bottom: 10px;
+  border: 1px solid;
+}
+
+/* The icon is the fastest read of severity, so it must not be the thing that
+   collapses when the message is long. */
+.banner > svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* Was missing until the banner had one implementation: crons.js asks for this
+   level after a manual run, and without a rule it rendered as a bare box. */
+.banner.ok {
+  background: var(--ok-bg);
+  border-color: var(--ok-border);
+  color: var(--ok);
+}
+
+.banner.bad {
+  background: var(--bad-bg);
+  border-color: var(--bad-border);
+  color: var(--bad);
+}
+
+.banner.warn {
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+  color: var(--warn);
+}
+
+.banner strong {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.banner .body {
+  color: var(--text-2);
+}
+
+/* ==========================================================================
+   hero + composer
+   ========================================================================== */
+
+.hero {
+  text-align: center;
+  padding: 44px 0 8px;
+}
+
+.hero h1 {
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 0 0 6px;
+}
+
+.hero p {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0 0 20px;
+}
+
+/* The task composer. Deliberately the same shape as DSH's prompt box: a raised
+   white card, pill selectors above the input, actions along the bottom. */
+.composer {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-2);
+  padding: 10px;
+  text-align: left;
+}
+
+.composer-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  color: var(--text-2);
+  font: 12px/1 var(--font);
+  padding: 5px 10px;
+  max-width: 100%;
+}
+
+.pill.info {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent);
+}
+
+.pill.warn {
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+  color: var(--warn);
+}
+
+/* A select styled as a pill: same affordance as DSH's dropdowns, but a real
+   <select> so it stays keyboard and screen-reader friendly. */
+.pill-select {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding-right: 12px;
+  max-width: 190px;
+  text-overflow: ellipsis;
+}
+
+.pill-select:focus {
+  outline: none;
+}
+
+.pill:focus-within {
+  border-color: var(--border-strong);
+}
+
+.composer textarea {
+  width: 100%;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: 14px/1.65 var(--font);
+  padding: 8px 6px 4px;
+  resize: none;
+  min-height: 56px;
+  max-height: 40vh;
+}
+
+.composer textarea:focus {
+  outline: none;
+}
+
+.composer textarea::placeholder {
+  color: var(--muted);
+}
+
+.composer-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+/* Circular blue send button: the single filled element on the page. */
+.send {
+  margin-left: auto;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-fg);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.send:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.send:disabled {
+  background: var(--border-strong);
+  cursor: not-allowed;
+}
+
+.composer-state {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* The outcome of a run. Left-aligned inside the centred hero, and only spaced
+   when it actually holds something. */
+#run-result {
+  text-align: left;
+}
+
+#run-result:not(:empty) {
+  margin-top: 12px;
+}
+
+#run-result .banner {
+  margin-bottom: 0;
+}
+
+/* ==========================================================================
+   sections, cards, rows
+   ========================================================================== */
+
+.section {
+  margin-top: 30px;
+}
+
+.section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.section-head h2 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin: 0;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-1);
+  padding: 14px 16px;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Rows inside a card are separated by a hairline, not by their own borders --
+   stacked bordered boxes read as noise. */
+.list > .row + .row {
+  border-top: 1px solid var(--border);
+}
+
+.row {
+  padding: 11px 0;
+  min-width: 0;
+}
+
+.list > .row:first-child {
+  padding-top: 2px;
+}
+
+.list > .row:last-child {
+  padding-bottom: 2px;
+}
+
+.row-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.row-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.detail {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+}
+
+.detail.error {
+  color: var(--bad);
+}
+
+.badge {
+  font-size: 11px;
+  border-radius: var(--r-sm);
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  flex: 0 0 auto;
+}
+
+.badge.ok {
+  background: var(--ok-bg);
+  border-color: var(--ok-border);
+  color: var(--ok);
+}
+
+.badge.warn {
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+  color: var(--warn);
+}
+
+.badge.bad {
+  background: var(--bad-bg);
+  border-color: var(--bad-border);
+  color: var(--bad);
+}
+
+/* ==========================================================================
+   buttons
+   ========================================================================== */
+
+button,
+.btn {
+  font: 500 13px/1 var(--font);
+  border-radius: var(--r);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  padding: 8px 13px;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+button:hover:not(:disabled),
+.btn:hover {
+  border-color: var(--border-strong);
+  background: var(--surface);
+}
+
+button:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+
+.btn-primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.btn-quiet {
+  border-color: transparent;
+  background: none;
+  color: var(--text-2);
+}
+
+.btn-quiet:hover {
+  background: var(--surface-hover);
+  border-color: transparent;
+}
+
+.btn-sm {
+  font-size: 12px;
+  padding: 5px 10px;
+}
+
+/* ==========================================================================
+   collapsible ops details
+   ========================================================================== */
+
+details.ops {
+  margin-top: 30px;
+}
+
+details.ops > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+details.ops > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.ops > summary:hover {
+  color: var(--text-2);
+}
+
+details.ops > summary .chev {
+  transition: transform 0.15s;
+}
+
+details.ops[open] > summary .chev {
+  transform: rotate(90deg);
+}
+
+details.ops > .card {
+  margin-top: 8px;
+}
+
+/* ==========================================================================
+   toast
+   ========================================================================== */
+
+/* Shared rather than per page: the board and the chat both use it, and the two
+   copies would drift the way the icon sprite and esc() already did. */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(18px + env(safe-area-inset-bottom));
+  transform: translateX(-50%) translateY(6px);
+  background: var(--text);
+  color: #fff;
+  border-radius: var(--r-pill);
+  padding: 8px 16px;
+  font-size: 13px;
+  box-shadow: var(--sh-2);
+  opacity: 0;
+  transition:
+    opacity 0.18s,
+    transform 0.18s;
+  pointer-events: none;
+  z-index: 40;
+}
+
+.toast.on {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    transition: none;
+  }
+}
+
+/* ==========================================================================
+   skeleton loading
+   ========================================================================== */
+
+/* Shown while the first request is in flight, so the page has shape immediately
+   instead of flashing from blank to full. */
+.skeleton {
+  height: 13px;
+  border-radius: var(--r-sm);
+  background: linear-gradient(90deg, var(--surface-sunken), var(--surface-hover), var(--surface-sunken));
+  background-size: 200% 100%;
+  animation: shimmer 1.3s ease-in-out infinite;
+}
+
+.skeleton + .skeleton {
+  margin-top: 9px;
+}
+
+.skeleton.w60 {
+  width: 60%;
+}
+
+.skeleton.w40 {
+  width: 40%;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
+
+/* ==========================================================================
+   empty states
+   ========================================================================== */
+
+.empty {
+  text-align: center;
+  padding: 26px 16px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.empty strong {
+  display: block;
+  color: var(--text-2);
+  font-size: 13px;
+  margin-bottom: 3px;
+}
+
+/* ==========================================================================
+   login
+   ========================================================================== */
+
+.centered {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.narrow {
+  width: 100%;
+  max-width: 340px;
+  box-shadow: var(--sh-2);
+  padding: 26px 24px;
+}
+
+.narrow h1 {
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0 0 3px;
+}
+
+.narrow > .muted {
+  font-size: 13px;
+  margin: 0 0 20px;
+}
+
+.narrow label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-2);
+  margin-bottom: 5px;
+}
+
+.narrow input {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  color: var(--text);
+  font: 14px/1.4 var(--font);
+  padding: 9px 11px;
+  margin-bottom: 14px;
+}
+
+.narrow input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.narrow button[type='submit'] {
+  width: 100%;
+  justify-content: center;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+  padding: 10px;
+}
+
+.narrow button[type='submit']:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+/* ==========================================================================
+   responsive: one sidebar, three presentations
+   ==========================================================================
+
+   The previous version had a single 900px breakpoint that folded the sidebar
+   into a horizontally scrolling strip and hid `.side-section` / `.side-foot`
+   outright. On a phone that meant the conversation tree laid out sideways and
+   both "new conversation" and "log out" simply did not exist.
+
+   The rule now, which is what every shell of this shape converges on:
+
+     >= 1024px   docked, collapsible to a 60px icon rail
+     <  1024px   fixed app bar + off-canvas drawer, holding the *whole* sidebar
+
+   Both presentations are driven by the same state machine in shell.js, so there
+   is one place where "is the sidebar showing" is decided. `--topbar-h` is 0 on a
+   wide screen, which is what lets the conversation page keep computing its own
+   height as `100dvh - var(--topbar-h)` without knowing which mode it is in. */
+
+.topbar {
+  display: none;
+}
+
+.nav-backdrop {
+  display: none;
+}
+
+.side-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.side-top .brand {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.brand-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Only ever visible in the rail, where there is no room for the wordmark. */
+.brand-mark {
+  display: none;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-sm);
+  background: var(--text);
+  color: var(--surface);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* The rail's stand-in for an agent name: agents have no icon of their own, and
+   a column of identical chat glyphs would be worse than no rail at all. */
+.rail-badge {
+  display: none;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-sm);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* A conversation row carries two facts, so it is two lines: what it is about,
+   and when it last moved plus how many turns it holds. One line with both would
+   have to truncate the title to fit metadata that is never the reason you are
+   looking. */
+.chat-row {
+  align-items: flex-start;
+}
+
+.chat-row > svg {
+  margin-top: 3px;
+}
+
+.chat-row-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+}
+
+.chat-row-meta {
+  color: var(--muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The row plus its overflow button. The button is a sibling of the link, not a
+   child: a button inside an anchor is invalid markup, and a click on it would
+   navigate as well.
+
+   Because of that split, the highlight has to live on the wrapper. With it on the
+   link, pointing at a row painted everything except the last 24px, so the row
+   appeared to end before the button and the button read as floating debris. */
+.chat-item {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  border-radius: var(--r-sm);
+}
+
+.chat-item:hover {
+  background: var(--surface-hover);
+}
+
+.chat-item.active {
+  background: var(--accent-soft);
+}
+
+/* The wrapper owns both states now, so the link must not paint its own or the
+   two would stack into a darker patch under the title only. */
+.chat-item > .chat-row:hover,
+.chat-item > .chat-row.active {
+  background: none;
+}
+
+.chat-item > .chat-row {
+  flex: 1 1 auto;
+}
+
+.row-more {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  margin: 2px 1px 2px 0;
+  /* Not decoration: a button's UA padding is 6px per side, which leaves 14px of
+     content box inside 26px, and a 16px icon is a flex item that shrinks by
+     default -- so the glyph was squeezed to zero width while the button itself
+     measured, reported and hit-tested perfectly. Invisible for a completely
+     different reason than the two before it. */
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  /* Visible at rest, in ink rather than in ghost. Two earlier versions failed the
+     only test that matters -- being findable: first `visibility: hidden` until
+     hover, then `--muted` at 45% opacity, which on a white surface computes to
+     about #d6dae0. Restraint here is the icon's size and colour, not its
+     transparency. */
+  color: var(--text-2);
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease;
+}
+
+/* An icon is the entire content of these buttons, so it must never be the thing
+   that gives way when space is short. Better a button that overflows its box
+   visibly than one that silently renders nothing. */
+.row-more > svg,
+.dot-btn > svg {
+  flex: 0 0 auto;
+}
+
+/* Pressed, hovered and open share one look: while the menu is up, the button it
+   came from has to stay visibly the source of it. */
+.row-more:hover,
+.row-more:focus-visible,
+.row-more[aria-expanded='true'] {
+  background: var(--surface-sunken);
+  color: var(--text);
+}
+
+/* No hover to lean on, so the target is thumb-sized instead. */
+@media (hover: none) {
+  .row-more {
+    width: 40px;
+  }
+}
+
+.row-menu {
+  position: fixed;
+  z-index: 70;
+  min-width: 132px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  box-shadow: var(--sh-2);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.row-menu button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--text-2);
+  font: 13px/1 var(--font);
+  text-align: left;
+  cursor: pointer;
+}
+
+.row-menu button:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+/* The endpoint control: what it is, plus how it is doing.
+
+   A bare 6px dot was both an impossible target and an unreadable one -- a green
+   speck says "something is fine" without saying what, and green is exactly the
+   colour the eye files away as decoration. So the button carries the endpoint
+   glyph, and the dot rides it as a status badge. 22px of hit area around 15px of
+   icon. */
+.dot-btn {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 22px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+/* The badge sits on the icon's corner, ringed in the surface colour so it reads
+   as attached to the glyph rather than as a second, unrelated mark. */
+.dot-btn .dot {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  width: 7px;
+  height: 7px;
+  box-shadow: 0 0 0 1.5px var(--surface);
+}
+
+/* Healthy stays in ink: a sidebar of green icons trains the eye to ignore the
+   colour, which is the one thing that has to still register when it turns. */
+.dot-btn.warn {
+  color: var(--warn);
+}
+
+.dot-btn.bad {
+  color: var(--bad);
+}
+
+.tree-item .meta + .dot-btn {
+  margin-left: 0;
+}
+
+.dot-btn:hover {
+  background: var(--surface-hover);
+}
+
+/* ---- agent details drawer ---- */
+
+.panel {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+}
+
+.panel-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(16, 24, 40, 0.34);
+}
+
+.panel-body {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: min(420px, 92vw);
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--sh-2);
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.panel-head h2 {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px;
+}
+
+.panel-sub {
+  margin: 18px 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.panel-run {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+}
+
+.panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 18px;
+}
+
+.kv-list {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+/* Label above value rather than beside it: the values here are long -- absolute
+   paths, endpoint URLs, error strings -- and a two-column grid would either
+   truncate them or leave the labels ragged. */
+.kv dt {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.kv dd {
+  margin: 2px 0 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.kv dd .dot {
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+/* ---- archived conversations ---- */
+
+.arch-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.arch-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 13px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  box-shadow: var(--sh-1);
+}
+
+.arch-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.arch-title {
+  font-size: 13.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arch-meta {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+/* ---- docked, collapsed to a rail (>= 1024px) ---- */
+
+/* Scoped to the docked width on purpose. `nav-rail` is a remembered preference,
+   so it is still on the body when the window narrows; unscoped, its label-hiding
+   rules would follow the sidebar into the drawer and produce a 300px panel of
+   anonymous icons. */
+@media (min-width: 1024px) {
+  body.nav-rail {
+    --sidebar-w: 60px;
+  }
+
+  body.nav-rail .sidebar {
+    padding: 14px 8px;
+    align-items: stretch;
+  }
+
+  body.nav-rail .brand-text,
+  body.nav-rail .brand-badge,
+  body.nav-rail .side-section,
+  body.nav-rail .side-action-label,
+  body.nav-rail .tree-children,
+  body.nav-rail .tree-item .label,
+  body.nav-rail .tree-item .meta,
+  body.nav-rail .tree-side,
+  body.nav-rail .tree-toggle .chev,
+  body.nav-rail .side-link .grow,
+  body.nav-rail #cron-hint,
+  body.nav-rail #spend-hint,
+  body.nav-rail #archive-hint,
+  body.nav-rail #who,
+  body.nav-rail #logout {
+    display: none;
+  }
+
+  body.nav-rail .brand-mark,
+  body.nav-rail .rail-badge {
+    display: inline-flex;
+  }
+
+  body.nav-rail .side-top {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  body.nav-rail .brand,
+  body.nav-rail .side-action,
+  body.nav-rail .tree-item,
+  body.nav-rail .side-link,
+  body.nav-rail .side-foot {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  /* The health dot loses its `margin-left: auto` here: with the label gone there
+     is nothing to push it away from, and it would otherwise sit against the edge
+     instead of next to the monogram it describes. */
+  body.nav-rail .tree-item .dot,
+  body.nav-rail .dot-btn {
+    margin-left: 0;
+  }
+}
+
+/* ---- app bar + drawer (< 1024px) ---- */
+
+@media (max-width: 1023px) {
+  :root {
+    --topbar-h: 52px;
+  }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    position: fixed;
+    inset: 0 0 auto;
+    height: calc(var(--topbar-h) + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) 8px 0;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    z-index: 40;
+  }
+
+  .topbar-btn {
+    /* 44px is the smallest target a thumb hits reliably; the icon inside stays
+       18px. */
+    width: 44px;
+    height: 44px;
+    color: var(--text-2);
+  }
+
+  .topbar-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    text-align: center;
+    font-size: 14px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+    padding-top: calc(var(--topbar-h) + env(safe-area-inset-top));
+  }
+
+  /* Off-canvas rather than in-flow: the content column keeps the full width, so
+     opening the drawer never reflows the transcript underneath it. */
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 60;
+    width: min(300px, 86vw);
+    height: 100dvh;
+    padding-top: calc(12px + env(safe-area-inset-top));
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+    overflow-y: auto;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    transform: translateX(-101%);
+    transition: transform 0.22s ease;
+  }
+
+  body.nav-open .sidebar {
+    transform: none;
+    box-shadow: var(--sh-2);
+  }
+
+  .nav-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: rgba(16, 24, 40, 0.38);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.22s ease;
+  }
+
+  body.nav-open .nav-backdrop {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* Scroll lock while the drawer is open. Without it the page behind keeps
+     scrolling under the finger and the drawer looks broken. */
+  body.nav-open {
+    overflow: hidden;
+  }
+
+  /* Thumb-sized rows, everywhere in the drawer. */
+  .tree-item,
+  .tree-child,
+  .side-link {
+    min-height: 44px;
+  }
+
+  .tree-side {
+    width: 32px;
+    height: 32px;
+  }
+
+  .side-collapse {
+    width: 40px;
+    height: 40px;
+  }
+
+  .content {
+    padding: 18px 14px 44px;
+  }
+
+  .hero {
+    padding: 18px 0 4px;
+  }
+
+  .hero h1 {
+    font-size: 21px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar,
+  .nav-backdrop {
+    transition: none;
+  }
+}

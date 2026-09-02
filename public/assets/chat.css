@@ -1,0 +1,831 @@
+/* The conversation page.
+ *
+ * Layout rule that drives everything here: the page is exactly the viewport
+ * height and only the transcript scrolls. A composer that scrolls away with the
+ * messages would take the agent identity with it, and that line is the one thing
+ * this UI adds over DSH -- see UI.md §0.
+ */
+
+.content-flush:has(.chat-log) {
+  display: flex;
+  flex-direction: column;
+  /* The shell's own height, not the document's: the transcript owns the only
+     scrollbar on the page.
+     `dvh` rather than `vh` because on iOS `vh` is the height with the keyboard
+     *absent*, so with the keyboard up the composer would sit below the fold --
+     exactly the element that must never be off screen. `--topbar-h` is the
+     narrow-screen app bar and 0 while the sidebar is docked. */
+  height: calc(100vh - var(--topbar-h));
+  height: calc(100dvh - var(--topbar-h));
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ---- header ---- */
+
+.chat-head {
+  flex: 0 0 auto;
+  padding: 14px 20px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.chat-head-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.chat-head h1 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+  flex: 1 1 auto;
+  /* Titles come from the user's own first words and can be long. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-actions {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.chat-sub {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.chat-sub .sep {
+  opacity: 0.45;
+}
+
+/* ---- notices ---- */
+
+.chat-notices {
+  flex: 0 0 auto;
+}
+
+.chat-notices:empty {
+  display: none;
+}
+
+/* A state strip, not a banner: `cold` is normal and must not look like a fault.
+   Only `lost` earns the alarm colour, because only `lost` stops you working. */
+.state-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 20px;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-sunken);
+  color: var(--muted);
+}
+
+.state-strip.warn {
+  background: var(--warn-bg);
+  border-bottom-color: var(--warn-border);
+  color: var(--warn);
+}
+
+.state-strip.bad {
+  background: var(--bad-bg);
+  border-bottom-color: var(--bad-border);
+  color: var(--bad);
+}
+
+.state-strip a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+/* ---- transcript ---- */
+
+.chat-log {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  padding: 18px 20px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.chat-empty {
+  margin: auto;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  max-width: 32em;
+  line-height: 1.7;
+}
+
+.turn {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 46em;
+  width: 100%;
+}
+
+.turn.from-user {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.bubble {
+  border-radius: var(--r-lg);
+  padding: 9px 13px;
+  font-size: 14px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.from-user .bubble {
+  background: var(--surface-sunken);
+  border: 1px solid var(--line);
+  max-width: 90%;
+}
+
+.from-agent .bubble {
+  background: transparent;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.turn-who {
+  font-size: 11.5px;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+/* The waiting row drops its name once a bubble above it carries one, and an empty
+   label would still hold its line height and open a gap. */
+.turn-who:empty {
+  display: none;
+}
+
+/* The caret only exists while frames are still arriving. */
+.bubble.streaming::after {
+  content: '';
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -0.15em;
+  background: var(--accent);
+  animation: caret 1s steps(2) infinite;
+}
+
+@keyframes caret {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bubble.streaming::after {
+    animation: none;
+  }
+}
+
+/* ---- waiting on a turn ---- */
+
+/* Between sending and the first token there can be many seconds of nothing: the
+   gateway is waking a process, the agent is reading files. With an empty screen
+   that reads as a hang, and the reaction is to refresh or cancel work that was
+   fine -- so this row exists to say, continuously, that the wait is progress.
+   Three things carry that: a moving glyph, words that change as the phase does,
+   and a clock. The clock is the load-bearing one; an animation alone could be a
+   frozen loop, but a number that keeps rising cannot be. */
+.wait-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--muted);
+  min-height: 22px;
+}
+
+.wait-dots {
+  display: inline-flex;
+  gap: 3px;
+  flex: 0 0 auto;
+}
+
+.wait-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: wait-dot 1.3s ease-in-out infinite;
+}
+
+/* Staggered rather than pulsing in unison, which reads as one blinking object
+   instead of something travelling. */
+.wait-dots i:nth-child(2) {
+  animation-delay: 0.18s;
+}
+
+.wait-dots i:nth-child(3) {
+  animation-delay: 0.36s;
+}
+
+@keyframes wait-dot {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+/* Tabular figures because the digits change every second: proportional ones make
+   the row twitch sideways as 1s becomes 2s, which is a second animation nobody
+   asked for. */
+.wait-time {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  background: var(--surface-sunken);
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+}
+
+.wait-note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.waiting.slow .wait-time {
+  color: var(--text-2);
+}
+
+/* The clock alone still tells the whole story, so nothing is lost by holding the
+   dots still for anyone who asked for less movement. */
+@media (prefers-reduced-motion: reduce) {
+  .wait-dots i {
+    animation: none;
+    opacity: 0.55;
+  }
+}
+
+/* ---- asks: what the agent is blocked on ---- */
+
+/* Deliberately not styled like a bubble. A bubble is a record of something that
+   was said; this is a control that something is waiting on, and the accent edge
+   plus the raised surface is what separates "read this" from "do this". */
+.asks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ask {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r);
+  background: var(--surface);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ask-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.ask-title svg {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+.ask-q {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ask-q-head {
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.ask-q-text {
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.ask-q-detail {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.ask-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Full-width rows rather than inline chips: an option carries a description, and
+   a description that wraps mid-row is unreadable at a glance. */
+.ask-opt {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-sunken);
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.ask-opt:hover {
+  border-color: var(--accent);
+}
+
+.ask-opt.on {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.ask-opt-label {
+  font-size: 13px;
+}
+
+.ask-opt-desc {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.ask-custom {
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-sunken);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+}
+
+.ask-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ask-actions button {
+  padding: 6px 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-sunken);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ask-send,
+.ask-allow {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.ask-send:hover:not(:disabled),
+.ask-allow:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.ask-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.ask-error {
+  font-size: 12px;
+  color: var(--bad);
+}
+
+/* Kept on screen after sending rather than hidden: the gateway's own resolved
+   frame removes the card, and until it arrives the answer is still in flight. */
+.ask.sent {
+  opacity: 0.6;
+}
+
+/* ---- rendered markdown ---- */
+
+/* `pre-wrap` is right for plain text and wrong here: md.js emits real block
+   elements, so keeping it would add the source newlines on top of the margins
+   and double every gap. */
+.prose {
+  white-space: normal;
+}
+
+/* First and last margins are dropped so a bubble is not padded twice — once by
+   the bubble, once by the paragraph inside it. */
+.prose > :first-child {
+  margin-top: 0;
+}
+
+.prose > :last-child {
+  margin-bottom: 0;
+}
+
+.prose p {
+  margin: 0 0 0.7em;
+}
+
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4,
+.prose h5,
+.prose h6 {
+  margin: 1.1em 0 0.5em;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.prose h1 {
+  font-size: 1.28em;
+}
+
+.prose h2 {
+  font-size: 1.16em;
+}
+
+.prose h3 {
+  font-size: 1.06em;
+}
+
+.prose h4,
+.prose h5,
+.prose h6 {
+  font-size: 1em;
+  color: var(--muted);
+}
+
+.prose ul,
+.prose ol {
+  margin: 0 0 0.7em;
+  padding-left: 1.5em;
+}
+
+.prose li {
+  margin: 0.15em 0;
+}
+
+.prose li > p {
+  margin: 0;
+}
+
+.prose blockquote {
+  margin: 0 0 0.7em;
+  padding: 0.1em 0 0.1em 0.9em;
+  border-left: 2px solid var(--line);
+  color: var(--muted);
+}
+
+.prose code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  background: var(--surface-sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 0.1em 0.34em;
+  overflow-wrap: anywhere;
+}
+
+.prose pre {
+  margin: 0 0 0.7em;
+  padding: 10px 12px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  /* Code is the one thing that must not be re-wrapped: a broken line changes
+     what it says. Scroll instead. */
+  overflow-x: auto;
+}
+
+.prose pre code {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre;
+  overflow-wrap: normal;
+}
+
+.prose table {
+  margin: 0 0 0.7em;
+  border-collapse: collapse;
+  font-size: 13px;
+  display: block;
+  overflow-x: auto;
+}
+
+.prose th,
+.prose td {
+  border: 1px solid var(--line);
+  padding: 4px 9px;
+  text-align: left;
+}
+
+.prose th {
+  background: var(--surface-sunken);
+  font-weight: 600;
+}
+
+.prose hr {
+  margin: 1em 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.prose a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ---- injected context ---- */
+
+/* Folded by default: this is what the harness told the agent, not part of the
+   conversation. One measured session carried 3.6KB of it against a 46-byte
+   question, so unfolded it simply is the transcript. */
+.context {
+  font-size: 12px;
+  color: var(--muted);
+  align-self: flex-start;
+  max-width: 90%;
+}
+
+.context > summary {
+  cursor: pointer;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 0;
+}
+
+.context > summary::-webkit-details-marker {
+  display: none;
+}
+
+.context .chev {
+  transition: transform 0.15s;
+}
+
+.context[open] .chev {
+  transform: rotate(90deg);
+}
+
+.context-item {
+  margin: 4px 0 0 19px;
+  padding: 8px 11px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+  line-height: 1.6;
+  /* Long instruction blocks must not be able to push the page taller than the
+     conversation they annotate. */
+  max-height: 22em;
+  overflow-y: auto;
+}
+
+/* ---- tool calls ---- */
+
+/* Folded by default: one turn can make dozens, and expanded they bury the
+   conversation they belong to. */
+.tools {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.tools > summary {
+  cursor: pointer;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 0;
+}
+
+.tools > summary::-webkit-details-marker {
+  display: none;
+}
+
+.tools .chev {
+  transition: transform 0.15s;
+}
+
+.tools[open] .chev {
+  transform: rotate(90deg);
+}
+
+.tool-row {
+  display: flex;
+  gap: 8px;
+  padding: 3px 0 3px 19px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+.tool-row .name {
+  color: var(--text);
+}
+
+.tool-row .args {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-row.failed .name {
+  color: var(--bad);
+}
+
+/* ---- written files ---- */
+
+/* The loudest thing in a turn on purpose: writing a file is the only action with
+   a side effect outside this page. */
+.writes {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.write-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+.write-row .pen {
+  color: var(--accent);
+  flex: 0 0 auto;
+}
+
+.write-row a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+
+.write-row a:hover {
+  text-decoration-style: solid;
+}
+
+/* ---- turn footer ---- */
+
+.turn-foot {
+  font-size: 11.5px;
+  color: var(--muted);
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 2px;
+  border-top: 1px solid var(--line);
+}
+
+.turn-foot.failed {
+  color: var(--bad);
+  border-top-color: var(--bad-border);
+}
+
+/* ---- composer ---- */
+
+.composer {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  padding: 10px 20px calc(12px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+/* Never `display: none`, at any width. */
+.composer-identity {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  min-width: 0;
+}
+
+.composer-identity .who {
+  font-weight: 600;
+  flex: 0 0 auto;
+}
+
+.composer-identity .path {
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.composer-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.composer-input {
+  flex: 1 1 auto;
+  resize: none;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface-sunken);
+  color: var(--text);
+  padding: 9px 12px;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.55;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.composer-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.composer-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.composer-send {
+  flex: 0 0 auto;
+  height: 38px;
+  min-width: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.composer-hint {
+  margin: 0;
+  min-height: 1em;
+}
+
+.composer-hint a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+/* ---- narrow ---- */
+
+@media (max-width: 720px) {
+  .chat-head,
+  .chat-log,
+  .composer,
+  .state-strip {
+    padding-left: 13px;
+    padding-right: 13px;
+  }
+
+  /* The path is the first thing to go when there is no room -- but the agent
+     name never is. */
+  .composer-identity .path {
+    display: none;
+  }
+}

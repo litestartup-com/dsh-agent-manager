@@ -1,0 +1,54 @@
+<header class="chat-head">
+  <div class="chat-head-row">
+    <h1 id="chat-title">对话</h1>
+    <div id="chat-actions" class="chat-actions" hidden>
+      <button id="chat-rename" class="btn-quiet btn-sm" type="button">改名</button>
+      <!-- 「归档」, not 「删除」: the transcript stays on the gateway and the run
+           rows stay in the ledger, so calling it deletion would be a lie. -->
+      <button id="chat-remove" class="btn-quiet btn-sm" type="button">归档</button>
+    </div>
+  </div>
+  <!-- The agent, spelled out. Sending to the wrong agent does not mean a worse
+       answer, it means the wrong workspace was written to. -->
+  <p id="chat-sub" class="chat-sub"></p>
+</header>
+
+<!-- Session state and concurrency notices. Kept above the transcript rather than
+     next to the composer: `lost` disables sending, so the reason has to be
+     readable without scrolling to the bottom. -->
+<div id="chat-notices" class="chat-notices" aria-live="polite"></div>
+
+<div id="chat-log" class="chat-log" aria-live="polite" aria-busy="false">
+  <div class="turn skeleton-turn">
+    <div class="skeleton w40"></div>
+    <div class="skeleton"></div>
+    <div class="skeleton w60"></div>
+  </div>
+</div>
+
+<form id="chat-composer" class="composer" autocomplete="off">
+  <!-- Never hidden, on any width. This is the one deliberate deviation from
+       DSH's layout: the agent identity has to be inside the same field of view
+       as the send button. -->
+  <div id="composer-identity" class="composer-identity">
+    <span id="composer-agent" class="who"></span>
+    <span id="composer-path" class="path muted"></span>
+  </div>
+  <div class="composer-row">
+    <textarea
+      id="chat-input"
+      class="composer-input"
+      rows="1"
+      placeholder="说点什么…"
+      aria-label="消息"
+      disabled
+    ></textarea>
+    <button id="chat-send" class="btn-primary composer-send" type="submit" disabled aria-label="发送">
+      <svg width="16" height="16" aria-hidden="true"><use href="#i-up" /></svg>
+    </button>
+    <button id="chat-stop" class="btn-quiet composer-send" type="button" hidden>停止</button>
+  </div>
+  <p id="composer-hint" class="composer-hint muted small"></p>
+</form>
+
+<div id="chat-toast" class="toast" role="status" aria-live="polite"></div>

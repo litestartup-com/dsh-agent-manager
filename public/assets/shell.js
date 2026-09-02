@@ -1,0 +1,766 @@
+// The sidebar, on every page.
+//
+// Split out of app.js when the frame stopped being the dashboard's private
+// property. app.js keeps only what is specific to the home page.
+
+import { $, ago, banner, esc, icon, setHtml, when } from './ui.js'
+
+/** An agent is only as healthy as the endpoint it runs on. */
+const agentHealth = (agent, endpoints) => {
+  const ep = endpoints.find((e) => e.id === agent.endpoint)
+  if (ep === undefined || !ep.reachable) return 'bad'
+  if (ep.apiKeySet === false || ep.enabled === false) return 'warn'
+  return 'ok'
+}
+
+const HEALTH_TITLE = { ok: '端点正常', warn: '端点有告警', bad: '端点不可达' }
+
+const segments = window.location.pathname.split('/').filter(Boolean)
+const pathId = (prefix) => (window.location.pathname.startsWith(`/${prefix}/`) ? decodeURIComponent(segments[1] ?? '') : '')
+
+/** The board currently open, so its agent can be marked active in the list. */
+const openBoardId = pathId('board')
+/** The conversation currently open, so its row can be marked active. */
+const openChatId = pathId('chat')
+
+/**
+ * How many chats a collapsed-open agent shows before the list is cut.
+ *
+ * A cap rather than a scroller: the sidebar also has to hold the other agents,
+ * and one busy agent should not push them off the screen.
+ */
+const CHATS_SHOWN = 8
+
+/**
+ * Which agents are expanded.
+ *
+ * In localStorage because it is a view preference, not state the server owns,
+ * and it has to survive the full page loads this app navigates with.
+ */
+const STORE_KEY = 'manager.agents.collapsed'
+
+const collapsedSet = () => {
+  try {
+    const raw = JSON.parse(window.localStorage.getItem(STORE_KEY) ?? '[]')
+    return new Set(Array.isArray(raw) ? raw : [])
+  } catch {
+    // Corrupt or unavailable storage must not cost you the sidebar.
+    return new Set()
+  }
+}
+
+const setCollapsed = (agentId, collapsed) => {
+  const set = collapsedSet()
+  if (collapsed) set.add(agentId)
+  else set.delete(agentId)
+  try {
+    window.localStorage.setItem(STORE_KEY, JSON.stringify([...set]))
+  } catch {
+    // Private-mode storage failures are not worth a visible error.
+  }
+}
+
+/** Chats per agent, from /api/chats. Empty until the first poll answers. */
+let chatsByAgent = new Map()
+/** The same chats by id, so a row action knows what it is acting on. */
+let chatById = new Map()
+/** Agents holding a live turn, so their rows can say so. */
+let busyByAgent = new Map()
+
+/**
+ * Expands the agent that owns the conversation on screen.
+ *
+ * Once, on arrival, rather than on every draw: arriving at a chat whose agent is
+ * collapsed should show it, but a later collapse is a decision the user is
+ * entitled to keep.
+ */
+let revealed = false
+const revealOpenChat = (agents) => {
+  if (revealed || openChatId === '') return
+  revealed = true
+  const owner = agents.find((a) => a.chats.some((c) => c.id === openChatId))
+  if (owner !== undefined) setCollapsed(owner.id, false)
+}
+
+const chatRow = (chat) => {
+  const active = chat.id === openChatId ? ' active' : ''
+  const title = chat.title === null || chat.title === '' ? '新会话' : chat.title
+  // Time first, count second. The list is ordered by last activity, so the time
+  // is what explains the order; the turn count is context once you have found
+  // the row. It is a turn count and not an unread count -- nothing here is ever
+  // "unread", so it is spelled out rather than shown as a badge, which would be
+  // read as unread.
+  const parts = [ago(chat.lastActiveAt), chat.turns > 0 ? `${chat.turns} 轮` : ''].filter((p) => p !== '')
+  const meta = parts.length === 0 ? '' : `<span class="chat-row-meta">${esc(parts.join(' · '))}</span>`
+  // The row is a link and the actions are a button beside it, not inside it: a
+  // button nested in an anchor is invalid, and clicking it would navigate as
+  // well as open the menu.
+  // The state is on both: the wrapper paints the row (the button is a sibling of
+  // the link, so a highlight on the link alone stops short of it), the link keeps
+  // it for the accent on its own glyph and text.
+  return `<div class="chat-item${active}">
+      <a class="tree-child chat-row${active}" href="/chat/${encodeURIComponent(chat.id)}" title="${esc(title)}">
+        ${icon('chat', 13)}
+        <span class="chat-row-main">
+          <span class="label">${esc(title)}</span>
+          ${meta}
+        </span>
+      </a>
+      <button class="row-more" type="button" data-more="${esc(chat.id)}"
+              aria-label="${esc(title)} 的更多操作" aria-haspopup="menu">
+        ${icon('more', 16)}
+      </button>
+    </div>`
+}
+
+/**
+ * One expandable row per agent, with its conversations under it.
+ *
+ * The row toggles rather than navigating, and the board moved to its own ⊞
+ * button. Conversations are a daily action and the board an occasional one, so
+ * the whole-row click belongs to the frequent one -- UI.md §2.
+ */
+const agentNav = (status) => {
+  const collapsed = collapsedSet()
+  return status.agents
+    .map((agent) => {
+      const health = agentHealth(agent, status.endpoints)
+      const chats = chatsByAgent.get(agent.id) ?? []
+      // Nothing overrides this: an agent the user collapsed on purpose stays
+      // collapsed, even the one holding the open chat. Forcing it open made the
+      // toggle look broken, because the click was silently undone on redraw.
+      // Landing on a chat expands its agent once instead -- see revealOpenChat.
+      const open = !collapsed.has(agent.id)
+      const busy = busyByAgent.get(agent.id) ?? null
+      const shown = open ? chats.slice(0, CHATS_SHOWN) : []
+      const rest = chats.length - shown.length
+
+      return `<div class="tree-group${open ? ' open' : ''}" data-agent="${esc(agent.id)}">
+      <div class="tree-item${agent.id === openBoardId ? ' active' : ''}">
+        <button class="tree-toggle" type="button" data-toggle="${esc(agent.id)}"
+                aria-expanded="${open}" title="${esc(agent.name)} · ${esc(agent.workspacePath)}">
+          <span class="chev">${icon('chev', 12)}</span>
+          <!-- Shown only in the collapsed rail, where the name is hidden and
+               agents have no icon of their own to tell them apart by. -->
+          <span class="rail-badge" aria-hidden="true">${esc([...agent.name][0] ?? '?')}</span>
+          <span class="label">${esc(agent.name)}</span>
+        </button>
+        ${busy !== null ? '<span class="dot busy" title="正在运行一个回合"></span>' : ''}
+        ${agent.public ? `<span class="meta" title="这个 agent 对外可调">${icon('alert', 12)}</span>` : ''}
+        <a class="tree-side" href="/board/${encodeURIComponent(agent.id)}" title="${esc(agent.name)} 的大盘">
+          ${icon('board', 14)}
+        </a>
+        <!-- The dot is a button, because what it reports is not self-explanatory:
+             it is the *endpoint's* health, so agents sharing one DSH process all
+             go red together. Clicking says which endpoint and who else is on
+             it. -->
+        <button class="dot-btn ${health}" type="button" data-info="${esc(agent.id)}"
+                title="${esc(HEALTH_TITLE[health])} · 点开看 ${esc(agent.name)} 的详情"
+                aria-label="${esc(agent.name)} 详情（${esc(HEALTH_TITLE[health])}）">
+          ${icon('endpoint', 15)}
+          <span class="dot ${health}"></span>
+        </button>
+      </div>
+      ${
+        open
+          ? `<div class="tree-children">
+        ${shown.map(chatRow).join('')}
+        ${rest > 0 ? `<a class="tree-child more" href="/chat?agent=${encodeURIComponent(agent.id)}">更多 ${rest} 条…</a>` : ''}
+        <button class="tree-child new" type="button" data-new="${esc(agent.id)}">
+          ${icon('add', 13)}<span class="label">新会话</span>
+        </button>
+      </div>`
+          : ''
+      }
+    </div>`
+    })
+    .join('')
+}
+
+/**
+ * Broadcasts the status the sidebar already fetched.
+ *
+ * Without this the home page would fetch /api/status a second time on load, for
+ * the same bytes, purely because the two scripts were split.
+ */
+const publishStatus = (status) => {
+  window.dispatchEvent(new CustomEvent('shell:status', { detail: status }))
+}
+
+let lastStatus = null
+
+/** Lets a page script that loaded after the first poll still get the data. */
+export const currentStatus = () => lastStatus
+
+export const loadShell = async () => {
+  try {
+    // Chats come from the same poll as the status: the sidebar draws both in one
+    // tree, and two independent refreshes would let the rows disagree about
+    // which agent is busy for a second at a time.
+    const [me, status, threads] = await Promise.all([
+      fetch('/api/me').then((r) => (r.ok ? r.json() : null)),
+      fetch('/api/status').then((r) => (r.ok ? r.json() : null)),
+      fetch('/api/chats').then((r) => (r.ok ? r.json() : null)),
+    ])
+    if (me === null || status === null) {
+      window.location.href = '/login'
+      return
+    }
+
+    if (threads !== null) {
+      chatsByAgent = new Map(threads.agents.map((a) => [a.id, a.chats]))
+      chatById = new Map(threads.agents.flatMap((a) => a.chats.map((c) => [c.id, c])))
+      busyByAgent = new Map(threads.agents.map((a) => [a.id, a.busyRunId]))
+      revealOpenChat(threads.agents)
+    }
+
+    $('who').textContent = me.username
+    $('agent-count').textContent = status.agents.length === 0 ? '' : status.agents.length
+    setHtml('agent-nav', status.agents.length === 0 ? '<p class="muted small">未配置 agent</p>' : agentNav(status))
+
+    lastStatus = status
+    publishStatus(status)
+  } catch {
+    // The frame failing must not stop the page inside it from working.
+  }
+}
+
+/**
+ * Month-to-date spend, in the sidebar.
+ *
+ * On its own page it would only be seen by someone who already suspected a
+ * problem. Cron makes this number move while nobody is watching, so it belongs
+ * where it is passively visible.
+ */
+const loadSpendHint = async () => {
+  try {
+    const response = await fetch('/api/usage')
+    if (!response.ok) return
+    const t = (await response.json()).totals
+    if (t.runs === 0) return
+    const usd = t.costMicroUsd / 1e6
+    const amount = usd < 0.01 ? `$${usd.toFixed(4)}` : usd < 1 ? `$${usd.toFixed(3)}` : `$${usd.toFixed(2)}`
+    // A floor, not a total, whenever some model had no configured rate.
+    $('spend-hint').textContent = `${t.unpriced > 0 ? '≥' : ''}${amount}`
+  } catch {
+    // A missing figure must never take the page down with it.
+  }
+}
+
+/**
+ * Schedule health, in the sidebar.
+ *
+ * The count is the small part. The part that matters is a schedule the manager
+ * switched off by itself: nothing else would ever mention it, and the only
+ * symptom would be work that quietly stopped arriving.
+ */
+const loadCronHint = async () => {
+  try {
+    const response = await fetch('/api/crons')
+    if (!response.ok) return
+    const { crons } = await response.json()
+    const hint = $('cron-hint')
+    if (crons.length === 0) {
+      hint.textContent = ''
+      return
+    }
+    const wrong = crons.filter((c) => c.disabledReason !== null || c.problem !== null).length
+    hint.textContent = wrong > 0 ? `${wrong} 个有问题` : String(crons.filter((c) => c.enabled).length)
+    hint.classList.toggle('error', wrong > 0)
+  } catch {
+    // Same rule as spend.
+  }
+}
+
+// ---------------------------------------------------------------------------
+// navigation: one sidebar, two presentations
+// ---------------------------------------------------------------------------
+//
+// Above 1024px the sidebar is docked and the control collapses it to an icon
+// rail. Below, it is an off-canvas drawer behind the app bar's hamburger. Both
+// go through this one place, because to the user it is a single thing -- the
+// sidebar getting out of the way -- and two independent implementations would
+// drift the moment a window is resized across the boundary.
+
+const RAIL_KEY = 'manager.nav.rail'
+const docked = () => window.matchMedia('(min-width: 1024px)').matches
+const railed = () => document.body.classList.contains('nav-rail')
+const drawerOpen = () => document.body.classList.contains('nav-open')
+
+/** Focusable controls inside the drawer, for the focus trap and initial focus. */
+const drawerStops = () =>
+  [...document.querySelectorAll('#sidebar a[href], #sidebar button:not([disabled])')].filter(
+    (node) => node.offsetParent !== null,
+  )
+
+/** What the control does next, spelled out rather than left to the icon. */
+const syncNavControls = () => {
+  const collapse = $('nav-collapse')
+  const opener = $('nav-open')
+  if (docked()) {
+    const label = railed() ? '展开侧栏' : '收起侧栏'
+    collapse.setAttribute('aria-label', label)
+    collapse.title = `${label}（[）`
+  } else {
+    collapse.setAttribute('aria-label', '关闭导航')
+    collapse.title = '关闭导航'
+  }
+  opener.setAttribute('aria-expanded', String(drawerOpen()))
+}
+
+const setRail = (on) => {
+  document.body.classList.toggle('nav-rail', on)
+  try {
+    window.localStorage.setItem(RAIL_KEY, on ? '1' : '0')
+  } catch {
+    // A preference that cannot be stored still applies to this page.
+  }
+  syncNavControls()
+}
+
+/** Where focus was before the drawer took it, so it can be handed back. */
+let focusBeforeDrawer = null
+
+const openDrawer = () => {
+  focusBeforeDrawer = document.activeElement
+  document.body.classList.add('nav-open')
+  // Focus moves into the drawer: a keyboard user who opens it and keeps tabbing
+  // must not walk through the page behind an opaque overlay.
+  drawerStops()[0]?.focus()
+  syncNavControls()
+}
+
+const closeDrawer = () => {
+  if (!drawerOpen()) return
+  document.body.classList.remove('nav-open')
+  if (focusBeforeDrawer instanceof HTMLElement) focusBeforeDrawer.focus()
+  focusBeforeDrawer = null
+  syncNavControls()
+}
+
+const toggleNav = () => {
+  if (docked()) setRail(!railed())
+  else if (drawerOpen()) closeDrawer()
+  else openDrawer()
+}
+
+$('nav-open').addEventListener('click', toggleNav)
+$('nav-collapse').addEventListener('click', toggleNav)
+$('nav-backdrop').addEventListener('click', closeDrawer)
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && drawerOpen()) {
+    closeDrawer()
+    // The conversation page also listens for Escape, to cancel a running turn.
+    // Dismissing an overlay must not double as cancelling work behind it.
+    event.stopImmediatePropagation()
+    return
+  }
+
+  if (event.key === 'Tab' && drawerOpen()) {
+    const stops = drawerStops()
+    if (stops.length === 0) return
+    const first = stops[0]
+    const last = stops[stops.length - 1]
+    if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault()
+      first.focus()
+    } else if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault()
+      last.focus()
+    }
+    return
+  }
+
+  // `[` is the shortcut every editor-shaped app uses for this. Guarded against
+  // firing while typing -- the composer is the most-used control in the app.
+  if (event.key !== '[' || event.metaKey || event.ctrlKey || event.altKey) return
+  const target = event.target
+  if (target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) {
+    return
+  }
+  event.preventDefault()
+  toggleNav()
+})
+
+// Crossing the breakpoint with the drawer open would leave the docked sidebar
+// with a stale overlay and a scroll lock over the whole page.
+window.matchMedia('(min-width: 1024px)').addEventListener('change', () => {
+  if (docked()) closeDrawer()
+  syncNavControls()
+})
+
+try {
+  if (window.localStorage.getItem(RAIL_KEY) === '1') document.body.classList.add('nav-rail')
+} catch {
+  // Storage being unavailable just means the sidebar starts expanded.
+}
+
+/**
+ * The app bar's title.
+ *
+ * Derived from the path rather than from `document.title`, which is suffixed for
+ * the browser tab. The conversation page overrides it with the thread's own name
+ * through `shell:title`, since on a phone that bar is the only place the title
+ * appears.
+ */
+const SECTION_TITLES = {
+  app: '首页',
+  chat: '对话',
+  board: '大盘',
+  crons: '定时任务',
+  archive: '已归档',
+  spend: '花费',
+}
+const setTopbarTitle = (text) => {
+  $('topbar-title').textContent = text
+}
+setTopbarTitle(SECTION_TITLES[segments[0] ?? ''] ?? 'Oh! dsh')
+window.addEventListener('shell:title', (event) => {
+  if (typeof event.detail === 'string' && event.detail !== '') setTopbarTitle(event.detail)
+})
+
+/**
+ * How much is archived, in the sidebar.
+ *
+ * Archiving is reversible, and a reversible action nobody is reminded of is one
+ * nobody ever reverses.
+ */
+const loadArchiveHint = async () => {
+  try {
+    const response = await fetch('/api/chats/archived')
+    if (!response.ok) return
+    const { chats } = await response.json()
+    $('archive-hint').textContent = chats.length === 0 ? '' : String(chats.length)
+  } catch {
+    // Same rule as the other hints: a missing figure is not worth an error.
+  }
+}
+
+// ---------------------------------------------------------------------------
+// per-row actions
+// ---------------------------------------------------------------------------
+//
+// Rename and archive live on the row rather than only on the open conversation:
+// tidying up is something you do to a list, and needing to open each thread
+// first is what makes people leave the list untidy instead.
+
+const menu = document.createElement('div')
+menu.className = 'row-menu'
+menu.setAttribute('role', 'menu')
+menu.hidden = true
+document.body.appendChild(menu)
+
+/** The row whose menu is open, so an action knows its target. */
+let menuChatId = null
+
+const closeMenu = () => {
+  menu.hidden = true
+  menuChatId = null
+  // The tree is redrawn every 15 seconds, so the button that was open may be
+  // gone; querying the live DOM rather than holding a reference.
+  for (const button of document.querySelectorAll('.row-more[aria-expanded="true"]')) {
+    button.setAttribute('aria-expanded', 'false')
+  }
+}
+
+const openMenu = (button, chatId) => {
+  menuChatId = chatId
+  button.setAttribute('aria-expanded', 'true')
+  menu.innerHTML = `<button type="button" role="menuitem" data-act="rename">重命名</button>
+    <button type="button" role="menuitem" data-act="archive">${icon('archive', 13)}归档</button>`
+  menu.hidden = false
+  // Positioned after unhiding, since a hidden element measures as 0. Clamped to
+  // the viewport so a row near the bottom does not open a menu off screen.
+  const rect = button.getBoundingClientRect()
+  const top = Math.min(rect.bottom + 4, window.innerHeight - menu.offsetHeight - 8)
+  const left = Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8)
+  menu.style.top = `${Math.max(8, top)}px`
+  menu.style.left = `${Math.max(8, left)}px`
+  menu.querySelector('button')?.focus()
+}
+
+const titleOf = (chatId) => {
+  const chat = chatById.get(chatId)
+  const title = chat?.title ?? ''
+  return title === '' ? '新会话' : title
+}
+
+const rename = async (chatId) => {
+  const title = window.prompt('会话名称', titleOf(chatId))
+  if (title === null || title.trim() === '') return
+  const response = await fetch(`/api/chats/${encodeURIComponent(chatId)}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ title: title.trim() }),
+  })
+  if (!response.ok) {
+    window.alert('改名失败')
+    return
+  }
+  await loadShell()
+}
+
+const archive = async (chatId) => {
+  // Says what archiving does *not* do, because "归档" has to be believable: the
+  // transcript and the bill both survive it.
+  if (!window.confirm(`归档会话「${titleOf(chatId)}」？\n\n对话记录和账单都会保留，可以在【已归档】里恢复。`)) {
+    return
+  }
+  const response = await fetch(`/api/chats/${encodeURIComponent(chatId)}/remove`, { method: 'POST' })
+  const body = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    window.alert(body.detail ?? '归档失败')
+    return
+  }
+  // Archiving the conversation you are reading leaves the page showing a thread
+  // that is no longer in the list, so it goes home instead.
+  if (chatId === openChatId) {
+    window.location.href = '/app'
+    return
+  }
+  await Promise.all([loadShell(), loadArchiveHint()])
+}
+
+menu.addEventListener('click', async (event) => {
+  const item = event.target.closest('button[data-act]')
+  if (item === null || menuChatId === null) return
+  const chatId = menuChatId
+  const act = item.dataset.act
+  closeMenu()
+  if (act === 'rename') await rename(chatId)
+  else if (act === 'archive') await archive(chatId)
+})
+
+// Fixed positioning means the menu would otherwise stay put while the sidebar
+// scrolls out from under it.
+document.addEventListener('click', (event) => {
+  if (menu.hidden) return
+  if (!menu.contains(event.target) && event.target.closest('.row-more') === null) closeMenu()
+})
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !menu.hidden) {
+    closeMenu()
+    event.stopImmediatePropagation()
+  }
+})
+$('agent-nav').addEventListener('scroll', closeMenu)
+
+// ---------------------------------------------------------------------------
+// agent details
+// ---------------------------------------------------------------------------
+//
+// The dot in the tree is *endpoint* health, and when several agents share an
+// endpoint every one of their dots moves together -- which reads as "all these
+// agents are broken" when the truth is "one DSH process is". Until now that dot
+// was a tooltip and nothing else. It is now the way into this panel, which says
+// which endpoint, who else is on it, and what sharing it means.
+
+const panel = $('agent-panel')
+
+const closePanel = () => {
+  panel.hidden = true
+}
+
+const kv = (label, value) => `<div class="kv"><dt>${esc(label)}</dt><dd>${value}</dd></div>`
+
+const RUN_STATE = { done: 'ok', failed: 'bad', running: 'warn', missed: 'warn', skipped: 'muted' }
+
+const panelBody = (data) => {
+  const { agent, endpoint, sharedWith, month, runs, chats } = data
+  const health = endpoint.reachable ? (endpoint.apiKeySet === false || endpoint.enabled === false ? 'warn' : 'ok') : 'bad'
+  const usd = month.costMicroUsd / 1e6
+  const cost = `${month.unpriced > 0 ? '≥' : ''}$${usd < 1 ? usd.toFixed(4) : usd.toFixed(2)}`
+
+  const rows = [
+    kv('端点', `<span class="dot ${health}"></span> ${esc(endpoint.id)} · <code>${esc(endpoint.url)}</code>`),
+    kv(
+      '端点状态',
+      endpoint.reachable
+        ? `可达 · ${endpoint.sessions ?? '?'} 个会话${endpoint.apiKeySet === false ? ' · <span class="warn">未设密钥</span>' : ''}`
+        : `<span class="error">不可达：${esc(endpoint.error ?? '未知原因')}</span>`,
+    ),
+    kv('工作区', `<code>${esc(agent.workspacePath)}</code>`),
+    kv('preset', agent.preset === null ? '<span class="muted">跟随 DSH 进程默认</span>' : `<code>${esc(agent.preset)}</code>`),
+    kv(
+      '模型',
+      agent.model === null
+        ? '<span class="muted">跟随 DSH 进程默认</span>'
+        : `<code>${esc(agent.provider === null ? agent.model : `${agent.provider}/${agent.model}`)}</code>`,
+    ),
+    kv('对外可调', agent.public ? '是（独立进程）' : '否'),
+    kv('会话', `${chats.active} 个${chats.archived > 0 ? ` · 已归档 ${chats.archived}` : ''}`),
+    kv('本月花费', `${cost} · ${month.runs} 次运行`),
+    kv('当前状态', data.busyRunId === null ? '空闲' : '正在运行一个回合'),
+  ]
+
+  // Named, not counted: "shares an endpoint with 1 other agent" leaves you
+  // guessing which one can read this workspace.
+  if (sharedWith.length > 0) {
+    rows.push(
+      kv(
+        '共用端点',
+        `${sharedWith.map((a) => esc(a.name)).join('、')}<div class="muted small">DSH 的沙箱根是按进程的，不是按会话的：共用端点的 agent 能读写彼此的工作区。</div>`,
+      ),
+    )
+  }
+
+  const runList =
+    runs.length === 0
+      ? '<p class="muted small">还没有运行记录。</p>'
+      : runs
+          .map(
+            (r) => `<div class="panel-run">
+              <span class="${RUN_STATE[r.state] ?? 'muted'}">${esc(r.state)}</span>
+              <span class="muted">${esc(r.trigger)}</span>
+              <span class="grow muted small">${esc(when(r.startedAt))}</span>
+            </div>`,
+          )
+          .join('')
+
+  return `<dl class="kv-list">${rows.join('')}</dl>
+    ${data.warnings.length === 0 ? '' : data.warnings.map((w) => banner('warn', '配置提醒', w)).join('')}
+    <h3 class="panel-sub">最近运行</h3>
+    ${runList}
+    <div class="panel-actions">
+      <a class="btn-quiet btn-sm" href="/board/${encodeURIComponent(agent.id)}">打开大盘</a>
+      <a class="btn-quiet btn-sm" href="/spend">花费明细</a>
+      <a class="btn-quiet btn-sm" href="/crons">定时任务</a>
+    </div>`
+}
+
+const openPanel = async (agentId) => {
+  panel.hidden = false
+  $('agent-panel-title').textContent = agentId
+  setHtml('agent-panel-content', '<div class="skeleton w60"></div><div class="skeleton w40"></div>')
+  panel.querySelector('[data-close]')?.focus()
+  try {
+    const response = await fetch(`/api/agents/${encodeURIComponent(agentId)}`)
+    if (!response.ok) {
+      setHtml('agent-panel-content', banner('bad', '读不到 agent 详情', `服务端返回 ${response.status}`))
+      return
+    }
+    const data = await response.json()
+    $('agent-panel-title').textContent = data.agent.name
+    setHtml('agent-panel-content', panelBody(data))
+  } catch (error) {
+    setHtml('agent-panel-content', banner('bad', '读不到 agent 详情', error.message))
+  }
+}
+
+panel.addEventListener('click', (event) => {
+  if (event.target.closest('[data-close]') !== null) closePanel()
+})
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !panel.hidden) {
+    closePanel()
+    // Same reason as the drawer: dismissing an overlay is not cancelling the
+    // turn running behind it.
+    event.stopImmediatePropagation()
+  }
+})
+
+/** Marks the section you are in, so the frame says where you are. */
+const markActive = () => {
+  const path = window.location.pathname
+  for (const link of document.querySelectorAll('.side-link[data-nav]')) {
+    link.classList.toggle('active', path === `/${link.dataset.nav}`)
+  }
+}
+
+/**
+ * Tree interactions, delegated.
+ *
+ * Bound to the container once rather than to each row: the poll rewrites the
+ * tree's markup every 15 seconds, and per-row listeners would be attached to
+ * nodes that no longer exist.
+ */
+$('agent-nav').addEventListener('click', async (event) => {
+  const info = event.target.closest('.dot-btn')
+  if (info !== null) {
+    await openPanel(info.dataset.info)
+    return
+  }
+
+  const more = event.target.closest('.row-more')
+  if (more !== null) {
+    // Second click on the same row closes it, which is what a toggle button is
+    // expected to do.
+    if (menuChatId === more.dataset.more) closeMenu()
+    else openMenu(more, more.dataset.more)
+    return
+  }
+
+  const toggle = event.target.closest('.tree-toggle')
+  if (toggle !== null) {
+    const group = toggle.closest('.tree-group')
+    const open = group.classList.toggle('open')
+    toggle.setAttribute('aria-expanded', String(open))
+    setCollapsed(toggle.dataset.toggle, !open)
+    // Redrawn from data rather than by hiding a node: the children are not
+    // rendered at all while collapsed, so there is nothing to show.
+    if (lastStatus !== null) setHtml('agent-nav', agentNav(lastStatus))
+    return
+  }
+
+  const create = event.target.closest('.tree-child.new')
+  if (create === null) return
+
+  // A chat row cannot be linked to before it exists, so this is a request
+  // followed by a navigation rather than a plain link.
+  create.disabled = true
+  try {
+    const response = await fetch('/api/chats', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ agentId: create.dataset.new }),
+    })
+    if (!response.ok) {
+      create.disabled = false
+      return
+    }
+    const { chat } = await response.json()
+    window.location.href = `/chat/${encodeURIComponent(chat.id)}`
+  } catch {
+    create.disabled = false
+  }
+})
+
+$('logout').addEventListener('click', async () => {
+  await fetch('/api/logout', { method: 'POST' })
+  window.location.href = '/login'
+})
+
+markActive()
+syncNavControls()
+void loadShell()
+void loadSpendHint()
+void loadCronHint()
+void loadArchiveHint()
+
+// Endpoint health changes on its own (DSH restarts, key rotation). The hints
+// move far more slowly, so they poll at a fraction of the rate.
+//
+// Nothing polls while the page is hidden. A background tab has nothing to draw,
+// and its requests still compete for the six connections HTTP/1.1 allows an
+// origin -- which the tab you are actually looking at needs. Refreshed on return
+// instead, which is also when a stale sidebar would first be noticed.
+const poll = (fn, everyMs) => {
+  setInterval(() => {
+    if (document.visibilityState !== 'visible') return
+    void fn()
+  }, everyMs)
+}
+
+poll(loadShell, 15_000)
+poll(loadSpendHint, 60_000)
+poll(loadCronHint, 60_000)
+// Slower still: this count only changes when you change it.
+poll(loadArchiveHint, 300_000)
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return
+  void loadShell()
+  void loadArchiveHint()
+})

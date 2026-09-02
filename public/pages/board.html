@@ -1,0 +1,23 @@
+<header class="board-head">
+  <div class="board-head-row">
+    <h1 id="board-title">大盘</h1>
+    <span id="board-asof" class="asof"></span>
+  </div>
+  <nav id="board-tabs" class="tabs" aria-label="大盘分页"></nav>
+</header>
+
+<!-- A div, not a <main>: the layout already provides the page's main landmark,
+     and nesting a second one is invalid and confuses screen readers. -->
+<div id="board-main" class="board-main" aria-live="polite">
+  <div class="blocks">
+    <section class="bcard">
+      <div class="bcard-body">
+        <div class="skeleton w40"></div>
+        <div class="skeleton"></div>
+        <div class="skeleton w60"></div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div id="board-toast" class="toast" role="status" aria-live="polite"></div>

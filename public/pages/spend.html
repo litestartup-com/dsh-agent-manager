@@ -1,0 +1,47 @@
+<div class="wrap">
+  <div class="page-head">
+    <h1 class="grow">花费</h1>
+    <select id="month" class="pill-select" aria-label="月份"></select>
+  </div>
+
+  <div id="banners" role="alert"></div>
+
+  <section class="totals">
+    <div class="total-card">
+      <span class="total-label">本月合计</span>
+      <span id="total-cost" class="total-value">—</span>
+      <span id="total-note" class="muted small"></span>
+    </div>
+    <div class="total-card">
+      <span class="total-label">峰时占比</span>
+      <span id="peak-share" class="total-value">—</span>
+      <span id="peak-note" class="muted small"></span>
+    </div>
+    <div class="total-card">
+      <span class="total-label">token</span>
+      <span id="total-tokens" class="total-value">—</span>
+      <span id="runs-note" class="muted small"></span>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head"><h2>每日</h2></div>
+    <div class="card">
+      <div id="chart" class="chart"></div>
+      <div class="chart-legend muted small">
+        <span><i class="swatch off"></i>谷时</span>
+        <span><i class="swatch on"></i>峰时</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head"><h2>按 agent</h2></div>
+    <div class="card"><div id="by-agent" class="list"></div></div>
+  </section>
+
+  <section class="section">
+    <div class="section-head"><h2>按模型</h2></div>
+    <div class="card"><div id="by-model" class="list"></div></div>
+  </section>
+</div>

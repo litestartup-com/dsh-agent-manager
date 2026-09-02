@@ -1,0 +1,544 @@
+/* Board styling, on the tokens from style.css so the board and the dashboard
+   read as one product.
+   Mobile is the primary target -- checking the board on a phone is the whole
+   point -- so every layout starts single-column and widens. */
+
+.board-body {
+  margin: 0;
+  padding: 0 0 40px;
+}
+
+.board-head {
+  position: sticky;
+  /* Below the narrow-screen app bar, which is fixed. Pinning this at 0 would put
+     it underneath that bar and hide the board's own title. `--topbar-h` is 0
+     while the sidebar is docked, so the wide layout is unchanged. */
+  top: calc(var(--topbar-h) + env(safe-area-inset-top));
+  z-index: 10;
+  /* Solid first: without a fallback, a browser that lacks color-mix() leaves the
+     header transparent and the title sits on top of the scrolling content. */
+  background: var(--bg);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: saturate(180%) blur(12px);
+  border-bottom: 1px solid var(--border);
+  /* The notch inset belongs to the app bar above it now; keeping it here too
+     added the same gap twice. */
+  padding: 0;
+}
+
+.board-head-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px 8px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.board-head-row h1 {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  text-decoration: none;
+  flex: 0 0 auto;
+}
+
+.back:hover {
+  background: var(--surface-hover);
+}
+
+.asof {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.tabs {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  padding: 0 12px 8px;
+  max-width: 1100px;
+  margin: 0 auto;
+  /* A visible scrollbar under the tab strip reads as a rendering bug. */
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  flex: 0 0 auto;
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font: 13px/1 var(--font);
+  padding: 7px 11px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--text-2);
+  background: var(--surface-hover);
+}
+
+.tab.on {
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: var(--sh-1);
+  font-weight: 500;
+}
+
+.board-main {
+  padding: 16px 12px 0;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.blocks {
+  display: grid;
+  gap: 12px;
+}
+
+@media (min-width: 760px) {
+  .board-main {
+    padding: 22px 20px 0;
+  }
+
+  .blocks {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* Wide content should not be squeezed into half the page. */
+  .bcard:has(.tscroll),
+  .bcard:has(.chart) {
+    grid-column: 1 / -1;
+  }
+}
+
+.bcard {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-1);
+  padding: 14px 16px;
+  min-width: 0;
+}
+
+.bcard h2 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 11px;
+  color: var(--text-2);
+}
+
+.bcard-bad {
+  background: var(--bad-bg);
+  border-color: var(--bad-border);
+}
+
+/* Sits above the grid rather than inside it, so it needs its own spacing. */
+.bcard.problems {
+  margin-bottom: 12px;
+}
+
+/* ---- kpi ---- */
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+@media (min-width: 520px) {
+  .kpi-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.kpi {
+  background: var(--surface-sunken);
+  border-radius: var(--r);
+  padding: 10px 11px;
+  min-width: 0;
+}
+
+.kpi-label {
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 3px;
+}
+
+.kpi-value {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.kpi-sub {
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+/* ---- table ---- */
+
+.tscroll {
+  overflow-x: auto;
+}
+
+.btable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.btable th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 12px;
+  padding: 5px 10px 6px 0;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.btable td {
+  padding: 8px 10px 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.btable tr:last-child td {
+  border-bottom: 0;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ---- list ---- */
+
+.blist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.blist-text {
+  font-size: 13px;
+}
+
+.blist-note {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.tag {
+  font-size: 11px;
+  color: var(--text-2);
+  background: var(--surface-sunken);
+  border-radius: var(--r-sm);
+  padding: 1px 6px;
+  margin-left: 5px;
+}
+
+/* ---- progress ---- */
+
+.bars {
+  display: grid;
+  gap: 12px;
+}
+
+.prog-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  margin-bottom: 5px;
+  gap: 8px;
+}
+
+.prog-track {
+  height: 6px;
+  background: var(--surface-sunken);
+  border-radius: var(--r-pill);
+  overflow: hidden;
+}
+
+.prog-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: var(--r-pill);
+}
+
+.prog.t-good .prog-fill {
+  background: #22c55e;
+}
+
+.prog.t-warn .prog-fill {
+  background: #f59e0b;
+}
+
+.prog.t-bad .prog-fill {
+  background: #ef4444;
+}
+
+/* ---- bars chart ---- */
+
+.chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 5px;
+  overflow-x: auto;
+  min-height: 132px;
+  padding-top: 6px;
+}
+
+.chart-col {
+  flex: 1 0 26px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  height: 132px;
+}
+
+.chart-bar {
+  width: 100%;
+  max-width: 28px;
+  border-radius: 3px 3px 0 0;
+  background: var(--border-strong);
+}
+
+.chart-bar.up {
+  background: #22c55e;
+}
+
+.chart-bar.down {
+  background: #ef4444;
+}
+
+.chart-val,
+.chart-label {
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 4px;
+  white-space: nowrap;
+}
+
+/* ---- pie ---- */
+
+.pie-wrap {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.pie {
+  width: 104px;
+  height: 104px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1 1 160px;
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.legend .num {
+  margin-left: auto;
+  color: var(--muted);
+}
+
+.swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+
+/* ---- checklist ---- */
+
+.checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.checks li {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+}
+
+.checks .box {
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  font-size: 11px;
+  line-height: 14px;
+  text-align: center;
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: transparent;
+}
+
+.checks .done {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.checks .done .box {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/* ---- quote / note ---- */
+
+.quote {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.7;
+  border-left: 2px solid var(--accent);
+  padding-left: 12px;
+}
+
+.quote cite {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+  margin-top: 8px;
+}
+
+.prose {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.cmd {
+  background: var(--surface-sunken);
+  border-radius: var(--r);
+  padding: 10px 12px;
+  font: 12px/1.5 var(--mono);
+  overflow-x: auto;
+  margin: 12px 0 0;
+}
+
+/* ---- groups ---- */
+
+.groups {
+  display: grid;
+  gap: 13px;
+}
+
+.group h3 {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0 0 5px;
+  font-weight: 500;
+}
+
+.group ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  display: grid;
+  gap: 3px;
+}
+
+/* ---- tones ---- */
+
+.t-good {
+  color: var(--ok);
+}
+
+.t-warn {
+  color: var(--warn);
+}
+
+.t-bad {
+  color: var(--bad);
+}
+
+.t-info {
+  color: var(--accent);
+}
+
+.t-muted {
+  color: var(--muted);
+}
+
+/* Tone colours the number, never the label above it. */
+.kpi.t-good .kpi-value {
+  color: var(--ok);
+}
+
+.kpi.t-warn .kpi-value {
+  color: var(--warn);
+}
+
+.kpi.t-bad .kpi-value {
+  color: var(--bad);
+}
+
+.kpi.t-info .kpi-value {
+  color: var(--accent);
+}
+
+.kpi.t-muted .kpi-value {
+  color: var(--muted);
+}
+
+.kpi .kpi-label,
+.kpi .kpi-sub {
+  color: var(--muted);
+}
+
+/* The toast lives in style.css: the chat page needs the same one, and a second
+   copy here is how the icon sprite and esc() each ended up with four. */

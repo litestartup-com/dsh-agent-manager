@@ -1,0 +1,48 @@
+# dsh-agent-manager 配置模板。复制为 manager.config.yaml 后填写真实值。
+# manager.config.yaml 已被 .gitignore 排除（个人配置不进 git）。
+
+listen:
+  host: 127.0.0.1        # 上公网前改成 0.0.0.0，并确认前面有 TLS 终止
+  port: 8080
+
+# DSH 端点。方案 A（loopback 直连）与方案 B（跨机经 dsh-api-gateway 代理）二选一或并存。
+endpoints:
+  A:
+    url: http://127.0.0.1:3080
+    driver: apiproxy     # 方案 A：直连 DSH 原生 /api（loopback，无需密钥）
+    prefix: /api
+    key_ref: ''
+  # 方案 B（跨机 / 容器节点）示例：
+  # B:
+  #   url: http://<host>:3080
+  #   driver: apiproxy
+  #   prefix: /api-gw/v1/proxy
+  #   key_ref: GW_KEY_B
+
+agents:
+  personal:
+    name: 个人
+    endpoint: A
+    workspace: C:/path/to/your/workspace   # ← 改成你的真实工作区路径
+    public: false
+
+runner:
+  timeout_minutes: 15
+  silence_timeout_minutes: 5
+  max_consecutive_failures: 3
+  daily_budget_usd: 2.0
+
+database:
+  path: ./data/manager.db
+
+pricing:
+  peak_windows_utc:
+    - { start: '01:00', end: '04:00' }
+    - { start: '06:00', end: '10:00' }
+  models:
+    deepseek-v4-pro:
+      off_peak: { input: 0.66, output: 1.98, cache_read: 0.022 }
+      peak: { input: 1.32, output: 3.96, cache_read: 0.044 }
+    deepseek-v4-flash:
+      off_peak: { input: 0.22, output: 0.66, cache_read: 0.007 }
+      peak: { input: 0.44, output: 1.32, cache_read: 0.014 }

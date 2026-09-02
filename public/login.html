@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>登录 · Oh! dsh</title>
+    <link rel="stylesheet" href="/assets/style.css" />
+  </head>
+  <body class="centered">
+    <form id="form" class="card narrow" autocomplete="on">
+      <h1>Oh! dsh</h1>
+      <p class="muted">dsh agents manager · 个人 / 小团队的 AI 中台</p>
+
+      <label for="username">用户名</label>
+      <input id="username" name="username" autocomplete="username" required autofocus />
+
+      <label for="password">密码</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required />
+
+      <button type="submit" id="submit">登录</button>
+      <p id="error" class="error" hidden></p>
+    </form>
+
+    <script>
+      const form = document.getElementById('form')
+      const errorEl = document.getElementById('error')
+      const submit = document.getElementById('submit')
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault()
+        errorEl.hidden = true
+        submit.disabled = true
+        submit.textContent = '登录中…'
+        try {
+          const response = await fetch('/api/login', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              username: document.getElementById('username').value,
+              password: document.getElementById('password').value,
+            }),
+          })
+          if (response.ok) {
+            window.location.href = '/app'
+            return
+          }
+          errorEl.textContent = response.status === 429 ? '尝试过于频繁，请稍后再试' : '用户名或密码错误'
+          errorEl.hidden = false
+        } catch {
+          errorEl.textContent = '无法连接服务器'
+          errorEl.hidden = false
+        } finally {
+          submit.disabled = false
+          submit.textContent = '登录'
+        }
+      })
+    </script>
+  </body>
+</html>

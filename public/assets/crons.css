@@ -1,0 +1,186 @@
+/* Schedules page. Builds on style.css tokens and spend.css page furniture. */
+
+.cron-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cron-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* A disabled schedule is dimmed rather than hidden: it still exists, and the
+   reason it is off is often the thing you came here to read. */
+.cron-card.off {
+  background: var(--surface-sunken);
+}
+.cron-card.off .cron-prompt,
+.cron-card.off .cron-meta {
+  opacity: 0.6;
+}
+
+.cron-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.cron-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cron-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.cron-actions .danger:hover {
+  color: #b91c1c;
+  background: #fef2f2;
+}
+
+.cron-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: center;
+}
+.cron-meta code {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-sunken);
+}
+
+.cron-prompt {
+  font-size: 13px;
+  color: var(--text-1);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 7px 9px;
+  border-radius: var(--r-sm);
+  background: var(--surface-sunken);
+}
+
+/* One line per thing worth saying about this schedule. The strong lead-in is the
+   claim; the rest is the evidence. */
+.cron-note {
+  font-size: 12px;
+  line-height: 1.55;
+  padding: 7px 9px;
+  border-radius: var(--r-sm);
+  border-left: 2px solid var(--border);
+  background: var(--surface-sunken);
+  color: var(--text-2);
+}
+.cron-note strong {
+  display: block;
+  color: var(--text-1);
+}
+.cron-note.warn {
+  border-left-color: #f59e0b;
+  background: #fffbeb;
+}
+.cron-note.bad {
+  border-left-color: #ef4444;
+  background: #fef2f2;
+}
+
+.cron-result:empty {
+  display: none;
+}
+
+/* --- editor ---------------------------------------------------------------- */
+
+.cron-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.field-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.field-row .field {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field-label {
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.field-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.text-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text-1);
+  font: inherit;
+  font-size: 13px;
+}
+.text-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  border-color: var(--accent);
+}
+.text-input.mono {
+  font-family: var(--mono);
+}
+textarea.text-input {
+  resize: vertical;
+}
+
+/* Preset patterns, all deliberately off-peak. */
+.chip {
+  font: inherit;
+  font-size: 11px;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-2);
+  cursor: pointer;
+}
+.chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.form-actions .muted {
+  margin-right: auto;
+}

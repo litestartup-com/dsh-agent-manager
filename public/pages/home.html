@@ -1,0 +1,67 @@
+<div class="wrap">
+  <div id="banners" role="alert"></div>
+
+  <section class="hero">
+    <h1>要它做什么？</h1>
+    <p>agent 只能改自己工作区里的文件，每次改动都会自动提交</p>
+
+    <form id="run-form" class="composer">
+      <div class="composer-pills">
+        <span class="pill">
+          <svg width="13" height="13"><use href="#i-folder" /></svg>
+          <select id="run-agent" class="pill-select" required aria-label="交给哪个 agent"></select>
+        </span>
+        <!-- Filled in once the agent list arrives; hidden until then so it
+             does not paint as an empty outline. -->
+        <span id="run-scope" class="pill" hidden></span>
+      </div>
+
+      <textarea
+        id="run-prompt"
+        rows="2"
+        required
+        aria-label="要做什么"
+        placeholder="例：在工作日志里记一行，今天把 manager 的 runner 写完了"
+      ></textarea>
+
+      <div class="composer-foot">
+        <span id="run-state" class="composer-state"></span>
+        <button id="run-submit" class="send" type="submit" aria-label="开始">
+          <svg width="15" height="15"><use href="#i-up" /></svg>
+        </button>
+      </div>
+    </form>
+
+    <div id="run-result"></div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <h2>最近的任务</h2>
+    </div>
+    <div class="card">
+      <div id="runs" class="list">
+        <div class="skeleton"></div>
+        <div class="skeleton w60"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Endpoint health and session counts are operator detail. Collapsed by
+       default so the page leads with what you actually came to do. -->
+  <details class="ops">
+    <summary>
+      <svg class="chev" width="13" height="13"><use href="#i-chev" /></svg>
+      DSH 端点
+    </summary>
+    <div class="card">
+      <p class="muted small" style="margin: 0 0 8px">
+        manager 只作为 gateway 的服务端调用方，不代理 DSH 界面。DSH 应始终绑
+        <code>127.0.0.1</code>。
+      </p>
+      <div id="endpoints" class="list">
+        <div class="skeleton w60"></div>
+      </div>
+    </div>
+  </details>
+</div>

@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>{{TITLE}}</title>
+    <link rel="stylesheet" href="/assets/style.css" />
+    {{HEAD}}
+  </head>
+  <body>
+    <!-- Icons are inlined as a sprite: a handful of 16px line icons is not worth
+         a network request, and this keeps the front end dependency-free.
+
+         Living in the layout rather than in each page is the point of the
+         layout: `i-alert` used to be defined four times and `i-back` three, so
+         a tweak to one of them silently applied to one page out of four. -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <g id="i-plus" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+          <circle cx="8" cy="8" r="6.25" />
+          <path d="M8 5.5v5M5.5 8h5" />
+        </g>
+        <!-- Distinct from i-plus on purpose: the circled one is the primary
+             "派活" action, this bare one sits inside ordinary buttons. -->
+        <g id="i-add" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+          <path d="M8 3.5v9M3.5 8h9" />
+        </g>
+        <g id="i-folder" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+          <path d="M2 4.5a1 1 0 0 1 1-1h2.6l1.2 1.4H13a1 1 0 0 1 1 1v6.6a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z" />
+        </g>
+        <g id="i-up" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 12.5v-9M4.25 7.25 8 3.5l3.75 3.75" />
+        </g>
+        <g id="i-chev" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M6 3.5 10.5 8 6 12.5" />
+        </g>
+        <!-- The board: panes of a dashboard. Deliberately not i-folder, which
+             already means "the workspace this agent writes to". -->
+        <g id="i-board" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+          <rect x="2.25" y="2.75" width="11.5" height="10.5" rx="1.25" />
+          <path d="M2.25 6.5h11.5M7 6.5v6.75" />
+        </g>
+        <!-- A conversation, for the chat rows in the sidebar. -->
+        <g id="i-chat" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+          <path d="M13.25 9.5a1 1 0 0 1-1 1H6.5L3.5 13V4.5a1 1 0 0 1 1-1h7.75a1 1 0 0 1 1 1z" />
+        </g>
+        <!-- Archive: a box with a lid, not a bin. The distinction is the whole
+             point -- nothing is destroyed. -->
+        <g id="i-archive" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+          <rect x="2.25" y="3" width="11.5" height="3" rx="0.75" />
+          <path d="M3.25 6v6.25a1 1 0 0 0 1 1h7.5a1 1 0 0 0 1-1V6M6.5 8.75h3" stroke-linecap="round" />
+        </g>
+        <!-- Row overflow. Three dots, because it is the one glyph users already
+             read as "more actions on this row".
+
+             The dots are r=1.5 and spread to the edges of the 16-unit box: at
+             r=1.15 they rendered as three single pixels, which is a glyph in
+             theory and a smudge in practice. -->
+        <g id="i-more" fill="currentColor">
+          <circle cx="2.9" cy="8" r="1.5" />
+          <circle cx="8" cy="8" r="1.5" />
+          <circle cx="13.1" cy="8" r="1.5" />
+        </g>
+        <!-- A gateway endpoint: a DSH process, drawn as the two-bay box that
+             every ops UI uses for "a server". The shape says *what* the control
+             reports on; the state dot layered over it says how it is doing. A
+             bare coloured dot said only the second half, which is why nobody
+             could tell it apart from decoration. -->
+        <g id="i-endpoint" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">
+          <rect x="2.5" y="2.9" width="11" height="4.6" rx="1.2" />
+          <rect x="2.5" y="8.5" width="11" height="4.6" rx="1.2" />
+          <circle cx="5.1" cy="5.2" r="0.75" fill="currentColor" stroke="none" />
+          <circle cx="5.1" cy="10.8" r="0.75" fill="currentColor" stroke="none" />
+        </g>
+        <g id="i-alert" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+          <path d="M8 2.75 14.25 13.5H1.75z" stroke-linejoin="round" />
+          <path d="M8 6.5v3.25M8 11.75v.5" />
+        </g>
+        <!-- Permission. A shield rather than i-alert: an approval prompt is a
+             decision waiting on someone, not something that went wrong. -->
+        <g id="i-shield" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+          <path d="M8 2.25l5 1.75v4.1c0 2.6-2 4.6-5 5.65-3-1.05-5-3.05-5-5.65V4z" />
+        </g>
+        <g id="i-coin" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="8" cy="8" r="6.25" />
+          <path d="M9.75 5.75H7.4a1.4 1.4 0 0 0 0 2.8h1.2a1.4 1.4 0 0 1 0 2.8H6.25M8 4.6v.9M8 10.5v.9" stroke-linecap="round" />
+        </g>
+        <g id="i-clock" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+          <circle cx="8" cy="8" r="6.25" />
+          <path d="M8 4.5V8l2.5 1.75" />
+        </g>
+        <g id="i-play" fill="currentColor">
+          <path d="M5 3.5v9l7.5-4.5z" />
+        </g>
+        <!-- Navigation chrome. One icon for both jobs it has: on a wide screen it
+             collapses the docked sidebar to a rail, on a narrow one the hamburger
+             opens the same sidebar as a drawer. -->
+        <g id="i-panel-left" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+          <rect x="2.25" y="2.75" width="11.5" height="10.5" rx="1.25" />
+          <path d="M6.25 2.75v10.5" />
+        </g>
+        <g id="i-menu" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+          <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" />
+        </g>
+        <g id="i-close" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+          <path d="M4 4l8 8M12 4l-8 8" />
+        </g>
+        <g id="i-gear" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="8" cy="8" r="2.25" />
+          <path d="M8 1.75v1.6M8 12.65v1.6M1.75 8h1.6M12.65 8h1.6M3.6 3.6l1.15 1.15M11.25 11.25l1.15 1.15M12.4 3.6l-1.15 1.15M4.75 11.25 3.6 12.4" stroke-linecap="round" />
+        </g>
+      </defs>
+    </svg>
+
+    <!-- The narrow-screen app bar. Hidden above 1024px, where the sidebar is
+         docked and there is nothing for it to do. It is fixed rather than sticky
+         so the conversation page can keep owning exactly one scroll container. -->
+    <header class="topbar">
+      <button
+        id="nav-open"
+        class="icon-btn topbar-btn"
+        type="button"
+        aria-label="打开导航"
+        aria-controls="sidebar"
+        aria-expanded="false"
+      >
+        <svg width="18" height="18" aria-hidden="true"><use href="#i-menu" /></svg>
+      </button>
+      <span id="topbar-title" class="topbar-title">Oh! dsh</span>
+      <a class="icon-btn topbar-btn" href="/app#new" aria-label="派活">
+        <svg width="18" height="18" aria-hidden="true"><use href="#i-plus" /></svg>
+      </a>
+    </header>
+
+    <!-- Dismisses the drawer. A real element rather than a pseudo-element so the
+         tap target is unambiguous and it can be aria-hidden. -->
+    <div id="nav-backdrop" class="nav-backdrop" aria-hidden="true"></div>
+
+    <div class="shell">
+      <aside id="sidebar" class="sidebar">
+        <div class="side-top">
+          <!-- The brand is the way home. Every page used to carry its own 返回
+               button, which is a worse version of a frame that never leaves. -->
+          <a class="brand" href="/app">
+            <span class="brand-mark" aria-hidden="true">O</span>
+            <span class="brand-text">Oh! dsh</span>
+            <span class="brand-badge">agents manager</span>
+          </a>
+          <!-- Collapses the sidebar on a wide screen, closes the drawer on a
+               narrow one. One control, because to the user it is one thing: the
+               sidebar getting out of the way. -->
+          <button id="nav-collapse" class="icon-btn side-collapse" type="button" aria-label="收起侧栏" title="收起侧栏（[）">
+            <svg width="16" height="16" aria-hidden="true"><use href="#i-panel-left" /></svg>
+          </button>
+        </div>
+
+        <a id="new-task" class="side-action" href="/app#new" title="派活">
+          <svg width="15" height="15"><use href="#i-plus" /></svg>
+          <span class="side-action-label">派活</span>
+        </a>
+
+        <div class="side-section">
+          <span class="grow">Agents</span>
+          <span id="agent-count"></span>
+        </div>
+
+        <nav id="agent-nav" class="tree" aria-label="agent 列表">
+          <div class="skeleton w60"></div>
+          <div class="skeleton w40"></div>
+        </nav>
+
+        <div class="side-links">
+          <a class="side-link" href="/crons" data-nav="crons">
+            <svg width="14" height="14"><use href="#i-clock" /></svg>
+            <span class="grow">定时任务</span>
+            <span id="cron-hint" class="muted small"></span>
+          </a>
+          <a class="side-link" href="/archive" data-nav="archive">
+            <svg width="14" height="14"><use href="#i-archive" /></svg>
+            <span class="grow">已归档</span>
+            <span id="archive-hint" class="muted small"></span>
+          </a>
+          <a class="side-link" href="/spend" data-nav="spend">
+            <svg width="14" height="14"><use href="#i-coin" /></svg>
+            <span class="grow">花费</span>
+            <span id="spend-hint" class="muted small"></span>
+          </a>
+        </div>
+
+        <div class="side-foot">
+          <svg width="14" height="14"><use href="#i-gear" /></svg>
+          <span id="who" class="grow"></span>
+          <button id="logout" class="btn-quiet btn-sm" type="button">退出</button>
+        </div>
+      </aside>
+
+      <main class="content {{CONTENT_CLASS}}">{{CONTENT}}</main>
+    </div>
+
+    <!-- Agent details. A drawer rather than a page: this is a "look something up"
+         panel, and opening it should not cost you the conversation you are in. -->
+    <div id="agent-panel" class="panel" hidden>
+      <div class="panel-backdrop" data-close="1"></div>
+      <aside class="panel-body" role="dialog" aria-modal="true" aria-labelledby="agent-panel-title">
+        <header class="panel-head">
+          <h2 id="agent-panel-title">agent</h2>
+          <button class="icon-btn" type="button" data-close="1" aria-label="关闭">
+            <svg width="16" height="16" aria-hidden="true"><use href="#i-close" /></svg>
+          </button>
+        </header>
+        <div id="agent-panel-content" class="panel-content"></div>
+      </aside>
+    </div>
+
+    <script src="/assets/shell.js" type="module"></script>
+    {{SCRIPT}}
+  </body>
+</html>

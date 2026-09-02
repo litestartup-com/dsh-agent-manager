@@ -1,0 +1,62 @@
+<div class="wrap">
+  <div class="page-head">
+    <h1 class="grow">定时任务</h1>
+    <button id="new-cron" class="btn btn-sm" type="button">
+      <svg width="14" height="14"><use href="#i-add" /></svg>
+      新建
+    </button>
+  </div>
+
+  <div id="banners" role="alert"></div>
+
+  <!-- Hidden until "新建" or an edit, so the page opens on the list. -->
+  <section id="editor" class="section" hidden>
+    <div class="card">
+      <form id="cron-form" class="cron-form" novalidate>
+        <input type="hidden" id="f-id" />
+        <div class="field-row">
+          <label class="field">
+            <span class="field-label">名称</span>
+            <input id="f-name" class="text-input" maxlength="80" required placeholder="周报" />
+          </label>
+          <label class="field">
+            <span class="field-label">agent</span>
+            <select id="f-agent" class="pill-select"></select>
+          </label>
+        </div>
+        <div class="field-row">
+          <label class="field">
+            <span class="field-label">时间表</span>
+            <input id="f-schedule" class="text-input mono" maxlength="120" required placeholder="0 8 * * 1" />
+            <span class="field-hint muted small">分 时 日 月 周。<span id="preset-hints"></span></span>
+          </label>
+          <label class="field">
+            <span class="field-label">时区</span>
+            <input id="f-timezone" class="text-input mono" maxlength="60" value="Asia/Shanghai" />
+          </label>
+        </div>
+        <label class="field">
+          <span class="field-label">指令</span>
+          <textarea id="f-prompt" class="text-input" rows="3" maxlength="20000" required
+            placeholder="整理这一周的交易记录，写进 交易日志.md"></textarea>
+        </label>
+        <!-- The peak-hour warning appears here, before saving, because
+             afterwards nobody looks at the schedule again. -->
+        <div id="f-warn"></div>
+        <div class="form-actions">
+          <span id="f-next" class="muted small"></span>
+          <button type="button" id="f-cancel" class="btn-quiet btn-sm">取消</button>
+          <button type="submit" id="f-save" class="btn btn-sm">保存</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <h2>任务</h2>
+      <span id="budget-note" class="muted small"></span>
+    </div>
+    <div id="list" class="cron-list"></div>
+  </section>
+</div>
