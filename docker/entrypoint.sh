@@ -9,18 +9,18 @@ mkdir -p "$DSH_HOME"
 #    - 挂 dsh-api-gw 行：apiKeys 来自环境变量，proxyTarget 走容器内 loopback
 PATCH="$DSH_HOME/cordis.patch.yml"
 if [[ -n "${GW_KEY:-}" && ! -f "$PATCH" ]]; then
+  # 注意：dsh-api-gw 行由插件的 bundle patch 自动 insert，这里只能 update 其
+  # config（再 insert 一次会报 duplicate loader entry id: dsh-api-gw）。
   cat > "$PATCH" <<EOF
 - id: webserver
   config:
     host: '0.0.0.0'
     port: !!js ctx.webStartup.port ?? 3080
 
-- insert:
-    - id: dsh-api-gw
-      name: dsh-api-gateway
-      config:
-        apiKeys: ['$GW_KEY']
-        proxyTarget: 'http://127.0.0.1:3080/api'
+- id: dsh-api-gw
+  config:
+    apiKeys: ['$GW_KEY']
+    proxyTarget: 'http://127.0.0.1:3080/api'
 EOF
   chmod 600 "$PATCH"
   echo "[entrypoint] wrote $PATCH"
