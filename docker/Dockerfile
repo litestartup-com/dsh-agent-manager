@@ -16,7 +16,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # DSH 启动器 + pnpm（dsh plugin add 转发给 pnpm）；
 # NPM_REGISTRY 供国内构建切换 npm 镜像源
 ARG NPM_REGISTRY=https://registry.npmjs.org
-RUN npm install -g @deepseek-ai/dsh@0.1.1-rc.2 pnpm@11 --registry="${NPM_REGISTRY}"
+RUN npm install -g @deepseek-ai/dsh@0.1.1-rc.2 pnpm@11 --registry="${NPM_REGISTRY}" --no-audit --no-fund \
+    && npm cache clean --force
 
 ENV DSH_HOME=/data \
     NODE_ENV=production
