@@ -165,7 +165,7 @@ test('the user message is relayed once, not twice', async () => {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ text: '把这周的开销汇总一下' }),
   })
-  assert.equal(sent.status, 200)
+  assert.equal(sent.status, 202)
 
   const frames = await collected
   const users = frames.filter((f) => f.kind === 'user')

@@ -956,6 +956,37 @@ const syncWait = () => {
   }
 }
 
+// ---------------------------------------------------------------------------
+// scroll-to-bottom control
+// ---------------------------------------------------------------------------
+//
+// DSH's ChatView toBottom, adapted: a persistent node (like askNode) because
+// renderLog replaces the transcript's innerHTML on every frame. Sticky to the
+// log's bottom edge, hidden while the end is already in view.
+const toBottomSlot = document.createElement('div')
+toBottomSlot.className = 'to-bottom-slot'
+toBottomSlot.hidden = true
+toBottomSlot.innerHTML = `<button type="button" class="to-bottom" aria-label="回到底部" title="回到底部">${icon('down', 16)}</button>`
+
+const syncToBottom = () => {
+  const overflow = el.log.scrollHeight - el.log.clientHeight
+  toBottomSlot.hidden = overflow <= 8 || atBottom()
+}
+
+/** Re-attach after a rebuild and recompute visibility. */
+const reattachToBottom = () => {
+  el.log.append(toBottomSlot)
+  syncToBottom()
+}
+
+toBottomSlot.querySelector('button').addEventListener('click', () => {
+  const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  el.log.scrollTo({ top: el.log.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
+})
+
+el.log.addEventListener('scroll', syncToBottom)
+window.addEventListener('resize', syncToBottom)
+
 const renderLog = () => {
   const pinned = atBottom()
   // A turn can be running before its first frame has arrived, and "还没有消息"
@@ -966,6 +997,7 @@ const renderLog = () => {
     // Still synced: the innerHTML above detached the card node, and a card that
     // is open has to come back even on an otherwise empty screen.
     syncAsks()
+    reattachToBottom()
     return
   }
   if (blocks.length === 0) {
@@ -973,6 +1005,7 @@ const renderLog = () => {
     syncAsks()
     syncWait()
     el.log.scrollTop = el.log.scrollHeight
+    reattachToBottom()
     return
   }
 
@@ -1005,6 +1038,7 @@ const renderLog = () => {
   // below it is only commentary.
   syncAsks()
   syncWait()
+  reattachToBottom()
   if (pinned) el.log.scrollTop = el.log.scrollHeight
 }
 
@@ -1166,9 +1200,10 @@ const renderComposer = () => {
 
   el.input.disabled = lost
   el.send.disabled = locked || el.input.value.trim() === ''
-  // Only the chat actually running gets a stop button; stopping from another
-  // thread would cancel work the user cannot see.
-  el.stop.hidden = !sending
+  // The stop button shows while this chat has a running turn — the POST itself
+  // returns immediately now, so `sending` alone no longer covers the run.
+  const turnRunning = state.turns.some((t) => t.state === 'running')
+  el.stop.hidden = !(sending || turnRunning)
   el.send.hidden = sending
 
   el.input.placeholder = lost
@@ -1221,6 +1256,7 @@ const alreadyLoaded = (frame, maxSeq, list) => {
 
 const fatal = (message) => {
   el.log.innerHTML = `<div class="chat-empty"><p>${esc(message)}</p></div>`
+  reattachToBottom()
   el.input.disabled = true
   el.send.disabled = true
 }
@@ -1530,6 +1566,7 @@ if (chatId === null) {
   el.log.innerHTML = `<div class="chat-empty">
       <p>从左边选一个会话，或者在某个 agent 下点「新会话」。</p>
     </div>`
+  reattachToBottom()
 } else {
   void reload().then(loadSiblings)
   connect()

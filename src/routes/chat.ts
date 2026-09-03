@@ -6,7 +6,7 @@ import { GatewayError, type GatewayClient, type HistoryEvent, type QuestionAnswe
 import type { GatewayFrame } from '../gateway/stream.js'
 import type { UpstreamClient } from '../upstream/client.js'
 import { UpstreamError } from '../upstream/rpc.js'
-import { AgentBusy, runAgent, runningRunId, type RunOutcome } from '../runner.js'
+import { runAgent, runningRunId, type RunOutcome } from '../runner.js'
 import { cancelQueuedTurns, drainAgentQueue, enqueueTurn } from '../chat/queue.js'
 import { compactHistory } from '../chat/replay.js'
 import {
@@ -496,15 +496,13 @@ export const registerChatRoutes = (
       // a second tab should not sit blank until the assistant replies.
       publish(chat.id, { kind: 'user', text, at: Date.now() })
 
+      // DSH's own queue semantics: accept immediately, run the turn in the
+      // background, and report progress through the relay. A synchronous POST
+      // would hold the browser's `sending` state for the whole turn and make
+      // the second message impossible to send.
       try {
-        const outcome = await runChatTurn(chat, agent, client, upstream, driver, text)
-        // This turn is done and the agent lock is released; start the next
-        // queued turn (from any chat) if one is waiting.
-        drainAgentQueue(agent.id)
-        // A failed turn is a real outcome the caller must see, not a 500.
-        return reply.send({ ...outcome, chat: getChat(db, chat.id) })
-      } catch (error) {
-        if (error instanceof AgentBusy) {
+        const busyRunId = runningRunId(agent.id)
+        if (busyRunId !== null) {
           // Scheme C: queue instead of refuse. Turns stay serialised per
           // workspace (each still snapshots alone), but the sender no longer
           // hits a wall — the queued turn starts automatically when the
@@ -535,10 +533,24 @@ export const registerChatRoutes = (
           return reply.code(202).send({
             queued: true,
             position,
-            runningRunId: error.runningRunId,
+            runningRunId: busyRunId,
             chat: getChat(db, chat.id),
           })
         }
+
+        // Idle: start in the background and answer at once.
+        void runChatTurn(chat, agent, client, upstream, driver, text)
+          .then(() => drainAgentQueue(agent.id))
+          .catch((error: unknown) => {
+            // No HTTP reply carries the failure any more; the relay does.
+            publish(chat.id, {
+              kind: 'turn_done',
+              state: 'failed',
+              error: error instanceof Error ? error.message : String(error),
+            })
+          })
+        return reply.code(202).send({ accepted: true, chat: getChat(db, chat.id) })
+      } catch (error) {
         app.log.error(`chat turn failed for ${chat.id}: ${(error as Error).message}`)
         return reply.code(500).send({ error: 'turn_failed', detail: (error as Error).message })
       }
