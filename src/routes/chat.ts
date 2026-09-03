@@ -6,7 +6,8 @@ import { GatewayError, type GatewayClient, type HistoryEvent, type QuestionAnswe
 import type { GatewayFrame } from '../gateway/stream.js'
 import type { UpstreamClient } from '../upstream/client.js'
 import { UpstreamError } from '../upstream/rpc.js'
-import { AgentBusy, runAgent, runningRunId } from '../runner.js'
+import { AgentBusy, runAgent, runningRunId, type RunOutcome } from '../runner.js'
+import { cancelQueuedTurns, drainAgentQueue, enqueueTurn } from '../chat/queue.js'
 import { compactHistory } from '../chat/replay.js'
 import {
   bindSession,
@@ -355,6 +356,8 @@ export const registerChatRoutes = (
     }
 
     removeChat(db, chat.id)
+    // Queued turns of this chat must not fire after the chat is gone.
+    cancelQueuedTurns(chat.id)
 
     const detail =
       chat.dshSessionId === null
@@ -401,6 +404,70 @@ export const registerChatRoutes = (
 
   // ---- turns --------------------------------------------------------------
 
+  /**
+   * One chat turn end to end: run + the post-run bookkeeping (history cache,
+   * session binding, turn_done frame). Shared by the direct path and the queue,
+   * so a queued turn does exactly what a direct one does.
+   */
+  const runChatTurn = async (
+    chat: NonNullable<ReturnType<typeof getChat>>,
+    agent: ResolvedAgent,
+    client: GatewayClient,
+    upstream: UpstreamClient | null,
+    driver: 'gateway' | 'apiproxy',
+    text: string,
+  ): Promise<RunOutcome> => {
+    const outcome = await runAgent(
+      {
+        db,
+        pricing: config.pricing,
+        log: {
+          info: (m) => app.log.info(m),
+          warn: (m) => app.log.warn(m),
+          error: (m) => app.log.error(m),
+        },
+      },
+      {
+        agent,
+        client,
+        upstream: upstream ?? undefined,
+        driver,
+        prompt: text,
+        trigger: 'manual',
+        timeoutMs: config.runner.timeoutMs,
+        silenceMs: config.runner.silenceMs,
+        chatId: chat.id,
+        sessionId: chat.dshSessionId,
+        // A conversation continues on this session, so it keeps its slot.
+        // Releasing here would make the next message pay for a cold resume.
+        keepSession: true,
+        // The gateway echoes the message we just sent back as its own
+        // `user` frame, and the route has already published one above. Both
+        // would reach the browser and draw the same bubble twice. manager
+        // owns the echo because it can publish before the session even
+        // exists, so the upstream copy is the redundant one.
+        onFrame: (frame: GatewayFrame) => {
+          if (frame.kind === 'user') return
+          publish(chat.id, frame)
+        },
+      },
+    )
+
+    // Invalidate history cache — the turn added new events.
+    if (outcome.sessionId !== null) invalidateHistory(outcome.sessionId)
+
+    // First turn: remember the session so the next message continues it
+    // rather than starting a fresh conversation.
+    if (outcome.sessionId !== null && chat.dshSessionId === null) {
+      bindSession(db, chat.id, outcome.sessionId)
+    } else {
+      touchChat(db, chat.id)
+    }
+
+    publish(chat.id, { kind: 'turn_done', runId: outcome.runId, state: outcome.state, error: outcome.error })
+    return outcome
+  }
+
   app.post<{ Params: { id: string }; Body: unknown }>(
     '/api/chats/:id/messages',
     {
@@ -430,65 +497,46 @@ export const registerChatRoutes = (
       publish(chat.id, { kind: 'user', text, at: Date.now() })
 
       try {
-        const outcome = await runAgent(
-          {
-            db,
-            pricing: config.pricing,
-            log: {
-              info: (m) => app.log.info(m),
-              warn: (m) => app.log.warn(m),
-              error: (m) => app.log.error(m),
-            },
-          },
-          {
-            agent,
-            client,
-            upstream: upstream ?? undefined,
-            driver,
-            prompt: text,
-            trigger: 'manual',
-            timeoutMs: config.runner.timeoutMs,
-            silenceMs: config.runner.silenceMs,
-            chatId: chat.id,
-            sessionId: chat.dshSessionId,
-            // A conversation continues on this session, so it keeps its slot.
-            // Releasing here would make the next message pay for a cold resume.
-            keepSession: true,
-            // The gateway echoes the message we just sent back as its own
-            // `user` frame, and this route has already published one above. Both
-            // would reach the browser and draw the same bubble twice. manager
-            // owns the echo because it can publish before the session even
-            // exists, so the upstream copy is the redundant one.
-            onFrame: (frame: GatewayFrame) => {
-              if (frame.kind === 'user') return
-              publish(chat.id, frame)
-            },
-          },
-        )
-
-        // Invalidate history cache — the turn added new events.
-        if (outcome.sessionId !== null) invalidateHistory(outcome.sessionId)
-
-        // First turn: remember the session so the next message continues it
-        // rather than starting a fresh conversation.
-        if (outcome.sessionId !== null && chat.dshSessionId === null) {
-          bindSession(db, chat.id, outcome.sessionId)
-        } else {
-          touchChat(db, chat.id)
-        }
-
-        publish(chat.id, { kind: 'turn_done', runId: outcome.runId, state: outcome.state, error: outcome.error })
+        const outcome = await runChatTurn(chat, agent, client, upstream, driver, text)
+        // This turn is done and the agent lock is released; start the next
+        // queued turn (from any chat) if one is waiting.
+        drainAgentQueue(agent.id)
         // A failed turn is a real outcome the caller must see, not a 500.
         return reply.send({ ...outcome, chat: getChat(db, chat.id) })
       } catch (error) {
         if (error instanceof AgentBusy) {
-          // Deliberately a refusal rather than a queue. Two turns in one
-          // workspace would interleave writes to the same files and each commit
-          // the other's half-finished state.
-          return reply.code(409).send({
-            error: 'agent_busy',
-            detail: `${agent.name} 正在处理另一个任务，做完才能接下一个`,
+          // Scheme C: queue instead of refuse. Turns stay serialised per
+          // workspace (each still snapshots alone), but the sender no longer
+          // hits a wall — the queued turn starts automatically when the
+          // current one finishes.
+          const position = enqueueTurn(agent.id, {
+            chatId: chat.id,
+            // Re-read the chat when the turn finally runs: the queued closure
+            // must not carry a stale snapshot (a null dshSessionId would make
+            // the second turn start a fresh session), and an archived chat
+            // must not fire at all.
+            execute: () => {
+              const fresh = getChat(db, chat.id)
+              if (fresh === null || fresh.removedAt !== null) return Promise.resolve()
+              return runChatTurn(fresh, agent, client, upstream, driver, text)
+                .then(() => undefined)
+                .catch((error: unknown) => {
+                  // No HTTP reply exists for a queued turn; the failure must
+                  // still reach the browser through the relay.
+                  publish(chat.id, {
+                    kind: 'turn_done',
+                    state: 'failed',
+                    error: error instanceof Error ? error.message : String(error),
+                  })
+                })
+            },
+          })
+          publish(chat.id, { kind: 'turn_queued', position })
+          return reply.code(202).send({
+            queued: true,
+            position,
             runningRunId: error.runningRunId,
+            chat: getChat(db, chat.id),
           })
         }
         app.log.error(`chat turn failed for ${chat.id}: ${(error as Error).message}`)

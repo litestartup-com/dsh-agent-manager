@@ -21,12 +21,9 @@
 //   turn_done   { runId, state, error }     (manager's)
 
 import { md } from './md.js'
-import { $, esc, icon, money, when } from './ui.js'
+import { $, esc, icon, money } from './ui.js'
 
 const el = {
-  title: $('chat-title'),
-  sub: $('chat-sub'),
-  actions: $('chat-actions'),
   notices: $('chat-notices'),
   log: $('chat-log'),
   composer: $('chat-composer'),
@@ -403,32 +400,99 @@ const toolsBlock = (tools, index) => {
   </details>`
 }
 
+// ---------------------------------------------------------------------------
+// reply feedback (copy / up / down)
+// ---------------------------------------------------------------------------
+
+// Local for now: a tap is remembered per turn id so the thumbs stay honest
+// across reloads. No server API exists yet, so nothing pretends the feedback
+// travelled further than this browser.
+const FB_KEY = 'manager.chat.feedback'
+
+const readFeedback = () => {
+  try {
+    const raw = JSON.parse(window.localStorage.getItem(FB_KEY) ?? '{}')
+    return raw !== null && typeof raw === 'object' ? raw : {}
+  } catch {
+    return {}
+  }
+}
+
+const setFeedback = (turnId, value) => {
+  const fb = readFeedback()
+  if (value === null) delete fb[turnId]
+  else fb[turnId] = value
+  try {
+    window.localStorage.setItem(FB_KEY, JSON.stringify(fb))
+  } catch {
+    // Private-mode storage failures are not worth a visible error: the tap
+    // still registers for this page.
+  }
+}
+
+const feedbackOf = (turnId) => (turnId === null || turnId === '' ? '' : readFeedback()[turnId] ?? '')
+
 const tokens = (usage) => {
   if (usage === null || usage === undefined) return null
   const k = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
   return `${k(usage.inputTokens)} in · ${k(usage.outputTokens)} out`
 }
 
-const footer = (block) => {
-  const parts = []
-  const t = tokens(block.usage)
-  if (t !== null) parts.push(esc(t))
-
-  const run = block.run
-  if (run !== undefined && run !== null) {
-    // `cost` is null when some model on the turn had no configured rate, so the
-    // figure would be a floor rather than a total. Saying nothing beats printing
-    // a number that is quietly too low.
-    if (run.usage !== null && run.usage.cost !== null) parts.push(esc(money(run.usage.cost)))
-    if (run.endedAt !== null) parts.push(`${((run.endedAt - run.startedAt) / 1000).toFixed(1)}s`)
-  }
-
+/**
+ * One reply's closing line, shown once per reply (never per tool call): when it
+ * ended, how long it took, throughput, cost -- and the three actions. `show` is
+ * true only on the last agent block of a run, which is what keeps a multi-step
+ * reply from printing this row several times.
+ */
+const footer = (block, index, show) => {
   if (block.error !== null) {
     return `<div class="turn-foot failed">${icon('alert', 12)}<span>${esc(block.error)}</span></div>`
   }
-  if (parts.length === 0) return ''
-  return `<div class="turn-foot">${parts.join(' · ')}</div>`
+  if (!show || block.streaming) return ''
+
+  const run = block.run
+  const durationSec =
+    run !== undefined && run !== null && run.endedAt !== null
+      ? Math.max(1, Math.round((run.endedAt - run.startedAt) / 1000))
+      : 0
+
+  const parts = []
+  if (run !== undefined && run !== null && run.endedAt !== null) {
+    parts.push(new Date(run.endedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }))
+  }
+  if (durationSec > 0) parts.push(`${durationSec}s`)
+  const usage = block.usage
+  if (usage !== null && usage !== undefined && usage.outputTokens > 0 && durationSec > 0) {
+    parts.push(`${Math.round(usage.outputTokens / durationSec)} tok/s`)
+  }
+  const t = tokens(usage)
+  if (t !== null) parts.push(esc(t))
+  if (run !== undefined && run !== null && run.usage !== null && run.usage.cost !== null) {
+    parts.push(esc(money(run.usage.cost)))
+  }
+
+  const turnId = run !== undefined && run !== null && run.id !== undefined ? String(run.id) : ''
+  const fb = feedbackOf(turnId)
+  return `<div class="turn-foot">
+    ${parts.length === 0 ? '' : `<span class="turn-meta">${parts.join(' · ')}</span>`}
+    <span class="grow"></span>
+    <div class="turn-actions">
+      <button class="turn-act" type="button" data-act="copy" data-copy="${index}" aria-label="复制回答" title="复制">
+        ${icon('copy', 14)}
+      </button>
+      <button class="turn-act${fb === 'up' ? ' on' : ''}" type="button" data-act="up" data-turn="${esc(turnId)}" aria-label="点赞" title="有帮助">
+        ${icon('thumb-up', 14)}
+      </button>
+      <button class="turn-act${fb === 'down' ? ' on' : ''}" type="button" data-act="down" data-turn="${esc(turnId)}" aria-label="反对" title="没帮助">
+        ${icon('thumb-down', 14)}
+      </button>
+    </div>
+  </div>`
 }
+
+// ---------------------------------------------------------------------------
+// rendered markdown
+// ---------------------------------------------------------------------------
 
 /**
  * Markdown, parsed once per distinct string.
@@ -457,26 +521,26 @@ const mdOnce = (text) => {
   return html
 }
 
-const agentTurn = (block, index) => {
+const agentTurn = (block, index, showFoot) => {
   const name = state === null ? 'agent' : state.agent.name
   // Streamed text is shown only until the message frame lands, and the two are
   // never concatenated: they are the same content twice.
   const body = block.text !== '' ? block.text : block.streamed
   const writes = block.tools.filter((t) => t.write && t.path !== null)
   return `<div class="turn from-agent">
-    <div class="turn-who">${esc(name)}</div>
+    <div class="turn-who"><span class="who-avatar" aria-hidden="true">${icon('bot', 14)}</span><span>${esc(name)}</span></div>
     ${body === '' && !block.streaming ? '' : `<div class="bubble prose${block.streaming ? ' streaming' : ''}">${mdOnce(body)}</div>`}
     ${toolsBlock(block.tools, index)}
     ${writes.length === 0 ? '' : `<div class="writes">${writes.map(writeRow).join('')}</div>`}
-    ${footer(block)}
+    ${footer(block, index, showFoot)}
   </div>`
 }
 
 // The user's own words stay plain text on purpose: rendering their Markdown
 // would show them something other than what they typed, and a stray asterisk is
-// not a formatting request.
+// not a formatting request. No name row either -- alignment and the blue bubble
+// are the identity, exactly as DSH renders its user messages.
 const userTurn = (block) => `<div class="turn from-user">
-    <div class="turn-who">你</div>
     <div class="bubble">${esc(block.text)}</div>
   </div>`
 
@@ -514,7 +578,9 @@ const contextFold = (group, index) => {
 }
 
 const EMPTY_FRESH = `<div class="chat-empty">
-    <p>还没有消息。说一句就开始。</p>
+    <span class="chat-empty-icon">${icon('chat', 20)}</span>
+    <strong>还没有消息</strong>
+    <p>说一句就开始。</p>
     <p class="small">这个 agent 会在它自己的工作区里读写文件，所以先确认下面那行写的是你想要的那个。</p>
   </div>`
 
@@ -596,7 +662,7 @@ const SLOW_AFTER_MS = 45_000
 // user had selected while reading back through it.
 const waitNode = document.createElement('div')
 waitNode.className = 'turn from-agent waiting'
-waitNode.innerHTML = `<div class="turn-who"></div>
+waitNode.innerHTML = `<div class="turn-who"><span class="who-avatar" aria-hidden="true">${icon('bot', 14)}</span></div>
   <div class="wait-row">
     <span class="wait-dots" aria-hidden="true"><i></i><i></i><i></i></span>
     <span class="wait-what" role="status"></span>
@@ -617,7 +683,15 @@ const paintWait = () => {
   const block = liveBlock()
   // Named only when it is not already answering: once a bubble is on screen it
   // carries the name, and repeating it would label the same speaker twice.
-  waitParts.who.textContent = block !== null ? '' : state === null ? 'agent' : state.agent.name
+  const who = block !== null ? '' : state === null ? 'agent' : state.agent.name
+  if (waitParts.who.dataset.name !== who) {
+    waitParts.who.dataset.name = who
+    // innerHTML, not textContent: the mark must survive the name changes.
+    waitParts.who.innerHTML =
+      who === ''
+        ? `<span class="who-avatar" aria-hidden="true">${icon('bot', 14)}</span>`
+        : `<span class="who-avatar" aria-hidden="true">${icon('bot', 14)}</span><span>${esc(who)}</span>`
+  }
   // Assigned only on change: this runs every second, and rewriting the text of a
   // node inside `role="status"` re-announces it to a screen reader each time.
   const what = waitLabel(block)
@@ -715,26 +789,34 @@ const questionCard = (ask) => {
       ${(q.options ?? []).length === 0 ? '' : `<div class="ask-opts${q.multiSelect === true ? ' multi' : ''}">${q.options.map((o) => optionRow(q.id, o)).join('')}</div>`}
       <input class="ask-custom" data-q="${esc(q.id)}" type="text" placeholder="${(q.options ?? []).length === 0 ? '写下你的回答' : '或者自己写一个'}">
     </div>`).join('')
+  // DSH's decision-card grammar: amber strip on top, white card, body, and the
+  // actions pinned to the bottom-right of the card.
   return `<div class="ask" data-ask="${esc(ask.id)}">
-    <div class="ask-title">${icon('chat', 13)}<span>它在等你回答</span></div>
-    ${bodies}
+    <div class="ask-strip"><span class="ask-dot" aria-hidden="true"></span>它在等你回答</div>
+    <div class="ask-body">${bodies}</div>
     <div class="ask-actions">
-      <button type="button" class="ask-send" data-ask="${esc(ask.id)}">回答</button>
-      <button type="button" class="ask-skip" data-ask="${esc(ask.id)}">不答，让它自己定</button>
       <span class="ask-error"></span>
+      <button type="button" class="ask-skip" data-ask="${esc(ask.id)}">不答，让它自己定</button>
+      <button type="button" class="ask-send" data-ask="${esc(ask.id)}">回答</button>
     </div>
   </div>`
 }
 
-const approvalCard = (ask) => `<div class="ask approval" data-ask="${esc(ask.id)}">
-    <div class="ask-title">${icon('shield', 13)}<span>它要用 ${esc(ask.toolName === '' ? '一个工具' : ask.toolName)}，需要你批</span></div>
-    ${ask.reason === null || ask.reason === '' ? '' : `<div class="ask-q-detail">${esc(ask.reason)}</div>`}
+const approvalCard = (ask) => {
+  const toolName = ask.toolName === '' ? '一个工具' : ask.toolName
+  return `<div class="ask approval" data-ask="${esc(ask.id)}">
+    <div class="ask-strip"><span class="ask-dot" aria-hidden="true"></span>等待授权</div>
+    <div class="ask-body">
+      <div class="ask-headline">它要用「${esc(toolName)}」做一件事，需要你批准</div>
+      ${ask.reason === null || ask.reason === '' ? '' : `<div class="ask-q-detail">${esc(ask.reason)}</div>`}
+    </div>
     <div class="ask-actions">
-      <button type="button" class="ask-allow" data-ask="${esc(ask.id)}">允许这一次</button>
-      <button type="button" class="ask-reject" data-ask="${esc(ask.id)}">不允许</button>
       <span class="ask-error"></span>
+      <button type="button" class="ask-reject" data-ask="${esc(ask.id)}">不允许</button>
+      <button type="button" class="ask-allow" data-ask="${esc(ask.id)}">允许这一次</button>
     </div>
   </div>`
+}
 
 /**
  * Attaches the cards, rebuilding them only when the asks changed.
@@ -911,7 +993,11 @@ const renderLog = () => {
       html.push(contextFold(group, start))
       continue
     }
-    html.push(block.role === 'user' ? userTurn(block) : agentTurn(block, i))
+    // The closing line (stats + copy/feedback) belongs to the reply, not to
+    // every intermediate agent block of a multi-step run: only the last agent
+    // block before a user message -- or the end of the transcript -- gets it.
+    const nextIsAgent = i + 1 < blocks.length && blocks[i + 1].role === 'agent'
+    html.push(block.role === 'user' ? userTurn(block) : agentTurn(block, i, !nextIsAgent))
   }
 
   el.log.innerHTML = html.join('')
@@ -970,6 +1056,34 @@ el.log.addEventListener(
   { capture: true },
 )
 
+// Reply actions (copy / up / down), delegated: the transcript is rebuilt from
+// data on every frame, so a listener on a per-turn control would be attached to
+// a node that no longer exists.
+el.log.addEventListener('click', (event) => {
+  const act = event.target.closest('.turn-act')
+  if (act === null) return
+
+  if (act.dataset.act === 'copy') {
+    const block = blocks[Number(act.dataset.copy)]
+    const text = block === undefined ? '' : block.text !== '' ? block.text : block.streamed
+    if (text !== '') {
+      void navigator.clipboard
+        ?.writeText(text)
+        .then(() => toast('已复制'))
+        .catch(() => toast('复制失败'))
+    }
+    return
+  }
+
+  const turnId = act.dataset.turn ?? ''
+  if (turnId === '') return
+  const kind = act.dataset.act
+  const next = readFeedback()[turnId] === kind ? null : kind
+  setFeedback(turnId, next)
+  toast(next === null ? '已撤销' : kind === 'up' ? '已点赞，谢谢' : '已反对')
+  render()
+})
+
 // ---------------------------------------------------------------------------
 // header, notices, composer
 // ---------------------------------------------------------------------------
@@ -982,20 +1096,12 @@ const chatTitle = () => {
 
 const renderHead = () => {
   if (state === null) return
+  // No header element on this page any more (DSH's own view leads with the
+  // transcript); the title still belongs in the tab and in the narrow-screen
+  // app bar, which is the only place a title appears there.
   const title = chatTitle()
-  el.title.textContent = title
   document.title = `${title} · ${state.agent.name} · Oh! dsh`
-  // On a narrow screen the app bar is the only place a title is visible: the
-  // page header scrolls with the transcript, and the sidebar is behind a drawer.
   window.dispatchEvent(new CustomEvent('shell:title', { detail: title }))
-  el.actions.hidden = false
-
-  const bits = [`<span>${esc(state.agent.name)}</span>`]
-  if (state.agent.public) bits.push('<span class="sep">·</span><span title="这个 agent 对外可调">对外</span>')
-  if (state.chat.lastActiveAt !== null) {
-    bits.push(`<span class="sep">·</span><span>${esc(when(state.chat.lastActiveAt))}</span>`)
-  }
-  el.sub.innerHTML = bits.join(' ')
 }
 
 /**
@@ -1021,12 +1127,9 @@ const renderNotices = () => {
   if (state === null) return
   const out = []
 
-  if (state.sessionState === 'cold') {
-    // Said out loud because `cold` and `live` are otherwise identical, and the
-    // revival is silent: without this the only symptom is "the first message is
-    // sometimes oddly slow" (UI.md §3).
-    out.push(strip('', '已休眠 · 下一条消息会唤回它'))
-  }
+  // `cold` is deliberately NOT a strip any more: it is a normal state that
+  // costs the reader nothing until they are about to type. It lives in the
+  // composer's hint line instead -- the place the action actually happens.
   if (state.sessionState === 'lost') {
     out.push(strip('bad', '这个会话已无法继续，历史仅供查阅'))
   }
@@ -1040,7 +1143,7 @@ const renderNotices = () => {
       busy === null
         ? '另一个会话'
         : `会话「<a href="/chat/${encodeURIComponent(busy.id)}">${esc(busy.title ?? '新会话')}</a>」`
-    out.push(strip('warn', `${esc(state.agent.name)} 正忙于${where} · 一个 agent 同时只跑一个回合`))
+    out.push(strip('warn', `${esc(state.agent.name)} 正忙于${where} · 新消息会自动排队，前一个完成后接着跑`))
   }
 
   el.notices.innerHTML = out.join('')
@@ -1048,15 +1151,20 @@ const renderNotices = () => {
 
 const renderComposer = () => {
   if (state === null) return
-  el.agent.textContent = `发给「${state.agent.name}」`
+  // The agent pill carries the name; the full path is one hover away.
+  el.agent.textContent = state.agent.name
+  el.agent.title = state.agent.workspacePath ?? ''
   el.path.textContent = state.agent.workspacePath ?? ''
   el.path.title = state.agent.workspacePath ?? ''
 
   const lost = state.sessionState === 'lost'
   const busy = state.busyRunId !== null && !sending
-  const locked = lost || busy || sending
+  const cold = state.sessionState === 'cold'
+  // Busy no longer locks the composer: a message sent while the agent runs is
+  // queued server-side and starts automatically when the run finishes.
+  const locked = lost || sending
 
-  el.input.disabled = lost || busy
+  el.input.disabled = lost
   el.send.disabled = locked || el.input.value.trim() === ''
   // Only the chat actually running gets a stop button; stopping from another
   // thread would cancel work the user cannot see.
@@ -1066,12 +1174,15 @@ const renderComposer = () => {
   el.input.placeholder = lost
     ? '这个会话已无法继续'
     : busy
-      ? `${state.agent.name} 正忙，做完才能接下一个`
+      ? `${state.agent.name} 正在忙，新消息会自动排队`
       : sending
         ? '正在等它回答…'
         : '说点什么…'
 
-  el.hint.textContent = sending ? '按 Esc 或点「停止」可以中断' : ''
+  // The hint is the quiet channel: how to interrupt while sending, and the
+  // dormancy note when there is one -- next to the input, where it is acted on,
+  // not as a banner over the history.
+  el.hint.textContent = sending ? '按 Esc 或点「停止」可以中断' : cold ? '已休眠 · 下一条消息会唤回它' : ''
 }
 
 // ---------------------------------------------------------------------------
@@ -1329,6 +1440,10 @@ const send = async () => {
     // the relay dropped and `turn_done` never arrived.
     sending = false
     await reload()
+    const result = await response.json().catch(() => ({}))
+    if (result.queued === true) {
+      toast(`已排队（第 ${result.position} 位），前一个任务完成后自动开始`)
+    }
     void loadSiblings()
   } catch (error) {
     sending = false
@@ -1377,45 +1492,12 @@ document.addEventListener('keydown', (event) => {
 // ---------------------------------------------------------------------------
 // thread actions
 // ---------------------------------------------------------------------------
-
-$('chat-rename').addEventListener('click', async () => {
-  if (state === null) return
-  const title = window.prompt('会话名称', chatTitle())
-  if (title === null || title.trim() === '') return
-  try {
-    const response = await fetch(`/api/chats/${encodeURIComponent(chatId)}`, {
-      method: 'PATCH',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ title: title.trim() }),
-    })
-    if (!response.ok) {
-      toast('改名失败')
-      return
-    }
-    await reload()
-  } catch (error) {
-    toast(`改名失败：${error.message}`)
-  }
-})
-
-$('chat-remove').addEventListener('click', async () => {
-  if (state === null) return
-  if (!window.confirm(`归档会话「${chatTitle()}」？\n\n对话记录和账单都会保留，可以在【已归档】里恢复。`)) return
-  try {
-    const response = await fetch(`/api/chats/${encodeURIComponent(chatId)}/remove`, { method: 'POST' })
-    const body = await response.json().catch(() => ({}))
-    if (!response.ok) {
-      toast(body.detail ?? '归档失败')
-      return
-    }
-    // The server's own words: it distinguishes slot returned, slot not returned,
-    // and nothing to return, and only it knows which happened (UI.md §8).
-    window.alert(body.detail ?? '已归档')
-    window.location.href = '/app'
-  } catch (error) {
-    toast(`归档失败：${error.message}`)
-  }
-})
+//
+// Rename and archive used to live in the page header. That header is gone (the
+// page now leads with the transcript, like DSH), and both actions already
+// exist on the sidebar's row menu -- shell.js owns them, so this page keeps no
+// copy. Deleting the handlers here must stay deleted: their buttons no longer
+// exist in the DOM.
 
 // ---------------------------------------------------------------------------
 // boot
@@ -1443,7 +1525,6 @@ window.addEventListener('pagehide', disconnect)
 if (chatId === null) {
   // `/chat` with no id. The sidebar is the chat list, so this only has to say so
   // rather than build a second one.
-  el.actions.hidden = true
   el.identity.hidden = true
   el.composer.hidden = true
   el.log.innerHTML = `<div class="chat-empty">

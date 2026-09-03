@@ -7,6 +7,7 @@ import { schema } from '../db/index.js'
 import type { GatewayClient } from '../gateway/client.js'
 import type { UpstreamClient } from '../upstream/client.js'
 import { AgentBusy, runAgent, type RunInput, type RunOutcome, type RunnerDeps } from '../runner.js'
+import { drainAgentQueue } from '../chat/queue.js'
 import { currentDay, daySpend } from '../usage/store.js'
 
 /**
@@ -292,6 +293,8 @@ export class Scheduler {
           silenceMs: this.deps.config.runner.silenceMs,
         },
       )
+      // A cron run releases the agent too: start any chat turn queued behind it.
+      drainAgentQueue(agent.id)
       if (outcome.state === 'done') {
         this.deps.db
           .update(schema.cron)
