@@ -18,6 +18,8 @@ services:
       #   NPM_REGISTRY: https://registry.npmmirror.com
     image: ohdsh/dsh-node:0.1.0
     container_name: dsh-node
+    # 与宿主机部署用户同 uid：/workspace 挂载目录两边读写一致
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     # 单机测试：只绑宿主机 loopback（公网不可达；同机 manager 可访问）。
     # 跨机部署时才改成 "0.0.0.0:3080:3080"，且必须配合防火墙只放行网关路径
     # —— 0.0.0.0 会把 DSH Web GUI 也暴露出去。
@@ -33,7 +35,8 @@ services:
       - dsh-data:/data          # 会话/settings/skills 持久化
       # agent 工作区根：挂宿主机目录，同机 manager 的 agent.workspace 指向这里
       # （容器命名卷宿主机摸不到，manager 的快照/计费没法落）。
-      - ./workspace:/workspace
+      # 路径来自 docker/.env 的 WORKSPACE_PATH（install.sh 生成）。
+      - "${WORKSPACE_PATH:?请在 docker/.env 设置 WORKSPACE_PATH}:/workspace"
       # - ./packages:/packages:ro  # 本地 gateway tgz（国内 GitHub 不通时启用）
     restart: unless-stopped
 

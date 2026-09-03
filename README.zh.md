@@ -44,9 +44,15 @@ npm run dev                   # 监听 http://127.0.0.1:8080
 
 打开 http://127.0.0.1:8080，用首次启动创建的初始用户登录（变量清单见 `.env.example`）。
 
-### 用容器跑一个 DSH 节点
+### 一键安装（Ubuntu 24，节点容器 + manager 一起）
 
-`docker/` 提供单容器 DSH 节点（DSH + dsh-api-gateway）——`docker compose up` 后把 manager 端点指向它即可，详见 `docker/README.md`。
+```bash
+git clone https://github.com/litestartup-com/dsh-agent-manager.git
+cd dsh-agent-manager
+sudo ./install.sh     # 节点容器 + manager systemd 服务 + 验收脚本
+```
+
+脚本幂等、可用 `DRY_RUN=1` 预演；手动部署方式见 `docker/README.md`。
 
 ## 配置
 

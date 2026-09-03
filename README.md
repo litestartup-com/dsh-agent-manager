@@ -49,10 +49,16 @@ npm run dev                   # serves http://127.0.0.1:8080
 Open http://127.0.0.1:8080 and log in with the initial user (created on first boot;
 see `.env.example` for the full variable list).
 
-### Run a DSH node as a container
+### One-command install (Ubuntu 24, node + manager together)
 
-`docker/` ships a one-container DSH node (DSH + dsh-api-gateway) —
-`docker compose up` and point a manager endpoint at it. See `docker/README.md`.
+```bash
+git clone https://github.com/litestartup-com/dsh-agent-manager.git
+cd dsh-agent-manager
+sudo ./install.sh     # node container + manager systemd service + smoke scripts
+```
+
+See `install.sh` (idempotent, `DRY_RUN=1` for a plan-only pass) and `docker/README.md`
+for the manual path.
 
 ## Configuration
 

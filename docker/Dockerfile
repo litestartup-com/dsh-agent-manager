@@ -25,8 +25,10 @@ ENV DSH_HOME=/data \
 COPY entrypoint.sh /usr/local/bin/dsh-node-entrypoint
 RUN chmod +x /usr/local/bin/dsh-node-entrypoint
 
+# /data（DSH_HOME）与 /workspace 归 uid 1000：容器以非 root（user 1000:1000）运行，
+# 命名卷首次挂载会继承镜像目录所有权，先 chown 才能写入。
+RUN mkdir -p /data /workspace && chown -R 1000:1000 /data /workspace
 # agent 工作区根（DSH 的默认 workspace 根 = 启动目录）
-RUN mkdir -p /workspace
 WORKDIR /workspace
 
 EXPOSE 3080

@@ -10,24 +10,23 @@
 
 ## 部署步骤
 
+**推荐：用仓库根的一键脚本**（Ubuntu 24，单机 all-in-one：节点容器 + manager + systemd 一起装）：
+
 ```bash
-# 1. 把这套文件弄到服务器（git clone 或直接拷贝 docker/ 目录）
+git clone https://github.com/litestartup-com/dsh-agent-manager.git
+cd dsh-agent-manager
+sudo ./install.sh        # 幂等；DRY_RUN=1 sudo ./install.sh 只打印计划
+```
+
+**手动方式（只装节点容器）**：
+
+```bash
 cd dsh-agent-manager/docker
-
-# 2. 配置密钥
 cp .env.example .env
-#    GW_KEY：网关 API 密钥，openssl rand -hex 32 生成
-#    DEEPSEEK_API_KEY：DeepSeek 模型密钥
-
-# 3. 构建并启动（首次构建约 2-5 分钟）
+# 填四项：GW_KEY（openssl rand -hex 32）、DEEPSEEK_API_KEY、
+#        WORKSPACE_PATH（宿主机绝对路径，与 manager 配置一致）、HOST_UID/HOST_GID
 docker compose up -d --build
-
-# 4. 看日志，等 "mounted" / 端口起来
-docker compose logs -f --tail 50
-
-# 5. 外部调用验收
-export GW_KEY=<与 .env 一致>
-./smoke.sh
+./smoke.sh               # 外部调用验收
 ```
 
 ## 验收清单
