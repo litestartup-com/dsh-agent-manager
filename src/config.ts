@@ -7,6 +7,28 @@ import { DEFAULT_PRICING, parseUtcTime, type ModelPricing, type PricingTable } f
 
 dotenv.config()
 
+const spawnSchema = z.object({
+  // 蜂群 P1：manager 托管该节点的进程生命周期。false（默认）= 节点由外部拉起，
+  // manager 只探活不管理（与现状一致，用户手动起的 DSH 不会被 manager 抢管）。
+  managed: z.boolean().default(false),
+  command: z.string().min(1),
+  args: z.array(z.string()).default([]),
+  cwd: z.string().optional(),
+  ready_timeout_ms: z.number().int().positive().default(30_000),
+  // detached: true = 节点独立于拉起者存活（CLI `nodes up` 场景），必须配
+  // log_file（stdout/stderr 落文件，pidfile 落 <log_file>.pid 供跨进程 down）。
+  // manager 常驻启动用默认 false（节点随 manager 同生共死）。
+  detached: z.boolean().default(false),
+  log_file: z.string().optional(),
+  restart: z
+    .object({
+      max_attempts: z.number().int().positive().default(3),
+      base_delay_ms: z.number().int().nonnegative().default(1_000),
+      max_delay_ms: z.number().int().nonnegative().default(30_000),
+    })
+    .default({ max_attempts: 3, base_delay_ms: 1_000, max_delay_ms: 30_000 }),
+})
+
 const endpointSchema = z.object({
   url: z.string().url(),
   driver: z.enum(['gateway', 'apiproxy']).default('gateway'),
@@ -16,6 +38,8 @@ const endpointSchema = z.object({
   // 指向 http://host:3080/api-gw/v1）。缺省 = 该端点不提供按会话沙箱模式。
   sandbox_base: z.string().url().optional(),
   sandbox_key_ref: z.string().default(''),
+  // 蜂群 P1：节点进程生命周期（manager 拉起/停止/重启）。缺省 = 不托管。
+  spawn: spawnSchema.optional(),
 })
 
 const agentSchema = z.object({
@@ -92,6 +116,18 @@ const fileSchema = z.object({
   pricing: pricingSchema.optional(),
 })
 
+export interface ResolvedSpawnSpec {
+  managed: boolean
+  command: string
+  args: string[]
+  cwd: string | null
+  readyTimeoutMs: number
+  detached: boolean
+  /** Absolute path for node stdout/stderr (and its pidfile), or null for in-memory capture. */
+  logFile: string | null
+  restart: { maxAttempts: number; baseDelayMs: number; maxDelayMs: number }
+}
+
 export interface ResolvedEndpoint {
   id: string
   url: string
@@ -103,6 +139,8 @@ export interface ResolvedEndpoint {
   sandboxBase: string | null
   /** Gateway key for the sandbox-mode route. Never logged, never sent to a browser. */
   sandboxKey: string
+  /** Node lifecycle spec; null = this endpoint's DSH process is externally managed. */
+  spawn: ResolvedSpawnSpec | null
 }
 
 export interface ResolvedAgent {
@@ -174,6 +212,26 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
     if (sandboxBase !== null && sandboxKey === '') {
       throw new Error(`endpoint "${id}": env var ${ep.sandbox_key_ref} is empty; it must match one entry of the gateway's apiKeys`)
     }
+    // 蜂群 P1：节点的进程生命周期配置。managed: true 意味着 manager 会真的 spawn
+    // 这个 DSH 进程——命令/参数要指向 dsh 的 bin.js + 该节点自己的 profile。
+    const spawnRaw = ep.spawn
+    const spawn: ResolvedSpawnSpec | null =
+      spawnRaw === undefined
+        ? null
+        : {
+            managed: spawnRaw.managed,
+            command: spawnRaw.command,
+            args: spawnRaw.args,
+            cwd: spawnRaw.cwd === undefined ? null : resolve(spawnRaw.cwd),
+            readyTimeoutMs: spawnRaw.ready_timeout_ms,
+            detached: spawnRaw.detached,
+            logFile: spawnRaw.log_file === undefined ? null : resolve(spawnRaw.log_file),
+            restart: {
+              maxAttempts: spawnRaw.restart.max_attempts,
+              baseDelayMs: spawnRaw.restart.base_delay_ms,
+              maxDelayMs: spawnRaw.restart.max_delay_ms,
+            },
+          }
     endpoints[id] = {
       id,
       url: ep.url.replace(/\/+$/, ''),
@@ -182,6 +240,7 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
       key,
       sandboxBase,
       sandboxKey,
+      spawn,
     }
   }
 

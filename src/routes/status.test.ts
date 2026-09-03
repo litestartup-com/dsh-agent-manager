@@ -54,7 +54,7 @@ const boot = (): { app: FastifyInstance; db: Db } => {
   const config: AppConfig = {
     listen: { host: '127.0.0.1', port: 0 },
     // Port 1 is never listening, so health() fails the way a stopped DSH does.
-    endpoints: { A: { id: 'A', url: 'http://127.0.0.1:1', driver: 'gateway', prefix: '/api-gw/v1', key: 'k', sandboxBase: null, sandboxKey: '' } },
+    endpoints: { A: { id: 'A', url: 'http://127.0.0.1:1', driver: 'gateway', prefix: '/api-gw/v1', key: 'k', sandboxBase: null, sandboxKey: '', spawn: null } },
     agents: {
       personal: agentFor('personal', 'Personal', workspace),
       company: agentFor('company', 'Company', workspace),
@@ -118,7 +118,7 @@ test('an apiproxy endpoint gets a row probed via host.describe, not /health', as
   const config: AppConfig = {
     listen: { host: '127.0.0.1', port: 0 },
     // Port 1 never listens: host.describe fails, and the row must still exist.
-    endpoints: { A: { id: 'A', url: 'http://127.0.0.1:1', driver: 'apiproxy', prefix: '/api', key: '', sandboxBase: null, sandboxKey: '' } },
+    endpoints: { A: { id: 'A', url: 'http://127.0.0.1:1', driver: 'apiproxy', prefix: '/api', key: '', sandboxBase: null, sandboxKey: '', spawn: null } },
     agents: { personal: agentFor('personal', 'Personal', workspace) },
     runner: { timeoutMs: 10_000, silenceMs: 0, maxConsecutiveFailures: 3, dailyBudgetMicroUsd: null },
     databasePath: ':memory:',

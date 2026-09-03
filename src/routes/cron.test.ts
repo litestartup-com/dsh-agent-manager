@@ -28,7 +28,7 @@ const AGENT: ResolvedAgent = {
 
 const CONFIG: AppConfig = {
   listen: { host: '127.0.0.1', port: 0 },
-  endpoints: { A: { id: 'A', url: 'http://127.0.0.1:1', driver: 'gateway', prefix: '/api-gw/v1', key: 'k', sandboxBase: null, sandboxKey: '' } },
+  endpoints: { A: { id: 'A', url: 'http://127.0.0.1:1', driver: 'gateway', prefix: '/api-gw/v1', key: 'k', sandboxBase: null, sandboxKey: '', spawn: null } },
   agents: { personal: AGENT },
   runner: { timeoutMs: 1000, silenceMs: 0, maxConsecutiveFailures: 3, dailyBudgetMicroUsd: null },
   databasePath: ':memory:',

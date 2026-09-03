@@ -14,6 +14,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "init": "tsx src/cli/init.ts",
+    "nodes": "tsx src/cli/node.ts",
     "backfill-cost": "tsx src/cli/backfill-cost.ts",
     "test": "tsx --test",
     "smoke": "node scripts/smoke.mjs"

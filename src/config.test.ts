@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { stringify } from 'yaml'
 import { loadConfig } from './config.js'
 
@@ -107,4 +107,37 @@ test('endpoint sandbox_base with empty key env fails loud at boot', () => {
       /GW_KEY_A is empty/,
     )
   })
+})
+
+test('parses a managed spawn spec with defaults and resolved cwd', () => {
+  const cfg = loadFrom(baseConfig({
+    endpoints: {
+      A: {
+        url: 'http://127.0.0.1:3080',
+        driver: 'apiproxy',
+        spawn: {
+          managed: true,
+          command: 'node',
+          args: ['bin.js', '--profile', 'web'],
+          cwd: '.',
+        },
+      },
+    },
+  }))
+  const ep = cfg.endpoints['A']
+  assert.ok(ep !== undefined)
+  assert.ok(ep.spawn !== null)
+  assert.equal(ep.spawn.managed, true)
+  assert.equal(ep.spawn.command, 'node')
+  assert.deepEqual(ep.spawn.args, ['bin.js', '--profile', 'web'])
+  assert.equal(ep.spawn.cwd, resolve('.'))
+  assert.equal(ep.spawn.readyTimeoutMs, 30_000)
+  assert.equal(ep.spawn.detached, false)
+  assert.equal(ep.spawn.logFile, null)
+  assert.deepEqual(ep.spawn.restart, { maxAttempts: 3, baseDelayMs: 1_000, maxDelayMs: 30_000 })
+})
+
+test('no spawn block resolves to null (externally managed node)', () => {
+  const cfg = loadFrom(baseConfig())
+  assert.equal(cfg.endpoints['A']?.spawn, null)
 })

@@ -12,6 +12,7 @@ import { pruneExpiredSessions } from './auth/session.js'
 import { makeRequirePage, makeRequireUser } from './auth/hooks.js'
 import { buildClients } from './gateway/client.js'
 import { buildUpstreamClients, closeAllMux } from './upstream/client.js'
+import { buildNodeSupervisors } from './nodes/registry.js'
 import { registerAuthRoutes } from './routes/auth.js'
 import { registerStatusRoutes } from './routes/status.js'
 import { registerWorkspaceRoutes } from './routes/workspace.js'
@@ -100,6 +101,19 @@ const main = async (): Promise<void> => {
 
   const clients = buildClients(config.endpoints)
   const upstreamClients = buildUpstreamClients(config.endpoints)
+  const nodeSupervisors = buildNodeSupervisors(config, {
+    gateway: (id) => clients.get(id),
+    upstream: (id) => upstreamClients.get(id),
+    log: (line) => app.log.info(line),
+  })
+  // 蜂群 P1：被托管的节点随 manager 一起拉起。不托管（spawn 缺省/关闭）的节点
+  // 由外部管理，manager 只探活——用户手动起的 DSH 不会被抢管。
+  for (const [id, supervisor] of nodeSupervisors) {
+    const spec = config.endpoints[id]?.spawn
+    if (spec === null || spec === undefined) continue
+    app.log.info(`node ${id}: managed (${spec.command} ${spec.args.join(' ')})`)
+    supervisor.start(spec)
+  }
   const requireUser = makeRequireUser(db)
   const requirePage = makeRequirePage(db)
   // Secure cookies require HTTPS; on plain-HTTP localhost dev they would simply
@@ -179,6 +193,8 @@ const main = async (): Promise<void> => {
     closeChatRelays()
     closeAllMux()
     scheduler.stop()
+    // 蜂群 P1：manager 退场时带走它拉起的节点（taskkill /T 同步发出，不留孤儿）。
+    for (const supervisor of nodeSupervisors.values()) supervisor.stop()
     await app.close()
     process.exit(0)
   }

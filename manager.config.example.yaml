@@ -16,6 +16,17 @@ endpoints:
     # 需要它的 agent 要声明 sandbox_mode；不声明就不走这条路。
     sandbox_base: http://127.0.0.1:3080/api-gw/v1
     sandbox_key_ref: GW_KEY_A   # 与 DSH gateway 的 apiKeys 一致
+    # 蜂群 P1：让 manager 托管该节点的进程（拉起/停止/崩溃自愈）。默认不托管——
+    # 你手动起的 DSH 不会被 manager 抢管。托管节点需要自己的 profile 与端口：
+    # spawn:
+    #   managed: true
+    #   command: node
+    #   args: ["C:/nvm4w/nodejs/node_modules/@deepseek-ai/dsh/lib/bin.js", "--profile", "web"]
+    #   ready_timeout_ms: 30000
+    #   # CLI `npm run nodes -- up` 独立拉起时用 detached + log_file（进程独立存活、
+    #   # 日志落文件、pidfile 供跨进程 down）；manager 常驻启动保持默认 false：
+    #   detached: true
+    #   log_file: ./data/nodes/web.log
   # 方案 B（跨机 / 容器节点）示例：
   # B:
   #   url: http://<host>:3080
