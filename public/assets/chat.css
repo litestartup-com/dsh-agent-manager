@@ -71,6 +71,44 @@
 /* A state strip, not a banner: `lost` and busy are the two states that stop
    work, so they get the full-width treatment. Dormancy lives in the composer
    hint instead -- it is a note about the next send, not a problem. */
+/* 排队任务 dock（composer 上方）：一行一条，超出省略 */
+.queue-dock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 12px 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-soft, #e2e6ee);
+  border-radius: 10px;
+  background: var(--panel-soft, #f7f8fb);
+}
+
+.queue-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.queue-badge {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--accent-soft, #eef3ff);
+  color: var(--accent, #3a5ccc);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.queue-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-soft, #5a6472);
+}
+
 .state-strip {
   display: flex;
   align-items: center;

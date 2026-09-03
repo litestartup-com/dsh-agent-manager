@@ -529,7 +529,7 @@ export const registerChatRoutes = (
                 })
             },
           })
-          publish(chat.id, { kind: 'turn_queued', position })
+          publish(chat.id, { kind: 'turn_queued', position, text })
           return reply.code(202).send({
             queued: true,
             position,

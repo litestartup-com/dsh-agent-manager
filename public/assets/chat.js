@@ -25,6 +25,7 @@ import { $, esc, icon, money } from './ui.js'
 
 const el = {
   notices: $('chat-notices'),
+  queueDock: $('queue-dock'),
   log: $('chat-log'),
   composer: $('chat-composer'),
   identity: $('composer-identity'),
@@ -46,8 +47,9 @@ let state = null
 // 本会话排队/刚发送、可能尚未进入 DSH 历史的消息：reload 重建列表时补画。
 // 每页只对应一个 chat（chatId 来自 URL），所以页面级状态即可。
 let pendingUserTexts = []
-// 仍在服务端队列里的消息数（turn_queued 帧驱动；刷新页面即重置）。
-let queuedCount = 0
+// 本会话正在排队的消息（composer 上方的队列 dock，一行一条）。
+// turn_queued 帧入队、turn_start 帧出队；刷新页面即重置。
+let queuedItems = []
 /** Blocks built by the reducer, in transcript order. */
 let blocks = []
 /** True while a turn we started is still streaming. */
@@ -1163,6 +1165,22 @@ const busyElsewhere = () => {
 
 const strip = (level, html) => `<div class="state-strip ${level}">${icon('alert', 13)}<span>${html}</span></div>`
 
+/**
+ * The queued-turn dock above the composer (DSH-style): one row per queued
+ * message, single-line ellipsis, newest at the bottom of the list.
+ */
+const renderQueueDock = () => {
+  if (queuedItems.length === 0) {
+    el.queueDock.hidden = true
+    el.queueDock.innerHTML = ''
+    return
+  }
+  el.queueDock.hidden = false
+  el.queueDock.innerHTML = queuedItems
+    .map((item) => `<div class="queue-row" title="${esc(item.text)}"><span class="queue-badge">排队中</span><span class="queue-text">${esc(item.text)}</span></div>`)
+    .join('')
+}
+
 const renderNotices = () => {
   if (state === null) return
   const out = []
@@ -1186,11 +1204,8 @@ const renderNotices = () => {
     out.push(strip('warn', `${esc(state.agent.name)} 正忙于${where} · 新消息会自动排队，前一个完成后接着跑`))
   }
 
-  if (queuedCount > 0) {
-    out.push(strip('info', `${queuedCount} 条消息排队中，轮到后自动发送`))
-  }
-
   el.notices.innerHTML = out.join('')
+  renderQueueDock()
 }
 
 const renderComposer = () => {
@@ -1324,8 +1339,8 @@ const load = async () => {
   // on screen, so it is replayed on top rather than thrown away.
   const pendingFrames = buffered.filter((f) => !alreadyLoaded(f, maxSeq, rebuilt))
   for (const f of pendingFrames) {
-    if (f.kind === 'turn_queued') queuedCount = Math.max(queuedCount, typeof f.position === 'number' ? f.position : 1)
-    if (f.kind === 'turn_start') queuedCount = Math.max(0, queuedCount - 1)
+    if (f.kind === 'turn_queued') queuedItems.push({ text: typeof f.text === 'string' ? f.text : '', at: Date.now() })
+    if (f.kind === 'turn_start' && queuedItems.length > 0) queuedItems.shift()
   }
   blocks = pendingFrames.filter((f) => f.kind !== 'turn_queued').reduce((list, frame) => reduce(list, frame), rebuilt)
   // Replayed through the ask tracker too: a question that opened while the
@@ -1412,11 +1427,11 @@ const connect = () => {
     if (frame.kind === 'hello') return
 
     if (frame.kind === 'turn_queued') {
-      queuedCount = Math.max(queuedCount, typeof frame.position === 'number' ? frame.position : 1)
       if (loading) {
         buffered.push(frame)
         return
       }
+      queuedItems.push({ text: typeof frame.text === 'string' ? frame.text : '', at: Date.now() })
       render()
       return
     }
@@ -1425,7 +1440,8 @@ const connect = () => {
       return
     }
 
-    if (frame.kind === 'turn_start') queuedCount = Math.max(0, queuedCount - 1)
+    // The queued message whose turn now starts is no longer queued.
+    if (frame.kind === 'turn_start' && queuedItems.length > 0) queuedItems.shift()
 
     blocks = reduce(blocks, frame)
     trackAsks(frame)
