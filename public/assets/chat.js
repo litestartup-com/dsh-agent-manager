@@ -42,6 +42,12 @@ const chatId = segments[0] === 'chat' && segments[1] !== undefined ? decodeURICo
 
 /** Everything the last GET told us. Null until it answers. */
 let state = null
+
+// 本会话排队/刚发送、可能尚未进入 DSH 历史的消息：reload 重建列表时补画。
+// 每页只对应一个 chat（chatId 来自 URL），所以页面级状态即可。
+let pendingUserTexts = []
+// 仍在服务端队列里的消息数（turn_queued 帧驱动；刷新页面即重置）。
+let queuedCount = 0
 /** Blocks built by the reducer, in transcript order. */
 let blocks = []
 /** True while a turn we started is still streaming. */
@@ -1180,6 +1186,10 @@ const renderNotices = () => {
     out.push(strip('warn', `${esc(state.agent.name)} 正忙于${where} · 新消息会自动排队，前一个完成后接着跑`))
   }
 
+  if (queuedCount > 0) {
+    out.push(strip('info', `${queuedCount} 条消息排队中，轮到后自动发送`))
+  }
+
   el.notices.innerHTML = out.join('')
 }
 
@@ -1300,10 +1310,24 @@ const load = async () => {
   else if (!sending) turnStartedAt = null
   const maxSeq = state.events.reduce((max, e) => (typeof e.seq === 'number' && e.seq > max ? e.seq : max), -1)
   const rebuilt = build(state.events, state.turns)
+  // Queued (or just-sent) messages are not in the DSH history yet — draw them
+  // locally until the history contains them, the same way DSH keeps a queued
+  // bubble visible above the composer.
+  const stillPending = []
+  for (const p of pendingUserTexts) {
+    if (rebuilt.some((b) => b.role === 'user' && b.text === p.text)) continue
+    rebuilt.push({ role: 'user', text: p.text, injected: false, at: p.at })
+    stillPending.push(p)
+  }
+  pendingUserTexts = stillPending
   // Anything that arrived mid-fetch and is not in the history yet still belongs
   // on screen, so it is replayed on top rather than thrown away.
   const pendingFrames = buffered.filter((f) => !alreadyLoaded(f, maxSeq, rebuilt))
-  blocks = pendingFrames.reduce((list, frame) => reduce(list, frame), rebuilt)
+  for (const f of pendingFrames) {
+    if (f.kind === 'turn_queued') queuedCount = Math.max(queuedCount, typeof f.position === 'number' ? f.position : 1)
+    if (f.kind === 'turn_start') queuedCount = Math.max(0, queuedCount - 1)
+  }
+  blocks = pendingFrames.filter((f) => f.kind !== 'turn_queued').reduce((list, frame) => reduce(list, frame), rebuilt)
   // Replayed through the ask tracker too: a question that opened while the
   // history was loading is the one most likely to be waiting right now.
   for (const frame of pendingFrames) trackAsks(frame)
@@ -1387,10 +1411,21 @@ const connect = () => {
     // relay deliberately carries no replay.
     if (frame.kind === 'hello') return
 
+    if (frame.kind === 'turn_queued') {
+      queuedCount = Math.max(queuedCount, typeof frame.position === 'number' ? frame.position : 1)
+      if (loading) {
+        buffered.push(frame)
+        return
+      }
+      render()
+      return
+    }
     if (loading) {
       buffered.push(frame)
       return
     }
+
+    if (frame.kind === 'turn_start') queuedCount = Math.max(0, queuedCount - 1)
 
     blocks = reduce(blocks, frame)
     trackAsks(frame)
@@ -1471,6 +1506,9 @@ const send = async () => {
       return
     }
 
+    // Remembered before the reload so the rebuild can draw the bubble even
+    // when the message is queued (and therefore absent from the DSH history).
+    pendingUserTexts.push({ text, at: Date.now() })
     // The turn's own frames drove the transcript; this reload is for the run row
     // and for a title the server may have derived. It is also the fallback when
     // the relay dropped and `turn_done` never arrived.
