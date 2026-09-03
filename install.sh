@@ -180,6 +180,36 @@ else
   log "no systemd: run the manager yourself, e.g. nohup node dist/index.js &"
 fi
 
+# ---- acceptance ----
+if [ "$DRY_RUN" = "1" ]; then
+  log "DRY: container smoke + optional full-chain smoke"
+else
+  # Zero-cost container smoke always runs. Use bash (not ./) so a missing
+  # exec bit on a fresh clone cannot fail the step.
+  log "Running container smoke (no LLM cost)..."
+  if (cd docker && GW_KEY="$GW_KEY" bash smoke.sh); then
+    log "container smoke: ALL PASSED"
+  else
+    log "WARNING: container smoke FAILED — check: docker compose -f $APP_ROOT/docker/docker-compose.yml logs"
+  fi
+
+  # The full-chain smoke drives one real agent turn (a few cents). Ask unless
+  # SMOKE_FULL=1 was set.
+  RUN_FULL="${SMOKE_FULL:-}"
+  if [ "$RUN_FULL" != "1" ]; then
+    read -rp "Run the full-chain smoke too? Drives one real agent turn (a few cents of LLM cost) [y/N]: " ANS || true
+    case "$ANS" in y|Y|yes) RUN_FULL=1 ;; *) RUN_FULL=0 ;; esac
+  fi
+  if [ "$RUN_FULL" = "1" ]; then
+    log "Running full-chain smoke (unary + mux + one prompt)..."
+    if SMOKE_KEY="$GW_KEY" npx tsx scripts/smoke-proxy-b.ts http://127.0.0.1:3080/api-gw/v1/proxy; then
+      log "full-chain smoke: ALL PASSED"
+    else
+      log "WARNING: full-chain smoke FAILED — check manager logs: journalctl -u ohdsh-manager -e"
+    fi
+  fi
+fi
+
 # ---- summary ----
 cat <<EOF
 
