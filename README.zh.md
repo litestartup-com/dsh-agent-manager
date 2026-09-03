@@ -91,6 +91,32 @@ DEPLOY_ENV=prod APP_DOMAIN=app.ohdsh.com TLS_MODE=origin-ca sudo ./install.sh
 
 手动配置参考：`deploy/nginx-manager.conf.example`。
 
+## 蜂群：单主机多节点安装（v1）
+
+一条命令搭起「manager + 主脑 + 个人」三进程（前置：本机已装 DSH 并配好模型凭证）：
+
+```powershell
+npm run setup
+# 常用选项：
+#   --workspace 路径            个人工作区（默认 ./workspaces/personal）
+#   --brain-workspace 路径      主脑 scratchpad（默认 ./workspaces/brain）
+#   --ports 3081,3082           两个节点端口
+#   --dsh-bin 路径              手动指定 DSH bin.js（默认自动探测）
+#   --no-install                跳过节点 profile 的 pnpm install
+#   --force                     覆盖已有 manager.config.yaml
+```
+
+setup 做五件事：初始化两个工作区（模板幂等，绝不覆盖已有文件）→ 在 `$DSH_HOME/profiles`
+生成 `ohdsh-personal` / `ohdsh-brain` 两个节点 profile（web 同款 bundle + 端口 patch，
+只绑 127.0.0.1）→ 解析/生成 gateway 密钥 → 写 `.env`（幂等保留旧值）→ 写
+`manager.config.yaml`（两个托管节点，manager 启动时自动拉起）。
+
+之后 `npm run build && npm start` 即可；节点状态 `npm run nodes -- list`，主脑入口在侧栏顶部。
+
+**升级路径（v0.1.0-single-node → 蜂群 v1）**：现有 manager 不停机改配置即可——在
+`manager.config.yaml` 给 endpoint 加 `spawn` 块（或直接 `npm run setup -- --force` 后手动核对），
+个人工作区用 `--adopt` 语义指向原路径（`npm run init -- personal` 幂等，绝不覆盖）。
+
 ## 配置
 
 `manager.config.yaml` 是唯一配置源：
