@@ -28,6 +28,8 @@ export interface UpstreamSessionHistory {
 
 export interface UpstreamCreatedSession {
   sessionId: string
+  /** The host's echo of the requested agentPreset, or null. */
+  preset: string | null
   provider: string | null
   model: string | null
 }
@@ -59,6 +61,7 @@ export class UpstreamClient {
     const v = result.result.value
     return {
       sessionId: v.sessionId,
+      preset: typeof v.agentPreset === 'string' ? v.agentPreset : null,
       provider: typeof v.provider === 'string' ? v.provider : null,
       model: typeof v.model === 'string' ? v.model : null,
     }

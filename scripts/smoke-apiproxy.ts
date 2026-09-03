@@ -1,14 +1,16 @@
 /**
  * S2.5 真实冒烟：用 manager 自己的 upstream 模块直连本机 DSH 的 /api。
  *
- * 顺序：host.describe → session.list → session.create(临时目录) →
- * session.history → 订阅 mux + session.prompt(一条最小消息) → 等 turn_end →
- * session.cancel → 清理临时目录。
+ * 顺序：host.describe → session.list → session.create(临时目录 + agentPreset)
+ * → [可选 sandbox-mode] → session.history → 订阅 mux + session.prompt(一条最小消息)
+ * → 等 turn_end → session.cancel → 清理临时目录。
  *
- * 用法：npx tsx scripts/smoke-apiproxy.ts [base-url]
- * 默认 base = http://127.0.0.1:3080/api（即 SMOKE_BASE 或首个参数）。
+ * 用法：npx tsx scripts/smoke-apiproxy.ts [base-url] [preset]
+ * 默认 base = http://127.0.0.1:3080/api，默认 preset = minimal（蜂群 P0：验证 agentPreset 生效）。
+ * sandbox-mode 步骤需要部署了新版 dsh-api-gateway（40fa689 起）：
+ *   SMOKE_SANDBOX_BASE=http://127.0.0.1:3080/api-gw/v1 SMOKE_SANDBOX_KEY=<key> npx tsx scripts/smoke-apiproxy.ts
  *
- * 注意：第 5 步会在宿主机真实跑一轮 agent（一次 LLM 调用），消息已压到最小。
+ * 注意：第 6 步会在宿主机真实跑一轮 agent（一次 LLM 调用），消息已压到最小。
  */
 
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -20,8 +22,18 @@ import type { ResolvedEndpoint } from '../src/config.js'
 import type { GatewayFrame } from '../src/gateway/stream.js'
 
 const baseArg = process.argv[2] ?? process.env.SMOKE_BASE ?? 'http://127.0.0.1:3080/api'
+const presetArg = process.argv[3] ?? process.env.SMOKE_PRESET ?? 'minimal'
 const url = baseArg.replace(/\/api\/?$/, '')
-const ep: ResolvedEndpoint = { id: 'smoke', url, driver: 'apiproxy', prefix: '/api', key: '' }
+const sandboxBase = process.env.SMOKE_SANDBOX_BASE ?? null
+const ep: ResolvedEndpoint = {
+  id: 'smoke',
+  url,
+  driver: 'apiproxy',
+  prefix: '/api',
+  key: '',
+  sandboxBase,
+  sandboxKey: process.env.SMOKE_SANDBOX_KEY ?? '',
+}
 const client = new UpstreamClient(ep)
 
 const log = (msg: string): void => console.log('[smoke] ' + msg)
@@ -59,12 +71,22 @@ const tmpDir = mkdtempSync(join(tmpdir(), 'manager-smoke-'))
 
 let sessionId = ''
 try {
-  await step('session.create（临时 cwd）', async () => {
-    const created = await client.createSession(tmpDir, null)
+  await step('session.create（临时 cwd + agentPreset）', async () => {
+    const created = await client.createSession(tmpDir, presetArg)
     if (created.sessionId === '') fail('empty sessionId')
     sessionId = created.sessionId
-    log('created session ' + sessionId)
+    log('created session ' + sessionId + ' agentPreset=' + (created.preset ?? '(none)'))
+    if (created.preset !== presetArg) fail(`agentPreset echo mismatch: got ${String(created.preset)}, want ${presetArg}`)
   })
+
+  if (sandboxBase !== null) {
+    await step('sandbox-mode（workspace-write，经新版 gateway 路由）', async () => {
+      await client.setSandboxMode(sessionId, 'workspace-write')
+      log('sandbox-mode pinned: workspace-write')
+    })
+  } else {
+    log('-- sandbox-mode skipped: SMOKE_SANDBOX_BASE not set (needs dsh-api-gateway >= 40fa689 deployed)')
+  }
 
   await step('session.history（新会话应为空）', async () => {
     const history = await client.history(sessionId)
