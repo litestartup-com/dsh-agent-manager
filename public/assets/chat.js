@@ -1340,7 +1340,10 @@ const load = async () => {
   const pendingFrames = buffered.filter((f) => !alreadyLoaded(f, maxSeq, rebuilt))
   for (const f of pendingFrames) {
     if (f.kind === 'turn_queued') queuedItems.push({ text: typeof f.text === 'string' ? f.text : '', at: Date.now() })
-    if (f.kind === 'turn_start' && queuedItems.length > 0) queuedItems.shift()
+    if (f.kind === 'turn_start' && queuedItems.length > 0) {
+      const started = queuedItems.shift()
+      pendingUserTexts.push(started)
+    }
   }
   blocks = pendingFrames.filter((f) => f.kind !== 'turn_queued').reduce((list, frame) => reduce(list, frame), rebuilt)
   // Replayed through the ask tracker too: a question that opened while the
@@ -1440,8 +1443,13 @@ const connect = () => {
       return
     }
 
-    // The queued message whose turn now starts is no longer queued.
-    if (frame.kind === 'turn_start' && queuedItems.length > 0) queuedItems.shift()
+    // The queued message whose turn now starts is no longer queued: it moves
+    // from the dock into the log (via the pending bubble, until the history
+    // contains it).
+    if (frame.kind === 'turn_start' && queuedItems.length > 0) {
+      const started = queuedItems.shift()
+      pendingUserTexts.push(started)
+    }
 
     blocks = reduce(blocks, frame)
     trackAsks(frame)
@@ -1522,15 +1530,17 @@ const send = async () => {
       return
     }
 
-    // Remembered before the reload so the rebuild can draw the bubble even
-    // when the message is queued (and therefore absent from the DSH history).
-    pendingUserTexts.push({ text, at: Date.now() })
+    // Read the result first: an accepted turn may need the local bubble (its
+    // message can still be missing from the history on the reload below), while
+    // a queued one must NOT appear in the log yet — it lives in the dock until
+    // its turn actually starts.
+    const result = await response.json().catch(() => ({}))
+    if (result.queued !== true) pendingUserTexts.push({ text, at: Date.now() })
+    sending = false
     // The turn's own frames drove the transcript; this reload is for the run row
     // and for a title the server may have derived. It is also the fallback when
     // the relay dropped and `turn_done` never arrived.
-    sending = false
     await reload()
-    const result = await response.json().catch(() => ({}))
     if (result.queued === true) {
       toast(`已排队（第 ${result.position} 位），前一个任务完成后自动开始`)
     }
