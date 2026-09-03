@@ -90,7 +90,7 @@ export const sameDirectory = (a: string, b: string): boolean => {
   return process.platform === 'win32' && left.toLowerCase() === right.toLowerCase()
 }
 
-export type RunTrigger = 'manual' | 'cron' | 'api' | 'capture'
+export type RunTrigger = 'manual' | 'cron' | 'api' | 'capture' | 'brain'
 export type RunState = 'pending' | 'running' | 'done' | 'failed' | 'missed'
 
 export class AgentBusy extends Error {
