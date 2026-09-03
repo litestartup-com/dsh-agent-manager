@@ -12,6 +12,10 @@ endpoints:
     driver: apiproxy     # 方案 A：直连 DSH 原生 /api（loopback，无需密钥）
     prefix: /api
     key_ref: ''
+    # 蜂群 P0：按会话沙箱模式路由（dsh-api-gateway 的 POST /sessions/{id}/sandbox-mode）。
+    # 需要它的 agent 要声明 sandbox_mode；不声明就不走这条路。
+    sandbox_base: http://127.0.0.1:3080/api-gw/v1
+    sandbox_key_ref: GW_KEY_A   # 与 DSH gateway 的 apiKeys 一致
   # 方案 B（跨机 / 容器节点）示例：
   # B:
   #   url: http://<host>:3080
@@ -25,6 +29,12 @@ agents:
     endpoint: A
     workspace: C:/path/to/your/workspace   # ← 改成你的真实工作区路径
     public: false
+    # 蜂群 P0：会话用哪个 agent preset（可用值见 DSH 的 agentPreset.list：
+    # standard 默认 / code / minimal / cordis）。缺省 = DSH 部署默认。
+    preset: standard
+    # 蜂群 P0：按会话沙箱模式（读-only 只读 / workspace-write 可写工作区）。
+    # 缺省 = 不覆盖，沿用 DSH 部署默认。
+    sandbox_mode: workspace-write
 
 runner:
   timeout_minutes: 15

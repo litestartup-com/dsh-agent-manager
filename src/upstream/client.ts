@@ -9,7 +9,7 @@
 
 import type { ResolvedEndpoint } from '../config.js'
 import type { HistoryEvent } from '../gateway/client.js'
-import { rpc, type UpstreamEndpoint } from './rpc.js'
+import { rpc, type UpstreamEndpoint, UpstreamError } from './rpc.js'
 import { respond, type RpcReceipt } from './respond.js'
 import { subscribe, closeAllMux, type MuxListener } from './mux.js'
 import {
@@ -35,6 +35,8 @@ export interface UpstreamCreatedSession {
 export class UpstreamClient {
   readonly id: string
   private readonly ep: UpstreamEndpoint
+  private readonly sandboxBase: string | null
+  private readonly sandboxKey: string
 
   constructor(endpoint: ResolvedEndpoint) {
     this.id = endpoint.id
@@ -42,6 +44,8 @@ export class UpstreamClient {
       base: `${endpoint.url}${endpoint.prefix}`,
       key: endpoint.key,
     }
+    this.sandboxBase = endpoint.sandboxBase
+    this.sandboxKey = endpoint.sandboxKey
   }
 
   get endpoint(): UpstreamEndpoint { return this.ep }
@@ -73,6 +77,40 @@ export class UpstreamClient {
 
   async cancel(sessionId: string): Promise<void> {
     await rpc(this.ep, 'session.cancel', cancelParams(sessionId))
+  }
+
+  /**
+   * Pins a live session's sandbox mode through the gateway's sandbox-mode
+   * route (蜂群 P0). The override is durable — a `sandbox/mode` log event that
+   * replays on cold wake — so one call at creation time is enough.
+   *
+   * Config validation guarantees sandboxBase is set whenever an agent declares
+   * a mode; this still guards the unconfigured case instead of sending to a
+   * junk URL.
+   */
+  async setSandboxMode(sessionId: string, mode: 'read-only' | 'workspace-write'): Promise<void> {
+    if (this.sandboxBase === null) {
+      throw new UpstreamError('sandbox_unconfigured', `endpoint ${this.id}: no sandbox_base configured`)
+    }
+    const response = await fetch(
+      `${this.sandboxBase}/sessions/${encodeURIComponent(sessionId)}/sandbox-mode`,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': this.sandboxKey,
+        },
+        body: JSON.stringify({ mode }),
+        signal: AbortSignal.timeout(10_000),
+      },
+    )
+    if (!response.ok) {
+      const text = await response.text()
+      throw new UpstreamError(
+        'sandbox_mode_failed',
+        `endpoint ${this.id}: sandbox-mode ${response.status}: ${text.slice(0, 300)}`,
+      )
+    }
   }
 
   async history(sessionId: string): Promise<UpstreamSessionHistory> {

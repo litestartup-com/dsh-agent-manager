@@ -31,11 +31,12 @@ const agentFor = (workspacePath: string): ResolvedAgent => ({
   gitRemote: null,
   provider: null,
   model: null,
+  sandboxMode: null,
 })
 
 const configFor = (gw: FakeGateway, agent: ResolvedAgent): AppConfig => ({
   listen: { host: '127.0.0.1', port: 0 },
-  endpoints: { A: { id: 'A', url: gw.url, driver: 'gateway', prefix: gw.prefix, key: API_KEY } },
+  endpoints: { A: { id: 'A', url: gw.url, driver: 'gateway', prefix: gw.prefix, key: API_KEY, sandboxBase: null, sandboxKey: '' } },
   agents: { personal: agent },
   runner: { timeoutMs: 10_000, silenceMs: 0, maxConsecutiveFailures: 3, dailyBudgetMicroUsd: null },
   databasePath: ':memory:',
@@ -76,7 +77,7 @@ const boot = async (script: FakeScript): Promise<Harness> => {
 
   const app = Fastify()
   apps.push(app)
-  const clients = new Map([['A', new GatewayClient({ id: 'A', url: gw.url, driver: 'gateway', prefix: gw.prefix, key: API_KEY })]])
+  const clients = new Map([['A', new GatewayClient({ id: 'A', url: gw.url, driver: 'gateway', prefix: gw.prefix, key: API_KEY, sandboxBase: null, sandboxKey: '' })]])
   // Auth has its own tests; every request here counts as signed in.
   registerChatRoutes(app, configFor(gw, agent), db, clients, async () => undefined)
   await app.listen({ host: '127.0.0.1', port: 0 })

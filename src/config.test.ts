@@ -1,0 +1,110 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { stringify } from 'yaml'
+import { loadConfig } from './config.js'
+
+// dotenv does not override existing vars, so a test-local secret wins over any
+// real .env the repo may have.
+if (process.env.SESSION_SECRET === undefined) process.env.SESSION_SECRET = 'x'.repeat(32)
+
+const baseConfig = (extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+  listen: { host: '127.0.0.1', port: 8080 },
+  endpoints: { A: { url: 'http://127.0.0.1:3080', driver: 'apiproxy' } },
+  agents: { personal: { name: '个人', endpoint: 'A', workspace: '.' } },
+  ...extra,
+})
+
+const loadFrom = (obj: Record<string, unknown>): ReturnType<typeof loadConfig> => {
+  const dir = mkdtempSync(join(tmpdir(), 'manager-config-test-'))
+  try {
+    const file = join(dir, 'config.yaml')
+    writeFileSync(file, stringify(obj), 'utf8')
+    return loadConfig(file)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+const withEnv = (vars: Record<string, string>, fn: () => void): void => {
+  const saved = new Map<string, string | undefined>()
+  for (const [key, value] of Object.entries(vars)) {
+    saved.set(key, process.env[key])
+    process.env[key] = value
+  }
+  try {
+    fn()
+  } finally {
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
+}
+
+test('parses the P0 fields: agent preset/sandbox_mode and endpoint sandbox surface', () => {
+  withEnv({ GW_KEY_A: 'test-gw-key' }, () => {
+    const cfg = loadFrom(baseConfig({
+      endpoints: {
+        A: {
+          url: 'http://127.0.0.1:3080',
+          driver: 'apiproxy',
+          sandbox_base: 'http://127.0.0.1:3080/api-gw/v1/',
+          sandbox_key_ref: 'GW_KEY_A',
+        },
+      },
+      agents: {
+        personal: { name: '个人', endpoint: 'A', workspace: '.', preset: 'standard', sandbox_mode: 'workspace-write' },
+      },
+    }))
+    const ep = cfg.endpoints['A']
+    assert.ok(ep !== undefined)
+    assert.equal(ep.sandboxBase, 'http://127.0.0.1:3080/api-gw/v1')
+    assert.equal(ep.sandboxKey, 'test-gw-key')
+    const agent = cfg.agents['personal']
+    assert.ok(agent !== undefined)
+    assert.equal(agent.preset, 'standard')
+    assert.equal(agent.sandboxMode, 'workspace-write')
+  })
+})
+
+test('defaults: no sandbox surface, no preset, no mode', () => {
+  const cfg = loadFrom(baseConfig())
+  const ep = cfg.endpoints['A']
+  assert.ok(ep !== undefined)
+  assert.equal(ep.sandboxBase, null)
+  assert.equal(ep.sandboxKey, '')
+  const agent = cfg.agents['personal']
+  assert.ok(agent !== undefined)
+  assert.equal(agent.preset, null)
+  assert.equal(agent.sandboxMode, null)
+})
+
+test('agent sandbox_mode without endpoint sandbox_base fails loud at boot', () => {
+  assert.throws(
+    () => loadFrom(baseConfig({
+      agents: { personal: { name: '个人', endpoint: 'A', workspace: '.', sandbox_mode: 'read-only' } },
+    })),
+    /no sandbox_base/,
+  )
+})
+
+test('endpoint sandbox_base with empty key env fails loud at boot', () => {
+  withEnv({ GW_KEY_A: '' }, () => {
+    assert.throws(
+      () => loadFrom(baseConfig({
+        endpoints: {
+          A: {
+            url: 'http://127.0.0.1:3080',
+            driver: 'apiproxy',
+            sandbox_base: 'http://127.0.0.1:3080/api-gw/v1',
+            sandbox_key_ref: 'GW_KEY_A',
+          },
+        },
+      })),
+      /GW_KEY_A is empty/,
+    )
+  })
+})

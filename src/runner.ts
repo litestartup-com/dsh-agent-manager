@@ -1,4 +1,4 @@
-﻿import { randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { eq } from 'drizzle-orm'
@@ -594,6 +594,11 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
         sessionId = created.sessionId
         provider = created.provider ?? agent.provider ?? null
         model = created.model ?? agent.model ?? null
+        // 蜂群 P0：在首次 prompt 之前把沙箱模式钉在会话上（sandbox/mode 日志
+        // 事件，冷醒 replay 恢复，一次即持久）。续接路径的模式在创建时已设过。
+        if (agent.sandboxMode !== null) {
+          await upstream.setSandboxMode(sessionId, agent.sandboxMode)
+        }
       } else {
         sessionId = input.sessionId
         provider = agent.provider ?? null

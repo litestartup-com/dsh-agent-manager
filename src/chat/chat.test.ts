@@ -55,10 +55,11 @@ const agentFor = (workspacePath: string): ResolvedAgent => ({
   gitRemote: null,
   provider: null,
   model: null,
+  sandboxMode: null,
 })
 
 const clientFor = (gw: FakeGateway): GatewayClient =>
-  new GatewayClient({ id: 'A', url: gw.url, driver: 'gateway', prefix: gw.prefix, key: API_KEY })
+  new GatewayClient({ id: 'A', url: gw.url, driver: 'gateway', prefix: gw.prefix, key: API_KEY, sandboxBase: null, sandboxKey: '' })
 
 const gateways: FakeGateway[] = []
 const boot = async (script: FakeScript): Promise<FakeGateway> => {

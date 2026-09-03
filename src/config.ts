@@ -12,6 +12,10 @@ const endpointSchema = z.object({
   driver: z.enum(['gateway', 'apiproxy']).default('gateway'),
   prefix: z.string().startsWith('/').default('/api-gw/v1'),
   key_ref: z.string().default(''),
+  // 蜂群 P0：dsh-api-gateway 的 sandbox-mode 路由基址（方案 A 下与 /api 并存，
+  // 指向 http://host:3080/api-gw/v1）。缺省 = 该端点不提供按会话沙箱模式。
+  sandbox_base: z.string().url().optional(),
+  sandbox_key_ref: z.string().default(''),
 })
 
 const agentSchema = z.object({
@@ -20,6 +24,9 @@ const agentSchema = z.object({
   workspace: z.string().min(1),
   public: z.boolean().default(false),
   preset: z.string().optional(),
+  // 蜂群 P0：按会话沙箱模式（经 gateway sandbox-mode 路由）。缺省 = 不覆盖，
+  // 沿用 DSH 部署默认。
+  sandbox_mode: z.enum(['read-only', 'workspace-write']).optional(),
   git_remote: z.string().optional(),
   // Left unset, the DSH profile's own default applies. Set per agent so a
   // cheap model can handle dictation while a stronger one writes the weekly
@@ -92,6 +99,10 @@ export interface ResolvedEndpoint {
   prefix: string
   /** Resolved from the env var named by `key_ref`. Never logged, never sent to a browser. */
   key: string
+  /** Base URL of the gateway sandbox-mode surface; null = route unavailable. */
+  sandboxBase: string | null
+  /** Gateway key for the sandbox-mode route. Never logged, never sent to a browser. */
+  sandboxKey: string
 }
 
 export interface ResolvedAgent {
@@ -101,6 +112,7 @@ export interface ResolvedAgent {
   workspacePath: string
   public: boolean
   preset: string | null
+  sandboxMode: 'read-only' | 'workspace-write' | null
   gitRemote: string | null
   provider: string | null
   model: string | null
@@ -157,7 +169,20 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
       throw new Error(`endpoint "${id}": env var ${ep.key_ref} is empty; it must match one entry of the gateway's apiKeys`)
     }
     const prefix = driver === 'apiproxy' ? '/api' : ep.prefix
-    endpoints[id] = { id, url: ep.url.replace(/\/+$/, ''), driver, prefix: prefix.replace(/\/+$/, ''), key }
+    const sandboxBase = ep.sandbox_base === undefined ? null : ep.sandbox_base.replace(/\/+$/, '')
+    const sandboxKey = ep.sandbox_key_ref !== '' ? (process.env[ep.sandbox_key_ref] ?? '') : ''
+    if (sandboxBase !== null && sandboxKey === '') {
+      throw new Error(`endpoint "${id}": env var ${ep.sandbox_key_ref} is empty; it must match one entry of the gateway's apiKeys`)
+    }
+    endpoints[id] = {
+      id,
+      url: ep.url.replace(/\/+$/, ''),
+      driver,
+      prefix: prefix.replace(/\/+$/, ''),
+      key,
+      sandboxBase,
+      sandboxKey,
+    }
   }
 
   const agents: Record<string, ResolvedAgent> = {}
@@ -172,9 +197,23 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
       workspacePath: resolve(a.workspace),
       public: a.public,
       preset: a.preset ?? null,
+      sandboxMode: a.sandbox_mode ?? null,
       gitRemote: a.git_remote ?? null,
       provider: a.provider ?? null,
       model: a.model ?? null,
+    }
+  }
+
+  // 蜂群 P0：显式声明沙箱模式的 agent，必须落在配置了 sandbox 路由的端点上，
+  // 否则声明会被静默忽略（fail loud at boot）。
+  for (const [agentId, agent] of Object.entries(agents)) {
+    if (agent.sandboxMode === null) continue
+    const ep = endpoints[agent.endpoint]
+    if (ep === undefined || ep.sandboxBase === null) {
+      throw new Error(
+        `agent "${agentId}" sets sandbox_mode but endpoint "${agent.endpoint}" has no sandbox_base. ` +
+          'Add endpoint.sandbox_base + sandbox_key_ref (the dsh-api-gateway surface) to honour it.',
+      )
     }
   }
 

@@ -23,11 +23,12 @@ const AGENT: ResolvedAgent = {
   gitRemote: null,
   provider: null,
   model: null,
+  sandboxMode: null,
 }
 
 const CONFIG: AppConfig = {
   listen: { host: '127.0.0.1', port: 0 },
-  endpoints: { A: { id: 'A', url: 'http://127.0.0.1:1', driver: 'gateway', prefix: '/api-gw/v1', key: 'k' } },
+  endpoints: { A: { id: 'A', url: 'http://127.0.0.1:1', driver: 'gateway', prefix: '/api-gw/v1', key: 'k', sandboxBase: null, sandboxKey: '' } },
   agents: { personal: AGENT },
   runner: { timeoutMs: 1000, silenceMs: 0, maxConsecutiveFailures: 3, dailyBudgetMicroUsd: null },
   databasePath: ':memory:',
