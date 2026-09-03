@@ -34,7 +34,7 @@ gen() { openssl rand -hex 32; }
 command -v docker >/dev/null 2>&1 || { echo "未检测到 Docker。Ubuntu 24：https://docs.docker.com/engine/install/ubuntu/ 装好后重跑。"; exit 1; }
 docker compose version >/dev/null 2>&1 || { echo "缺少 docker compose v2 插件（docker compose 命令不可用）。"; exit 1; }
 command -v node >/dev/null 2>&1 || { echo "未检测到 Node.js（需要 >= 20）。安装后重跑。"; exit 1; }
-MAJOR="$(node -p 'process.versions.node.split(\".\")[0]')"
+MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
 [ "$MAJOR" -ge 20 ] || { echo "Node.js 版本过旧（$MAJOR），需要 >= 20。"; exit 1; }
 
 log "APP_ROOT=$APP_ROOT"
