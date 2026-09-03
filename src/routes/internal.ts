@@ -10,6 +10,7 @@ import type { GatewayClient } from '../gateway/client.js'
 import type { UpstreamClient } from '../upstream/client.js'
 import { drainAgentQueue } from '../chat/queue.js'
 import { listChats, getChat } from '../chat/store.js'
+import { publish } from './chat.js'
 import { readBoard } from '../board/store.js'
 import { AgentBusy, runAgent, runningRunId } from '../runner.js'
 import { monthTotals, monthByAgent, monthByModel, currentMonth } from '../usage/store.js'
@@ -59,6 +60,8 @@ const dispatchBody = z.object({
   agentId: z.string().min(1),
   prompt: z.string().min(1).max(20_000),
   chatId: z.string().optional(),
+  /** 蜂群 P2：主脑发起本次派工所在的会话（delegation 帧归属）。 */
+  sourceChatId: z.string().optional(),
 })
 
 const cronBody = z.object({
@@ -213,11 +216,25 @@ export const registerInternalRoutes = (
           driver,
           prompt: body.prompt,
           trigger: 'brain',
+          sourceChatId: body.sourceChatId ?? null,
           timeoutMs: config.runner.timeoutMs,
           silenceMs: config.runner.silenceMs,
         },
       )
       drainAgentQueue(agent.id)
+      // 蜂群 P2：主脑会话页的 delegation 帧实时态——派工结束推一帧，页面据
+      // 此刷新该会话的派工列表。
+      if (body.sourceChatId !== undefined && body.sourceChatId !== '') {
+        publish(body.sourceChatId, {
+          kind: 'delegation_done',
+          runId: outcome.runId,
+          agentId: agent.id,
+          agentName: agent.name,
+          state: outcome.state,
+          summary: outcome.summary,
+          error: outcome.error ?? null,
+        })
+      }
       return reply.code(200).send(outcome)
     } catch (error) {
       if (error instanceof AgentBusy) {

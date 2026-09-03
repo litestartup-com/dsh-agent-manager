@@ -297,3 +297,40 @@ test('the echo arrives before the gateway is even involved', async () => {
   assert.equal(first?.text, '在吗')
   assert.ok(typeof first?.at === 'number', "manager's own echo carries a timestamp")
 })
+
+test('delegations: a chat lists the brain runs it dispatched (蜂群 P2)', async () => {
+  const { base, db } = await boot({ frames: [] })
+  const chatId = await newChat(base)
+  const now = Date.now()
+  db.insert(schema.run)
+    .values({
+      id: 'run-brain-1',
+      agentId: 'personal',
+      chatId: null,
+      sourceChatId: chatId,
+      cronId: null,
+      apiKeyId: null,
+      dshSessionId: null,
+      trigger: 'brain',
+      idempotencyKey: null,
+      state: 'done',
+      resultSummary: '周报已更新',
+      startedAt: now,
+      endedAt: now,
+      error: null,
+      commitHash: null,
+    })
+    .run()
+
+  const response = await fetch(`${base}/api/chats/${chatId}/delegations`)
+  assert.equal(response.status, 200)
+  const body = (await response.json()) as { delegations: Array<{ runId: string; state: string; agentName: string; summary: string | null }> }
+  assert.equal(body.delegations.length, 1)
+  assert.equal(body.delegations[0]?.runId, 'run-brain-1')
+  assert.equal(body.delegations[0]?.state, 'done')
+  assert.equal(body.delegations[0]?.agentName, 'Personal')
+  assert.equal(body.delegations[0]?.summary, '周报已更新')
+
+  const missing = await fetch(`${base}/api/chats/no-such-chat/delegations`)
+  assert.equal(missing.status, 404)
+})

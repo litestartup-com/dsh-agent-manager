@@ -21,6 +21,9 @@ test('every shipped template produces a board manager can render', () => {
   // validation, the product's opening impression is a page full of red
   // placeholder cards -- so check them all, not just personal.
   for (const preset of listPresets()) {
+    // 蜂群 P2：brain 是主脑的 scratchpad 模板（manager 级对象），不是业务工作区——
+    // 没有 board，也不渲染大盘；业务大盘断言只适用于 worker 模板。
+    if (preset === 'brain') continue
     const root = fresh()
     initWorkspace({ workspacePath: root, preset, useGit: false })
 
@@ -37,6 +40,9 @@ test('every shipped template produces a board manager can render', () => {
 
 test('every template explains itself to the agent', () => {
   for (const preset of listPresets()) {
+    // 蜂群 P2：brain 的 AGENTS.md 是红线清单与派工判据，不写业务 block 目录
+    // （它没有 board）；该断言只适用于 worker 模板。
+    if (preset === 'brain') continue
     const root = fresh()
     initWorkspace({ workspacePath: root, preset, useGit: false })
     const agents = join(root, 'AGENTS.md')

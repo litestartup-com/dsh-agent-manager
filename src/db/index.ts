@@ -178,6 +178,11 @@ const MIGRATIONS: readonly string[][] = [
     // the missed-occurrence count at boot is measured from.
     `ALTER TABLE cron ADD COLUMN last_state TEXT`,
   ],
+  // 7 -- 蜂群 P2：主脑派工的来源会话（delegation 帧按它归属到主脑会话页）
+  [
+    `ALTER TABLE run ADD COLUMN source_chat_id TEXT REFERENCES chat(id) ON DELETE SET NULL`,
+    `CREATE INDEX IF NOT EXISTS run_source_chat ON run(source_chat_id, started_at)`,
+  ],
 ]
 
 export interface OpenDbResult {

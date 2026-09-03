@@ -171,17 +171,32 @@ test('dispatch: unknown agent 404, success runs with trigger=brain, busy 409', a
   })
   assert.equal(missing.statusCode, 404)
 
+  // source_chat_id has a FK to chat: the brain dispatches from its own chat, so
+  // the row exists in the real flow.
+  db.insert(schema.chat)
+    .values({
+      id: 'brain-chat-1',
+      agentId: 'personal',
+      dshSessionId: null,
+      title: '主脑会话',
+      createdAt: Date.now(),
+      lastActiveAt: Date.now(),
+      removedAt: null,
+    })
+    .run()
+
   const ok = await app.inject({
     method: 'POST',
     url: '/api/internal/dispatch',
     headers: authed(),
-    payload: { agentId: 'personal', prompt: '写一行' },
+    payload: { agentId: 'personal', prompt: '写一行', sourceChatId: 'brain-chat-1' },
   })
-  assert.equal(ok.statusCode, 200)
+  assert.equal(ok.statusCode, 200, JSON.stringify(ok.body))
   const outcome = ok.json() as { state: string }
   assert.equal(outcome.state, 'done')
   const runRow = db.select().from(schema.run).where(eq(schema.run.agentId, 'personal')).all()[0]
   assert.equal(runRow?.trigger, 'brain')
+  assert.equal(runRow?.sourceChatId, 'brain-chat-1')
 
   // Busy: hold the agent with an in-flight silent run (the lock lives in the
   // runner module, shared by the route and this direct call), then dispatch.

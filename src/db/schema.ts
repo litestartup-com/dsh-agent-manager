@@ -104,10 +104,15 @@ export const run = sqliteTable('run', {
   agentId: text('agent_id').notNull(),
   /** The thread this turn belongs to. Null for cron and API runs with no chat. */
   chatId: text('chat_id'),
+  /**
+   * 蜂群 P2：主脑派工时所在的会话——delegation 帧按它归属到主脑会话页。
+   * Null for everything that did not come from the brain conversation.
+   */
+  sourceChatId: text('source_chat_id'),
   cronId: text('cron_id'),
   apiKeyId: text('api_key_id'),
   dshSessionId: text('dsh_session_id'),
-  /** 'cron' | 'manual' | 'api' | 'capture' */
+  /** 'cron' | 'manual' | 'api' | 'capture' | 'brain' */
   trigger: text('trigger').notNull(),
   idempotencyKey: text('idempotency_key'),
   /** 'pending' | 'running' | 'done' | 'failed' | 'missed' */

@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import type { FastifyInstance, FastifyReply, preHandlerHookHandler } from 'fastify'
+import { desc, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import type { AppConfig, ResolvedAgent } from '../config.js'
 import type { Db } from '../db/index.js'
+import { schema } from '../db/index.js'
 import { GatewayError, type GatewayClient, type HistoryEvent, type QuestionAnswer } from '../gateway/client.js'
 import type { GatewayFrame } from '../gateway/stream.js'
 import type { UpstreamClient } from '../upstream/client.js'
@@ -60,7 +62,8 @@ const relayFor = (chatId: string): Relay => {
   return created
 }
 
-const publish = (chatId: string, payload: unknown): void => {
+/** 蜂群 P2：给任意会话推一帧（internal 派工完成时用它推 delegation 帧）。 */
+export const publish = (chatId: string, payload: unknown): void => {
   const relay = relays.get(chatId)
   if (relay === undefined) return
   const frame = `data: ${JSON.stringify(payload)}\n\n`
@@ -206,6 +209,36 @@ export const registerChatRoutes = (
     // gateway's maxSessions for a chat the user may never type into.
     const chat = createChat(db, agent.id)
     return reply.code(201).send({ chat, turns: [], events: [] })
+  })
+
+  /**
+   * 蜂群 P2：主脑派工记录（delegation 帧的数据源）。
+   *
+   * 该会话发起的每一次派工 = 一条 run（trigger='brain'、source_chat_id=本会话）。
+   * 页面首屏读这里，实时更新靠 relay 上的 delegation_done 帧。
+   */
+  app.get<{ Params: { id: string } }>('/api/chats/:id/delegations', { preHandler: requireUser }, async (request, reply) => {
+    const chat = getChat(db, request.params.id)
+    if (chat === null) return reply.code(404).send({ error: 'unknown_chat' })
+    const rows = db
+      .select()
+      .from(schema.run)
+      .where(eq(schema.run.sourceChatId, chat.id))
+      .orderBy(desc(schema.run.startedAt))
+      .limit(50)
+      .all()
+    return reply.header('cache-control', 'no-store').send({
+      delegations: rows.map((r) => ({
+        runId: r.id,
+        agentId: r.agentId,
+        agentName: config.agents[r.agentId]?.name ?? r.agentId,
+        state: r.state,
+        summary: r.resultSummary,
+        error: r.error,
+        startedAt: r.startedAt,
+        endedAt: r.endedAt,
+      })),
+    })
   })
 
   /**

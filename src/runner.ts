@@ -140,6 +140,11 @@ export interface RunInput {
   /** The chat this turn belongs to, recorded on the run row. */
   chatId?: string | null
   /**
+   * 蜂群 P2：主脑派工时所在的会话（delegation 帧归属）。与 `chatId` 不同——
+   * 后者是「run 写入哪个工作会话」，前者是「谁发起的」。
+   */
+  sourceChatId?: string | null
+  /**
    * Receives every *live* frame, for relaying to browsers.
    *
    * Live only, and for the same reason usage is counted from live frames only:
@@ -263,6 +268,7 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
         id: runId,
         agentId: agent.id,
         chatId: input.chatId ?? null,
+        sourceChatId: input.sourceChatId ?? null,
         cronId: input.cronId ?? null,
         apiKeyId: null,
         dshSessionId: input.sessionId ?? null,
