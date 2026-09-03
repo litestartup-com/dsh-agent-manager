@@ -209,12 +209,8 @@ const agentNav = (status) => {
         </button>
         ${busy !== null ? '<span class="dot busy" title="正在运行一个回合"></span>' : ''}
         ${agent.public ? `<span class="meta" title="这个 agent 对外可调">${icon('alert', 12)}</span>` : ''}
-        <!-- The row's action area: the board, the endpoint's health, and new
-             chat last -- the "+" reads as "and then one more", so it owns the
-             far end of the row. -->
-        <a class="tree-side" href="/board/${encodeURIComponent(agent.id)}" title="${esc(agent.name)} 的大盘">
-          ${icon('board', 14)}
-        </a>
+        <!-- The row's action area: endpoint health first, then the board, then
+             new chat last -- the "+" owns the far end of the row. -->
         <!-- The dot is a button, because what it reports is not self-explanatory:
              it is the *endpoint's* health, so agents sharing one DSH process all
              go red together. Clicking says which endpoint and who else is on
@@ -225,6 +221,9 @@ const agentNav = (status) => {
           ${icon('endpoint', 15)}
           <span class="dot ${health}"></span>
         </button>
+        <a class="tree-side" href="/board/${encodeURIComponent(agent.id)}" title="${esc(agent.name)} 的大盘">
+          ${icon('board', 14)}
+        </a>
         <button class="tree-side" type="button" data-new="${esc(agent.id)}"
                 title="${esc(agent.name)} 新会话" aria-label="${esc(agent.name)} 新会话">
           ${icon('add', 14)}
