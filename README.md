@@ -79,6 +79,25 @@ Data locations:
 - node sessions/settings: Docker volume `dsh-data`
 - agent workspace: `WORKSPACE_PATH`（default `../workspace` next to the repo）
 
+### Public domain + TLS (Cloudflare etc.)
+
+`install.sh` supports `DEPLOY_ENV=prod`: installs nginx, writes the reverse-proxy config
+(SSE unbuffered, long timeouts), configures one of three TLS modes via `TLS_MODE`, and
+switches the manager to `NODE_ENV=production` (Secure cookies):
+
+| TLS_MODE | For |
+| --- | --- |
+| `origin-ca` (default) | Cloudflare proxied + Full (strict): generate the Origin CA files in the CF panel, place them in `/etc/ssl/ohdsh/` |
+| `letsencrypt` | certbot auto-issue (domain resolving to the origin, or CF proxied) |
+| `none` | Cloudflare Flexible: TLS terminates at the edge, origin stays http |
+
+```bash
+DEPLOY_ENV=prod APP_DOMAIN=app.ohdsh.com TLS_MODE=origin-ca sudo ./install.sh
+# or interactively: sudo ./install.sh (choose prod, enter domain and TLS mode)
+```
+
+Manual reference: `deploy/nginx-manager.conf.example`.
+
 ## Configuration
 
 `manager.config.yaml` is the single source of truth:

@@ -73,6 +73,24 @@ sudo ./install.sh     # 节点容器 + manager systemd 服务 + 验收脚本
 - 节点会话/settings：Docker 卷 `dsh-data`
 - agent 工作区：`WORKSPACE_PATH`（默认仓库旁的 `../workspace`）
 
+### 公网域名 + TLS（Cloudflare 等）
+
+install.sh 支持 `DEPLOY_ENV=prod`：自动装 nginx、写反代配置（SSE 不缓冲、长超时）、
+按 `TLS_MODE` 三种证书模式之一配置，并给 manager 开 `NODE_ENV=production`（Secure cookie）：
+
+| TLS_MODE | 适用 |
+| --- | --- |
+| `origin-ca`（默认） | Cloudflare 橙云 + Full (strict)：先在 CF 面板生成 Origin CA 证书放到 `/etc/ssl/ohdsh/` |
+| `letsencrypt` | certbot 自动签发（域名直接解析到源站，或 CF 橙云亦可） |
+| `none` | Cloudflare Flexible：CF 边缘终止 TLS，源站保持 http |
+
+```bash
+DEPLOY_ENV=prod APP_DOMAIN=app.ohdsh.com TLS_MODE=origin-ca sudo ./install.sh
+# 或交互式：sudo ./install.sh（按提示选 prod、填域名与证书模式）
+```
+
+手动配置参考：`deploy/nginx-manager.conf.example`。
+
 ## 配置
 
 `manager.config.yaml` 是唯一配置源：

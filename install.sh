@@ -25,6 +25,12 @@ DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY:-}"
 MANAGER_USERNAME="${MANAGER_USERNAME:-admin}"
 MANAGER_PASSWORD="${MANAGER_PASSWORD:-}"
 DRY_RUN="${DRY_RUN:-0}"
+# prod 环境（公网域名 + nginx + TLS）相关：
+DEPLOY_ENV="${DEPLOY_ENV:-}"          # dev（默认，无 nginx）| prod
+APP_DOMAIN="${APP_DOMAIN:-}"          # prod 必填，如 app.ohdsh.com
+TLS_MODE="${TLS_MODE:-}"              # origin-ca | letsencrypt | none(CF Flexible)
+SSL_CERT_PATH="${SSL_CERT_PATH:-/etc/ssl/ohdsh/cert.pem}"
+SSL_KEY_PATH="${SSL_KEY_PATH:-/etc/ssl/ohdsh/key.pem}"
 
 RUN_USER="${SUDO_USER:-$(whoami)}"
 HOST_UID="$(id -u "$RUN_USER")"
@@ -45,6 +51,29 @@ MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
 log "APP_ROOT=$APP_ROOT"
 log "WORKSPACE_PATH=$WORKSPACE_PATH"
 log "run as $RUN_USER (uid=$HOST_UID gid=$HOST_GID)"
+
+# ---- deployment environment ----
+if [ -z "$DEPLOY_ENV" ]; then
+  if [ "$DRY_RUN" = "1" ]; then
+    DEPLOY_ENV=dev
+  else
+    read -rp "Deployment environment: dev (local, no nginx) or prod (public domain + nginx) [dev]: " DEPLOY_ENV || true
+    [ -n "$DEPLOY_ENV" ] || DEPLOY_ENV=dev
+  fi
+fi
+if [ "$DEPLOY_ENV" = "prod" ]; then
+  if [ -z "$APP_DOMAIN" ]; then
+    if [ "$DRY_RUN" = "1" ]; then APP_DOMAIN="(ask in real run)"; else
+      read -rp "Public domain (e.g. app.ohdsh.com): " APP_DOMAIN || true
+    fi
+  fi
+  if [ -z "$TLS_MODE" ]; then
+    if [ "$DRY_RUN" = "1" ]; then TLS_MODE=none; else
+      read -rp "TLS mode — origin-ca (Cloudflare Origin CA files) / letsencrypt (certbot) / none (CF Flexible, origin stays http) [origin-ca]: " TLS_MODE || true
+      [ -n "$TLS_MODE" ] || TLS_MODE=origin-ca
+    fi
+  fi
+fi
 
 # ---- secrets ----
 [ -n "$GW_KEY" ] || GW_KEY="$(gen)"
@@ -178,6 +207,124 @@ if command -v systemctl >/dev/null 2>&1; then
   fi
 else
   log "no systemd: run the manager yourself, e.g. nohup node dist/index.js &"
+fi
+
+# ---- prod: nginx + TLS ----
+if [ "$DEPLOY_ENV" = "prod" ]; then
+  if command -v nginx >/dev/null 2>&1; then
+    log "nginx already installed"
+  else
+    if [ "$DRY_RUN" = "1" ]; then
+      log "DRY: apt-get install -y nginx"
+    else
+      apt-get install -y nginx
+    fi
+  fi
+
+  NGINX_CONF=/etc/nginx/sites-available/ohdsh-manager
+  if [ -f "$NGINX_CONF" ]; then
+    log "skip (exists): $NGINX_CONF"
+  else
+    case "$TLS_MODE" in
+      origin-ca)
+        cat > "$NGINX_CONF" <<EOF
+server {
+    listen 80;
+    server_name $APP_DOMAIN;
+    return 301 https://\$host\$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name $APP_DOMAIN;
+    ssl_certificate     $SSL_CERT_PATH;
+    ssl_certificate_key $SSL_KEY_PATH;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    location / {
+        proxy_pass http://127.0.0.1:$MANAGER_PORT;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+}
+EOF
+        log "nginx config written (origin-ca; put the Cloudflare Origin CA files at $SSL_CERT_PATH / $SSL_KEY_PATH before restarting nginx)"
+        ;;
+      letsencrypt)
+        cat > "$NGINX_CONF" <<EOF
+server {
+    listen 80;
+    server_name $APP_DOMAIN;
+
+    location / {
+        proxy_pass http://127.0.0.1:$MANAGER_PORT;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+}
+EOF
+        ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/ohdsh-manager
+        nginx -t && systemctl reload nginx
+        log "running: certbot --nginx -d $APP_DOMAIN"
+        certbot --nginx -d "$APP_DOMAIN"
+        ;;
+      *)
+        cat > "$NGINX_CONF" <<EOF
+server {
+    listen 80;
+    server_name $APP_DOMAIN;
+
+    location / {
+        proxy_pass http://127.0.0.1:$MANAGER_PORT;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+}
+EOF
+        log "nginx config written (http only — Cloudflare Flexible mode terminates TLS at the edge)"
+        ;;
+    esac
+    if [ "$TLS_MODE" != "letsencrypt" ]; then
+      ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/ohdsh-manager
+      nginx -t && systemctl reload nginx
+    fi
+  fi
+
+  # 公网 + TLS 就位后，manager 开 production（Secure cookie）
+  UNIT=/etc/systemd/system/ohdsh-manager.service
+  if [ -f "$UNIT" ] && ! grep -q '^Environment=NODE_ENV=' "$UNIT"; then
+    if [ "$DRY_RUN" = "1" ]; then
+      log "DRY: add Environment=NODE_ENV=production to ohdsh-manager.service + restart"
+    else
+      sed -i '/^\[Service\]/a Environment=NODE_ENV=production' "$UNIT"
+      systemctl daemon-reload && systemctl restart ohdsh-manager
+      log "NODE_ENV=production set (secure cookies on)"
+    fi
+  fi
 fi
 
 # ---- acceptance ----

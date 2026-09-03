@@ -1,0 +1,31 @@
+# 手动部署参考：install.sh 在 DEPLOY_ENV=prod 时会自动生成此配置。
+# 三种 TLS 模式见 install.sh 的 TLS_MODE（origin-ca / letsencrypt / none）。
+#
+server {
+    listen 80;
+    server_name app.ohdsh.com;   # ← 改域名
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name app.ohdsh.com;   # ← 改域名
+    ssl_certificate     /etc/ssl/ohdsh/cert.pem;   # Cloudflare Origin CA
+    ssl_certificate_key /etc/ssl/ohdsh/key.pem;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        # SSE（聊天流）必须不缓冲 + 长超时
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+}
