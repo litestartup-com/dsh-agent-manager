@@ -11,6 +11,7 @@
  */
 
 export interface QueuedTurn {
+  id: string
   chatId: string
   execute: () => Promise<void>
 }
@@ -51,6 +52,20 @@ export const drainAgentQueue = (agentId: string): void => {
     draining.delete(agentId)
     drainAgentQueue(agentId)
   })
+}
+
+/**
+ * Drop one queued turn by id (edit/undo or delete from the dock).
+ * Idempotent: an id that already ran — or never existed — is a no-op, so the
+ * caller can apply the UI removal optimistically.
+ */
+export const cancelQueuedTurn = (chatId: string, turnId: string): void => {
+  for (const [agentId, items] of Array.from(queues.entries())) {
+    const kept = items.filter((turn) => !(turn.chatId === chatId && turn.id === turnId))
+    if (kept.length === items.length) continue
+    if (kept.length === 0) queues.delete(agentId)
+    else queues.set(agentId, kept)
+  }
 }
 
 /** Drop every queued turn of one chat (archive / delete). */

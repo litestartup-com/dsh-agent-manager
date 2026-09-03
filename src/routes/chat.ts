@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { FastifyInstance, FastifyReply, preHandlerHookHandler } from 'fastify'
 import { z } from 'zod'
 import type { AppConfig, ResolvedAgent } from '../config.js'
@@ -7,7 +8,7 @@ import type { GatewayFrame } from '../gateway/stream.js'
 import type { UpstreamClient } from '../upstream/client.js'
 import { UpstreamError } from '../upstream/rpc.js'
 import { runAgent, runningRunId, type RunOutcome } from '../runner.js'
-import { cancelQueuedTurns, drainAgentQueue, enqueueTurn } from '../chat/queue.js'
+import { cancelQueuedTurn, cancelQueuedTurns, drainAgentQueue, enqueueTurn } from '../chat/queue.js'
 import { compactHistory } from '../chat/replay.js'
 import {
   bindSession,
@@ -507,7 +508,9 @@ export const registerChatRoutes = (
           // workspace (each still snapshots alone), but the sender no longer
           // hits a wall — the queued turn starts automatically when the
           // current one finishes.
+          const queuedId = randomUUID()
           const position = enqueueTurn(agent.id, {
+            id: queuedId,
             chatId: chat.id,
             // Re-read the chat when the turn finally runs: the queued closure
             // must not carry a stale snapshot (a null dshSessionId would make
@@ -529,7 +532,7 @@ export const registerChatRoutes = (
                 })
             },
           })
-          publish(chat.id, { kind: 'turn_queued', position, text })
+          publish(chat.id, { kind: 'turn_queued', id: queuedId, position, text })
           return reply.code(202).send({
             queued: true,
             position,
@@ -554,6 +557,22 @@ export const registerChatRoutes = (
         app.log.error(`chat turn failed for ${chat.id}: ${(error as Error).message}`)
         return reply.code(500).send({ error: 'turn_failed', detail: (error as Error).message })
       }
+    },
+  )
+
+  /**
+   * Drop one queued turn. Edit/undo pulls the text back into the composer;
+   * delete just removes it. Idempotent: a turn that already started (or an
+   * unknown id) answers ok so the UI can remove the row optimistically.
+   */
+  app.post<{ Params: { id: string; turnId: string } }>(
+    '/api/chats/:id/queued/:turnId/cancel',
+    { preHandler: requireUser },
+    async (request, reply) => {
+      const found = resolve(request.params.id, reply)
+      if (found === null) return reply
+      cancelQueuedTurn(found.chat.id, request.params.turnId)
+      return reply.send({ ok: true })
     },
   )
 

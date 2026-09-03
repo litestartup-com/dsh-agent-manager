@@ -106,10 +106,35 @@
 
 .queue-text {
   min-width: 0;
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--text-soft, #5a6472);
+}
+
+.queue-act {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-soft, #5a6472);
+  cursor: pointer;
+}
+
+.queue-act:hover {
+  background: var(--line-soft, #e2e6ee);
+  color: var(--text, #23272f);
+}
+
+.queue-act[data-action="delete"]:hover {
+  color: var(--bad, #c0392b);
 }
 
 .state-strip {

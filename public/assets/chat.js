@@ -1177,8 +1177,41 @@ const renderQueueDock = () => {
   }
   el.queueDock.hidden = false
   el.queueDock.innerHTML = queuedItems
-    .map((item) => `<div class="queue-row" title="${esc(item.text)}"><span class="queue-badge">排队中</span><span class="queue-text">${esc(item.text)}</span></div>`)
+    .map(
+      (item) =>
+        `<div class="queue-row" data-id="${esc(item.id)}">` +
+        `<span class="queue-badge">排队中</span>` +
+        `<span class="queue-text" title="${esc(item.text)}">${esc(item.text)}</span>` +
+        `<button type="button" class="queue-act" data-action="edit" title="撤销并回填输入框">${icon('pencil', 13)}</button>` +
+        `<button type="button" class="queue-act" data-action="delete" title="删除这条排队消息">${icon('trash', 13)}</button>` +
+        `</div>`,
+    )
     .join('')
+}
+
+/**
+ * Edit pulls the queued text back into the composer (undo); delete drops it.
+ * Both call the same idempotent cancel endpoint and remove the row locally.
+ */
+const cancelQueued = async (row, action) => {
+  const id = row.dataset.id
+  const item = queuedItems.find((q) => q.id === id)
+  if (item === undefined) return
+  const index = queuedItems.indexOf(item)
+  try {
+    await fetch(`/api/chats/${encodeURIComponent(chatId)}/queued/${encodeURIComponent(id)}/cancel`, { method: 'POST' })
+  } catch {
+    // The row stays if the server cannot be reached; the user can try again.
+    return
+  }
+  queuedItems.splice(index, 1)
+  if (action === 'edit') {
+    el.input.value = item.text
+    grow()
+    el.input.focus()
+    toast('已撤销，改完再发即可')
+  }
+  render()
 }
 
 const renderNotices = () => {
@@ -1339,7 +1372,7 @@ const load = async () => {
   // on screen, so it is replayed on top rather than thrown away.
   const pendingFrames = buffered.filter((f) => !alreadyLoaded(f, maxSeq, rebuilt))
   for (const f of pendingFrames) {
-    if (f.kind === 'turn_queued') queuedItems.push({ text: typeof f.text === 'string' ? f.text : '', at: Date.now() })
+    if (f.kind === 'turn_queued') queuedItems.push({ id: typeof f.id === 'string' ? f.id : '', text: typeof f.text === 'string' ? f.text : '', at: Date.now() })
     if (f.kind === 'turn_start' && queuedItems.length > 0) {
       const started = queuedItems.shift()
       pendingUserTexts.push(started)
@@ -1434,7 +1467,7 @@ const connect = () => {
         buffered.push(frame)
         return
       }
-      queuedItems.push({ text: typeof frame.text === 'string' ? frame.text : '', at: Date.now() })
+      queuedItems.push({ id: typeof frame.id === 'string' ? frame.id : '', text: typeof frame.text === 'string' ? frame.text : '', at: Date.now() })
       render()
       return
     }
@@ -1584,6 +1617,15 @@ const cancel = async () => {
 }
 
 el.stop.addEventListener('click', () => void cancel())
+
+// Queued-turn dock actions: edit (undo into the composer) and delete.
+el.queueDock.addEventListener('click', (event) => {
+  const button = event.target.closest('.queue-act')
+  if (button === null) return
+  const row = button.closest('.queue-row')
+  if (row === null) return
+  void cancelQueued(row, button.dataset.action)
+})
 
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && sending) void cancel()
