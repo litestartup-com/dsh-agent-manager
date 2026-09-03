@@ -38,7 +38,7 @@ const step = async (name: string, fn: () => Promise<void>): Promise<void> => {
 }
 
 // 负例（直接 fetch，不走 UpstreamClient）：白名单外 403、错 key 401、health 无需鉴权。
-const proxyRoot = 'http://127.0.0.1:3999'
+const proxyRoot = baseArg.replace(/\/api-gw\/v1\/proxy\/?$/, '')
 await step('负例：白名单外 403 / 错 key 401 / health 开放', async () => {
   const blocked = await fetch(proxyRoot + '/api-gw/v1/proxy/credentials.set', {
     method: 'POST', headers: { 'x-api-key': key, 'content-type': 'application/json' }, body: '{}',
