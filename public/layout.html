@@ -173,9 +173,6 @@
         <svg width="18" height="18" aria-hidden="true"><use href="#i-menu" /></svg>
       </button>
       <span id="topbar-title" class="topbar-title">Oh! dsh</span>
-      <a class="icon-btn topbar-btn" href="/app#new" aria-label="派活">
-        <svg width="18" height="18" aria-hidden="true"><use href="#i-plus" /></svg>
-      </a>
     </header>
 
     <!-- Dismisses the drawer. A real element rather than a pseudo-element so the
@@ -202,10 +199,9 @@
           </button>
         </div>
 
-        <a id="new-task" class="side-action" href="/app#new" title="派活">
-          <svg width="15" height="15"><use href="#i-plus" /></svg>
-          <span class="side-action-label">派活</span>
-        </a>
+        <!-- 蜂群 P3：主脑入口（钉顶、不折叠）。config 里有 brain agent 才
+             渲染——没有主脑就没有这个按钮，界面不撒谎。 -->
+        <div id="side-brain" hidden></div>
 
         <div class="side-section">
           <span class="grow">Agents</span>

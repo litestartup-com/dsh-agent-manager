@@ -22,6 +22,7 @@ import { closeChatRelays, registerChatRoutes } from './routes/chat.js'
 import { registerUsageRoutes } from './routes/usage.js'
 import { registerCronRoutes } from './routes/cron.js'
 import { registerInternalRoutes } from './routes/internal.js'
+import { registerNodesRoutes } from './routes/nodes.js'
 import { Scheduler } from './cron/schedule.js'
 import { assetCacheHeaders, buildPages } from './pages.js'
 
@@ -187,6 +188,8 @@ const main = async (): Promise<void> => {
   registerCronRoutes(app, config, db, scheduler, requireUser)
   // 蜂群 P2：主脑面内部 API（仅 127.0.0.1 + X-Brain-Token）。
   registerInternalRoutes(app, config, db, clients, upstreamClients, scheduler)
+  // 蜂群 P3：节点（fleet）视图。
+  registerNodesRoutes(app, config, nodeSupervisors, clients, upstreamClients, requireUser)
 
   const close = async (signal: string): Promise<void> => {
     app.log.info(`${signal} received, shutting down`)

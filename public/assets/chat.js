@@ -26,6 +26,7 @@ import { $, esc, icon, money } from './ui.js'
 const el = {
   notices: $('chat-notices'),
   queueDock: $('queue-dock'),
+  delegations: $('chat-delegations'),
   log: $('chat-log'),
   composer: $('chat-composer'),
   identity: $('composer-identity'),
@@ -1319,6 +1320,52 @@ const fatal = (message) => {
   el.send.disabled = true
 }
 
+/**
+ * 蜂群 P2/P3：主脑派工记录（delegation 帧）。
+ *
+ * 与 transcript 分开的独立区块：帧数据来自 run 表（source_chat_id），不是
+ * 会话历史；按时间与消息流精确交错代价高、收益小，MVP 先平铺在转录上方。
+ * 实时更新 = relay 上的 delegation_done 帧 → 重新拉取。
+ */
+const DELEGATION_ICON = { done: '✓', failed: '✕', running: '…', pending: '…' }
+const DELEGATION_CLASS = { done: 'ok', failed: 'bad', running: 'warn', pending: 'warn' }
+
+const renderDelegations = (list) => {
+  if (el.delegations === null) return
+  if (list.length === 0) {
+    el.delegations.hidden = true
+    el.delegations.innerHTML = ''
+    return
+  }
+  el.delegations.hidden = false
+  el.delegations.innerHTML = list
+    .map((d) => {
+      const icon = DELEGATION_ICON[d.state] ?? '…'
+      const cls = DELEGATION_CLASS[d.state] ?? 'muted'
+      const summary = typeof d.summary === 'string' && d.summary !== '' ? d.summary : (typeof d.error === 'string' && d.error !== '' ? d.error : '')
+      const detail = summary !== '' ? `<span class="delegation-body">${esc(summary)}</span>` : ''
+      return `<div class="delegation ${cls}">
+        <span class="delegation-icon" aria-hidden="true">${icon}</span>
+        <span class="delegation-main">
+          <span class="delegation-head">已派给 ${esc(d.agentName ?? d.agentId)} · ${esc(d.state)}</span>
+          ${detail}
+        </span>
+      </div>`
+    })
+    .join('')
+}
+
+const loadDelegations = async () => {
+  try {
+    const response = await fetch(`/api/chats/${encodeURIComponent(chatId)}/delegations`)
+    if (!response.ok) return
+    const body = await response.json()
+    renderDelegations(Array.isArray(body.delegations) ? body.delegations : [])
+  } catch {
+    // 非主脑会话本就没有派工记录；接口异常也不值得打断对话。
+  }
+}
+
 const load = async () => {
   // Set before the request, so frames delivered during it are buffered rather
   // than applied to a transcript that is about to be replaced.
@@ -1385,6 +1432,7 @@ const load = async () => {
   buffered = []
   loading = false
   render()
+  void loadDelegations()
 }
 
 /**
@@ -1461,6 +1509,11 @@ const connect = () => {
     // `hello` only says the relay is open. History came from the GET, and the
     // relay deliberately carries no replay.
     if (frame.kind === 'hello') return
+    // 蜂群 P2：派工结束帧——不是转录帧，刷新派工记录即可。
+    if (frame.kind === 'delegation_done') {
+      void loadDelegations()
+      return
+    }
 
     if (frame.kind === 'turn_queued') {
       if (loading) {

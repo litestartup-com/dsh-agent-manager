@@ -52,6 +52,83 @@ const renderEndpointLines = (status) => {
   )
 }
 
+/**
+ * 蜂群 P3：主脑入口。config 里有 brain agent 才渲染——没有主脑就没有这个
+ * 按钮，界面不撒谎。点击 = 给主脑开新会话并跳过去。
+ */
+const renderBrain = (status) => {
+  const box = $('side-brain')
+  if (box === null) return
+  const brain = status.agents.find((a) => a.id === 'brain')
+  if (brain === undefined) {
+    box.hidden = true
+    box.innerHTML = ''
+    return
+  }
+  box.hidden = false
+  setHtml(
+    'side-brain',
+    `<button class="side-brain-btn" type="button" data-brain-new title="总控 · 可调度所有 agent">
+      ${icon('chat', 15)}
+      <span class="side-brain-main">
+        <span class="side-brain-name">主脑</span>
+        <span class="side-brain-sub">总控 · 可调度所有 agent</span>
+      </span>
+    </button>`,
+  )
+}
+
+$('side-brain')?.addEventListener('click', async (event) => {
+  const button = event.target.closest('[data-brain-new]')
+  if (button === null) return
+  try {
+    const response = await fetch('/api/chats', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ agentId: 'brain' }),
+    })
+    if (!response.ok) {
+      banner('主脑会话创建失败', 'warn')
+      return
+    }
+    const body = await response.json()
+    window.location.href = `/chat/${encodeURIComponent(body.chat.id)}`
+  } catch (error) {
+    banner(`主脑不可用：${error.message}`, 'warn')
+  }
+})
+
+/** 蜂群 P3：节点区。托管节点读监督器状态机，未托管读探活结果。 */
+const NODE_STATE_DOT = { live: 'ok', cold: 'muted', starting: 'warn', restarting: 'warn', offline: 'bad' }
+const NODE_STATE_LABEL = { live: 'live', cold: '未启动', starting: '启动中', restarting: '重启中', offline: 'offline' }
+
+const renderNodes = (nodesData) => {
+  const box = $('side-endpoints')
+  if (box === null) return
+  const rows = Array.isArray(nodesData.nodes) ? nodesData.nodes : []
+  if (rows.length === 0) {
+    box.hidden = true
+    return
+  }
+  box.hidden = false
+  setHtml(
+    'side-endpoints',
+    rows
+      .map((n) => {
+        const dot = NODE_STATE_DOT[n.state] ?? 'muted'
+        const label = NODE_STATE_LABEL[n.state] ?? n.state
+        const parts = [n.managed ? '托管' : '外管', label]
+        if (typeof n.sessions === 'number') parts.push(`会话 ${n.sessions}`)
+        const agents = Array.isArray(n.agents) && n.agents.length > 0 ? ` · ${n.agents.join('/')}` : ''
+        const err = typeof n.lastError === 'string' && n.lastError !== '' ? ` — ${n.lastError}` : ''
+        return `<span class="endpoint-line" title="${esc(n.id + agents + err)}">
+          <span class="dot ${dot}"></span>${esc(`${n.id} · ${parts.join(' · ')}${agents}`)}
+        </span>`
+      })
+      .join(''),
+  )
+}
+
 const segments = window.location.pathname.split('/').filter(Boolean)
 const pathId = (prefix) => (window.location.pathname.startsWith(`/${prefix}/`) ? decodeURIComponent(segments[1] ?? '') : '')
 
@@ -269,10 +346,11 @@ export const loadShell = async () => {
     // Chats come from the same poll as the status: the sidebar draws both in one
     // tree, and two independent refreshes would let the rows disagree about
     // which agent is busy for a second at a time.
-    const [me, status, threads] = await Promise.all([
+    const [me, status, threads, nodesData] = await Promise.all([
       fetch('/api/me').then((r) => (r.ok ? r.json() : null)),
       fetch('/api/status').then((r) => (r.ok ? r.json() : null)),
       fetch('/api/chats').then((r) => (r.ok ? r.json() : null)),
+      fetch('/api/nodes').then((r) => (r.ok ? r.json() : null)).catch(() => null),
     ])
     if (me === null || status === null) {
       window.location.href = '/login'
@@ -291,7 +369,9 @@ export const loadShell = async () => {
     if (avatar !== null) avatar.textContent = [...me.username][0] ?? '?'
     $('agent-count').textContent = status.agents.length === 0 ? '' : status.agents.length
     setHtml('agent-nav', status.agents.length === 0 ? '<p class="muted small">未配置 agent</p>' : agentNav(status))
-    renderEndpointLines(status)
+    renderBrain(status)
+    if (nodesData !== null && Array.isArray(nodesData.nodes)) renderNodes(nodesData)
+    else renderEndpointLines(status)
 
     lastStatus = status
     publishStatus(status)

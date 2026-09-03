@@ -23,8 +23,11 @@ export interface EndpointStatus {
  * One endpoint liveness probe, branched by driver:
  * - gateway  → the old plugin's own GET /health
  * - apiproxy → one bounded host.describe RPC (there is no /health under /api)
+ *
+ * Exported for the nodes route (蜂群 P3): an unmanaged node's state *is* its
+ * probe result.
  */
-const probeEndpoint = async (
+export const probeEndpoint = async (
   config: AppConfig,
   clients: Map<string, GatewayClient>,
   upstreamClients: Map<string, UpstreamClient>,

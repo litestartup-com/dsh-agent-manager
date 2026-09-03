@@ -2084,3 +2084,30 @@ button:disabled {
     transition: none;
   }
 }
+
+/* ── 蜂群 P3：主脑入口 + 节点区 ─────────────────────────── */
+
+.side-brain-btn {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 150ms ease, box-shadow 150ms ease;
+}
+.side-brain-btn:hover {
+  background: var(--surface-hover, #f1f3f5);
+  box-shadow: var(--sh-1, none);
+}
+.side-brain-main { display: flex; flex-direction: column; min-width: 0; }
+.side-brain-name { font-weight: 600; font-size: 14px; line-height: 1.35; }
+.side-brain-sub { font-size: 11.5px; color: var(--muted); }
+
+.dot.muted { background: var(--muted); }

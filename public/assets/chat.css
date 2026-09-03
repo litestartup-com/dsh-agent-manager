@@ -1278,3 +1278,33 @@
     display: none;
   }
 }
+
+/* ── 蜂群 P2/P3：delegation 帧（主脑派工记录） ──────────── */
+
+.chat-delegations {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 0 14px;
+  border-bottom: 1px solid var(--border, #eaeaec);
+}
+.delegation {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--surface-sunken, #f1f1f3);
+  font-size: 13.5px;
+}
+.delegation.ok { border-left: 3px solid var(--ok, #15803d); }
+.delegation.bad { border-left: 3px solid var(--bad, #c53a3a); }
+.delegation.warn { border-left: 3px solid var(--warn, #a86413); }
+.delegation.muted { border-left: 3px solid var(--muted, #9aa0ac); }
+.delegation-icon { font-weight: 700; min-width: 18px; text-align: center; }
+.delegation.ok .delegation-icon { color: var(--ok, #15803d); }
+.delegation.bad .delegation-icon { color: var(--bad, #c53a3a); }
+.delegation.warn .delegation-icon { color: var(--warn, #a86413); }
+.delegation-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.delegation-head { font-weight: 600; }
+.delegation-body { color: var(--text-2, #5d6370); overflow-wrap: anywhere; }
