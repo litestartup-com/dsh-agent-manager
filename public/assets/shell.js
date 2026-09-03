@@ -61,12 +61,13 @@ const openBoardId = pathId('board')
 const openChatId = pathId('chat')
 
 /**
- * How many chats a collapsed-open agent shows before the list is cut.
+ * How many chats an agent shows before the list is cut.
  *
  * A cap rather than a scroller: the sidebar also has to hold the other agents,
- * and one busy agent should not push them off the screen.
+ * and one busy agent should not push them off the screen. The overflow rides
+ * the "Show x more sessions" toggle below the list.
  */
-const CHATS_SHOWN = 8
+const CHATS_SHOWN = 5
 
 /**
  * Which agents are expanded.
@@ -94,6 +95,29 @@ const setCollapsed = (agentId, collapsed) => {
     window.localStorage.setItem(STORE_KEY, JSON.stringify([...set]))
   } catch {
     // Private-mode storage failures are not worth a visible error.
+  }
+}
+
+/** Which agents have their full chat list unfolded ("Show less"). */
+const MORE_KEY = 'manager.agents.chatsMore'
+
+const chatsMoreSet = () => {
+  try {
+    const raw = JSON.parse(window.localStorage.getItem(MORE_KEY) ?? '[]')
+    return new Set(Array.isArray(raw) ? raw : [])
+  } catch {
+    return new Set()
+  }
+}
+
+const setChatsMore = (agentId, on) => {
+  const set = chatsMoreSet()
+  if (on) set.add(agentId)
+  else set.delete(agentId)
+  try {
+    window.localStorage.setItem(MORE_KEY, JSON.stringify([...set]))
+  } catch {
+    // Same rule as the collapse preference.
   }
 }
 
@@ -169,7 +193,8 @@ const agentNav = (status) => {
       // Landing on a chat expands its agent once instead -- see revealOpenChat.
       const open = !collapsed.has(agent.id)
       const busy = busyByAgent.get(agent.id) ?? null
-      const shown = open ? chats.slice(0, CHATS_SHOWN) : []
+      const unfolded = chatsMoreSet().has(agent.id)
+      const shown = open ? (unfolded ? chats : chats.slice(0, CHATS_SHOWN)) : []
       const rest = chats.length - shown.length
 
       return `<div class="tree-group${open ? ' open' : ''}" data-agent="${esc(agent.id)}">
@@ -184,6 +209,9 @@ const agentNav = (status) => {
         </button>
         ${busy !== null ? '<span class="dot busy" title="正在运行一个回合"></span>' : ''}
         ${agent.public ? `<span class="meta" title="这个 agent 对外可调">${icon('alert', 12)}</span>` : ''}
+        <!-- The row's action area: the board, the endpoint's health, and new
+             chat last -- the "+" reads as "and then one more", so it owns the
+             far end of the row. -->
         <a class="tree-side" href="/board/${encodeURIComponent(agent.id)}" title="${esc(agent.name)} 的大盘">
           ${icon('board', 14)}
         </a>
@@ -197,15 +225,17 @@ const agentNav = (status) => {
           ${icon('endpoint', 15)}
           <span class="dot ${health}"></span>
         </button>
+        <button class="tree-side" type="button" data-new="${esc(agent.id)}"
+                title="${esc(agent.name)} 新会话" aria-label="${esc(agent.name)} 新会话">
+          ${icon('add', 14)}
+        </button>
       </div>
       ${
         open
           ? `<div class="tree-children">
         ${shown.map(chatRow).join('')}
-        ${rest > 0 ? `<a class="tree-child more" href="/chat?agent=${encodeURIComponent(agent.id)}">更多 ${rest} 条…</a>` : ''}
-        <button class="tree-child new" type="button" data-new="${esc(agent.id)}">
-          ${icon('add', 13)}<span class="label">新会话</span>
-        </button>
+        ${rest > 0 ? `<button class="tree-child more" type="button" data-chat-more="${esc(agent.id)}">Show ${rest} more sessions</button>` : ''}
+        ${unfolded && chats.length > CHATS_SHOWN ? `<button class="tree-child more" type="button" data-chat-more="${esc(agent.id)}" data-less="1">Show less</button>` : ''}
       </div>`
           : ''
       }
@@ -761,6 +791,15 @@ $('agent-nav').addEventListener('click', async (event) => {
     return
   }
 
+  // "Show x more sessions" / "Show less": unfold or re-cap this agent's chat
+  // list. Remembered per agent, like the collapse preference.
+  const chatMore = event.target.closest('[data-chat-more]')
+  if (chatMore !== null) {
+    setChatsMore(chatMore.dataset.chatMore, chatMore.dataset.less !== '1')
+    if (lastStatus !== null) setHtml('agent-nav', agentNav(lastStatus))
+    return
+  }
+
   const toggle = event.target.closest('.tree-toggle')
   if (toggle !== null) {
     const group = toggle.closest('.tree-group')
@@ -773,7 +812,7 @@ $('agent-nav').addEventListener('click', async (event) => {
     return
   }
 
-  const create = event.target.closest('.tree-child.new')
+  const create = event.target.closest('[data-new]')
   if (create === null) return
 
   // A chat row cannot be linked to before it exists, so this is a request

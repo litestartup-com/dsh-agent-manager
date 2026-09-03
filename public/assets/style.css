@@ -368,6 +368,10 @@ code {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* Long agent names give way to the row's action buttons instead of pushing
+     them out of the sidebar. */
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 /* Tiny right-aligned metadata, as DSH does with relative timestamps. */
@@ -421,8 +425,9 @@ code {
   }
 }
 
-/* The board entry. Sized as a hit target rather than an icon, since it sits
-   between two other controls on a 13px row. */
+/* The row's action buttons -- the board entry and the new-chat "+". Sized as
+   hit targets rather than bare icons, and carrying the full button reset since
+   new-chat is a <button> now. */
 .tree-side {
   flex: 0 0 auto;
   display: inline-flex;
@@ -430,13 +435,22 @@ code {
   justify-content: center;
   width: 24px;
   height: 24px;
+  border: 0;
+  background: none;
+  padding: 0;
   border-radius: var(--r-sm);
   color: var(--muted);
+  cursor: pointer;
 }
 
 .tree-side:hover {
   background: var(--surface-hover);
   color: var(--text);
+}
+
+.tree-side:disabled {
+  opacity: 0.5;
+  cursor: progress;
 }
 
 .tree-children {
@@ -503,18 +517,8 @@ code {
   color: var(--text-2);
 }
 
-.tree-child.more,
-.tree-child.new {
+.tree-child.more {
   color: var(--muted);
-}
-
-.tree-child.new:hover {
-  color: var(--text);
-}
-
-.tree-child.new:disabled {
-  opacity: 0.5;
-  cursor: progress;
 }
 
 .dot {
@@ -718,7 +722,7 @@ code {
 }
 
 .content {
-  padding: 32px 36px 64px;
+  padding: 26px 36px 26px;
   min-width: 0;
 }
 
