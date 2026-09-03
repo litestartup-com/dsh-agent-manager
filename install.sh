@@ -215,8 +215,11 @@ if [ "$DEPLOY_ENV" = "prod" ]; then
     log "nginx already installed"
   else
     if [ "$DRY_RUN" = "1" ]; then
-      log "DRY: apt-get install -y nginx"
+      log "DRY: apt-get update && apt-get install -y nginx"
     else
+      # refresh the package index first: Ubuntu mirrors rotate package
+      # versions, and a stale index fails with 404 on the old filenames
+      apt-get update -qq
       apt-get install -y nginx
     fi
   fi
