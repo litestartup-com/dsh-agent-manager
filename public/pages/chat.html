@@ -1,17 +1,7 @@
-<header class="chat-head">
-  <div class="chat-head-row">
-    <h1 id="chat-title">对话</h1>
-    <div id="chat-actions" class="chat-actions" hidden>
-      <button id="chat-rename" class="btn-quiet btn-sm" type="button">改名</button>
-      <!-- 「归档」, not 「删除」: the transcript stays on the gateway and the run
-           rows stay in the ledger, so calling it deletion would be a lie. -->
-      <button id="chat-remove" class="btn-quiet btn-sm" type="button">归档</button>
-    </div>
-  </div>
-  <!-- The agent, spelled out. Sending to the wrong agent does not mean a worse
-       answer, it means the wrong workspace was written to. -->
-  <p id="chat-sub" class="chat-sub"></p>
-</header>
+<!-- The conversation page has no header of its own: DSH's own view leads with
+     the transcript, and the chat's title still reaches the browser tab and the
+     narrow-screen app bar through `shell:title`. Rename/archive live on the
+     sidebar row menu, where they already were. -->
 
 <!-- Session state and concurrency notices. Kept above the transcript rather than
      next to the composer: `lost` disables sending, so the reason has to be
@@ -27,13 +17,6 @@
 </div>
 
 <form id="chat-composer" class="composer" autocomplete="off">
-  <!-- Never hidden, on any width. This is the one deliberate deviation from
-       DSH's layout: the agent identity has to be inside the same field of view
-       as the send button. -->
-  <div id="composer-identity" class="composer-identity">
-    <span id="composer-agent" class="who"></span>
-    <span id="composer-path" class="path muted"></span>
-  </div>
   <div class="composer-row">
     <textarea
       id="chat-input"
@@ -43,12 +26,29 @@
       aria-label="消息"
       disabled
     ></textarea>
-    <button id="chat-send" class="btn-primary composer-send" type="submit" disabled aria-label="发送">
-      <svg width="16" height="16" aria-hidden="true"><use href="#i-up" /></svg>
-    </button>
-    <button id="chat-stop" class="btn-quiet composer-send" type="button" hidden>停止</button>
   </div>
-  <p id="composer-hint" class="composer-hint muted small"></p>
+  <!-- The bottom operations row, DSH's InputBar pattern: content (the text
+       above) stays free, and this row is split into three slots --
+         tools (left):  agent identity pill + workspace path
+         modes (middle): reserved for future controls (preset/model selectors…)
+         trailing (right): state hint, stop, and the send button, always last.
+       Future features land in `composer-tools` / `composer-modes` without
+       touching the layout. Never hidden, at any width -- UI.md §0 puts the
+       agent identity in the send button's field of view. -->
+  <div id="composer-identity" class="composer-bar">
+    <div class="composer-tools">
+      <span id="composer-agent" class="composer-agent"></span>
+      <span id="composer-path" class="composer-path"></span>
+    </div>
+    <div class="composer-modes" id="composer-modes" hidden></div>
+    <div class="composer-trailing">
+      <span id="composer-hint" class="composer-hint"></span>
+      <button id="chat-stop" class="btn-quiet composer-send" type="button" hidden>停止</button>
+      <button id="chat-send" class="btn-primary composer-send" type="submit" disabled aria-label="发送">
+        <svg width="16" height="16" aria-hidden="true"><use href="#i-up" /></svg>
+      </button>
+    </div>
+  </div>
 </form>
 
 <div id="chat-toast" class="toast" role="status" aria-live="polite"></div>

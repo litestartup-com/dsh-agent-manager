@@ -3,7 +3,7 @@
 
   <section class="hero">
     <h1>要它做什么？</h1>
-    <p>agent 只能改自己工作区里的文件，每次改动都会自动提交</p>
+    <p>给 agent 派活，它会写进自己的工作区，并自动提交</p>
 
     <form id="run-form" class="composer">
       <div class="composer-pills">
@@ -25,14 +25,53 @@
       ></textarea>
 
       <div class="composer-foot">
+        <!-- The identity line, inside the same field of view as the send
+             button: sending to the wrong agent writes to the wrong workspace
+             (UI.md §0). -->
+        <span class="composer-identity" id="run-identity">
+          <span id="run-who" class="who"></span>
+          <span id="run-path" class="path"></span>
+        </span>
         <span id="run-state" class="composer-state"></span>
         <button id="run-submit" class="send" type="submit" aria-label="开始">
-          <svg width="15" height="15"><use href="#i-up" /></svg>
+          <svg width="16" height="16" aria-hidden="true"><use href="#i-up" /></svg>
         </button>
+      </div>
+
+      <!-- Suggested ways to use the composer. Honest, static, dismissible:
+           no data source to keep in sync, and a night's worth of prompts is
+           not worth inventing. -->
+      <div class="suggest" id="suggest" hidden>
+        <div class="suggest-head">
+          <span class="suggest-title">可以这样派</span>
+          <button id="suggest-hide" class="icon-btn" type="button" aria-label="收起建议" title="收起建议">
+            <svg width="14" height="14" aria-hidden="true"><use href="#i-close" /></svg>
+          </button>
+        </div>
+        <div class="suggest-grid" id="suggest-grid"></div>
       </div>
     </form>
 
     <div id="run-result"></div>
+
+    <nav class="quickbar" aria-label="快捷入口">
+      <a id="quick-board" class="quick-link" href="#">
+        <svg width="15" height="15" aria-hidden="true"><use href="#i-board" /></svg>
+        大盘
+      </a>
+      <a class="quick-link" href="/crons">
+        <svg width="15" height="15" aria-hidden="true"><use href="#i-clock" /></svg>
+        定时任务
+      </a>
+      <a class="quick-link" href="/spend">
+        <svg width="15" height="15" aria-hidden="true"><use href="#i-coin" /></svg>
+        花费
+      </a>
+      <a class="quick-link" href="/archive">
+        <svg width="15" height="15" aria-hidden="true"><use href="#i-archive" /></svg>
+        已归档
+      </a>
+    </nav>
   </section>
 
   <section class="section">
@@ -46,22 +85,4 @@
       </div>
     </div>
   </section>
-
-  <!-- Endpoint health and session counts are operator detail. Collapsed by
-       default so the page leads with what you actually came to do. -->
-  <details class="ops">
-    <summary>
-      <svg class="chev" width="13" height="13"><use href="#i-chev" /></svg>
-      DSH 端点
-    </summary>
-    <div class="card">
-      <p class="muted small" style="margin: 0 0 8px">
-        manager 只作为 gateway 的服务端调用方，不代理 DSH 界面。DSH 应始终绑
-        <code>127.0.0.1</code>。
-      </p>
-      <div id="endpoints" class="list">
-        <div class="skeleton w60"></div>
-      </div>
-    </div>
-  </details>
 </div>

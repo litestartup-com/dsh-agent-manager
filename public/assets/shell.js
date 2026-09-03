@@ -15,6 +15,43 @@ const agentHealth = (agent, endpoints) => {
 
 const HEALTH_TITLE = { ok: '端点正常', warn: '端点有告警', bad: '端点不可达' }
 
+/** Endpoint health, independent of any agent. Same rule as agentHealth. */
+const endpointHealth = (ep) => {
+  if (!ep.reachable) return 'bad'
+  if (ep.apiKeySet === false || ep.enabled === false) return 'warn'
+  return 'ok'
+}
+
+/**
+ * The quiet line at the foot of the sidebar: one row per endpoint, saying how
+ * it is doing. The home page's endpoint box moved here because these are
+ * standing facts -- nothing changes about them by opening the home page.
+ */
+const renderEndpointLines = (status) => {
+  const box = $('side-endpoints')
+  if (box === null) return
+  if (status.endpoints.length === 0) {
+    box.hidden = true
+    return
+  }
+  box.hidden = false
+  setHtml(
+    'side-endpoints',
+    status.endpoints
+      .map((ep) => {
+        const health = endpointHealth(ep)
+        const label = `${ep.id} · ${ep.reachable ? `会话 ${ep.sessions ?? 0}` : '不可达'}${
+          ep.apiKeySet === false ? ' · 未校验密钥' : ''
+        }`
+        const detail = ep.reachable ? '' : ` — ${ep.error ?? '未知错误'}`
+        return `<span class="endpoint-line" title="${esc(ep.url)}${esc(detail)}">
+          <span class="dot ${health}"></span>${esc(label)}
+        </span>`
+      })
+      .join(''),
+  )
+}
+
 const segments = window.location.pathname.split('/').filter(Boolean)
 const pathId = (prefix) => (window.location.pathname.startsWith(`/${prefix}/`) ? decodeURIComponent(segments[1] ?? '') : '')
 
@@ -182,15 +219,21 @@ const agentNav = (status) => {
  *
  * Without this the home page would fetch /api/status a second time on load, for
  * the same bytes, purely because the two scripts were split.
+ *
+ * The event is one channel; `window.__shellLastStatus` is the other, for pages
+ * whose script ran after the first poll already answered. A module *import* is
+ * deliberately NOT used as a third channel: an import resolves to a URL without
+ * the `?v=` stamp, which made the browser load shell.js a second time as a
+ * separate module -- every sidebar listener existed twice and every toggle
+ * undid itself. The bug showed up as "the collapse button does nothing" on the
+ * one page that imported this file.
  */
 const publishStatus = (status) => {
+  window.__shellLastStatus = status
   window.dispatchEvent(new CustomEvent('shell:status', { detail: status }))
 }
 
 let lastStatus = null
-
-/** Lets a page script that loaded after the first poll still get the data. */
-export const currentStatus = () => lastStatus
 
 export const loadShell = async () => {
   try {
@@ -215,8 +258,11 @@ export const loadShell = async () => {
     }
 
     $('who').textContent = me.username
+    const avatar = $('avatar')
+    if (avatar !== null) avatar.textContent = [...me.username][0] ?? '?'
     $('agent-count').textContent = status.agents.length === 0 ? '' : status.agents.length
     setHtml('agent-nav', status.agents.length === 0 ? '<p class="muted small">未配置 agent</p>' : agentNav(status))
+    renderEndpointLines(status)
 
     lastStatus = status
     publishStatus(status)
@@ -297,6 +343,7 @@ const drawerStops = () =>
 const syncNavControls = () => {
   const collapse = $('nav-collapse')
   const opener = $('nav-open')
+  if (collapse === null || opener === null) return
   if (docked()) {
     const label = railed() ? '展开侧栏' : '收起侧栏'
     collapse.setAttribute('aria-label', label)
@@ -344,9 +391,31 @@ const toggleNav = () => {
   else openDrawer()
 }
 
-$('nav-open').addEventListener('click', toggleNav)
-$('nav-collapse').addEventListener('click', toggleNav)
-$('nav-backdrop').addEventListener('click', closeDrawer)
+/**
+ * Null-safe binding for the frame's controls.
+ *
+ * A missing element here used to mean an uncaught TypeError that killed the
+ * rest of the shell's wiring -- one stale page and every button after it went
+ * dead together. Now it logs once, loudly, and the frame keeps working.
+ * `scripts/check-ids.mjs` cross-checks these ids against the rendered pages;
+ * this is the runtime safety net for anything the audit misses.
+ */
+const bind = (id, event, handler) => {
+  const node = $(id)
+  if (node === null) {
+    console.warn(`[shell] 找不到 #${id}，${event} 监听未挂载 -- 页面模板可能过期，请重启服务后强刷`)
+    return
+  }
+  node.addEventListener(event, handler)
+}
+
+bind('nav-open', 'click', toggleNav)
+bind('nav-collapse', 'click', () => {
+  console.debug('[shell] nav toggle click:', { docked: docked(), railed: railed(), drawerOpen: drawerOpen() })
+  toggleNav()
+  console.debug('[shell] after toggle:', { railed: railed(), drawerOpen: drawerOpen() })
+})
+bind('nav-backdrop', 'click', closeDrawer)
 
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && drawerOpen()) {
@@ -763,4 +832,63 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return
   void loadShell()
   void loadArchiveHint()
+  void selfHealStaleFrame()
+})
+
+// ---------------------------------------------------------------------------
+// stale-frame self-heal
+// ---------------------------------------------------------------------------
+//
+// Pages are baked at server boot and stamped with content-hashed asset URLs.
+// A tab left open across a deploy keeps running its old scripts even after the
+// server moves on -- the exact situation where a "broken" button is actually a
+// day-old page. On return to a visible tab, compare the shell.js version this
+// page loaded against the one the server currently stamps; a mismatch reloads
+// once, so the next interaction runs the code the server actually serves.
+
+const loadedShellVersion = (() => {
+  const tag = document.querySelector('script[src*="/assets/shell.js"]')
+  if (tag === null) return null
+  try {
+    return new URL(tag.src, window.location.href).searchParams.get('v')
+  } catch {
+    return null
+  }
+})()
+
+// One loud line per page load: whoever reports a broken button can paste this
+// and the failure layer is immediately obvious (stale version / narrow window).
+console.info(
+  `[shell] loaded shell.js?v=${loadedShellVersion} at ${window.location.href} · innerWidth=${window.innerWidth} · docked=${docked()}`,
+)
+
+let healed = false
+
+const selfHealStaleFrame = async () => {
+  if (healed || loadedShellVersion === null) return
+  try {
+    const response = await fetch('/app', { headers: { accept: 'text/html' }, cache: 'no-store' })
+    if (!response.ok) return
+    const html = await response.text()
+    const match = html.match(/shell\.js\?v=([a-f0-9]+)/)
+    if (match !== null && match[1] !== loadedShellVersion) {
+      // One reload, and one only: the fresh page re-runs this check and finds
+      // a matching version, so there is nothing left to loop on.
+      healed = true
+      window.location.reload()
+    }
+  } catch {
+    // Offline or mid-deploy: nothing to heal against.
+  }
+}
+
+// Run immediately, not only on tab return: a page that has been sitting open
+// across a deploy heals on its next load instead of waiting for a background
+// round-trip that may never come.
+void selfHealStaleFrame()
+
+window.addEventListener('pageshow', (event) => {
+  // Back/forward cache restores do not fire visibilitychange: the page comes
+  // back frozen, with all its stale wiring intact. Heal those too.
+  if (event.persisted) void selfHealStaleFrame()
 })

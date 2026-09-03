@@ -30,14 +30,14 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 12px 16px 8px;
-  max-width: 1100px;
+  padding: 12px 16px 10px;
+  max-width: 1120px;
   margin: 0 auto;
 }
 
 .board-head-row h1 {
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 17px;
+  font-weight: 650;
   letter-spacing: -0.01em;
   margin: 0;
   flex: 1;
@@ -89,9 +89,12 @@
   border: 0;
   color: var(--muted);
   font: 13px/1 var(--font);
-  padding: 7px 11px;
-  border-radius: var(--r-sm);
+  padding: 8px 13px;
+  border-radius: var(--r);
   cursor: pointer;
+  transition:
+    color var(--motion),
+    background-color var(--motion);
 }
 
 .tab:hover {
@@ -101,14 +104,13 @@
 
 .tab.on {
   color: var(--text);
-  background: var(--surface);
-  box-shadow: var(--sh-1);
-  font-weight: 500;
+  background: var(--surface-sunken);
+  font-weight: 600;
 }
 
 .board-main {
   padding: 16px 12px 0;
-  max-width: 1100px;
+  max-width: 1120px;
   margin: 0 auto;
 }
 
@@ -135,17 +137,18 @@
 
 .bcard {
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: var(--r-lg);
   box-shadow: var(--sh-1);
-  padding: 14px 16px;
+  padding: 18px 20px;
   min-width: 0;
 }
 
 .bcard h2 {
-  font-size: 13px;
-  font-weight: 600;
-  margin: 0 0 11px;
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  margin: 0 0 12px;
   color: var(--text-2);
 }
 

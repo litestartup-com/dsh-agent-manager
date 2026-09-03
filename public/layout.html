@@ -105,9 +105,41 @@
         <g id="i-close" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
           <path d="M4 4l8 8M12 4l-8 8" />
         </g>
-        <g id="i-gear" fill="none" stroke="currentColor" stroke-width="1.5">
-          <circle cx="8" cy="8" r="2.25" />
-          <path d="M8 1.75v1.6M8 12.65v1.6M1.75 8h1.6M12.65 8h1.6M3.6 3.6l1.15 1.15M11.25 11.25l1.15 1.15M12.4 3.6l-1.15 1.15M4.75 11.25 3.6 12.4" stroke-linecap="round" />
+        <!-- Log out: the arrow leaves the frame. Distinct from i-close, which
+             dismisses a panel and must never read as "sign me out". -->
+        <g id="i-logout" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M6 3.25h5.5a1 1 0 0 1 1 1v7.5a1 1 0 0 1-1 1H6" />
+          <path d="M10.25 8H2.75M5 5.75 2.75 8 5 10.25" />
+        </g>
+        <!-- The agent's face in a conversation: a round head with eyes and an
+             antenna. Same glyph everywhere an agent speaks, so a bot avatar
+             never needs per-agent art. -->
+        <g id="i-bot" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2.75" y="4.25" width="10.5" height="8" rx="2.75" />
+          <circle cx="5.9" cy="8.25" r="0.8" fill="currentColor" stroke="none" />
+          <circle cx="10.1" cy="8.25" r="0.8" fill="currentColor" stroke="none" />
+          <path d="M8 4.25V2.5M8 2.5h1.6" />
+        </g>
+        <!-- Done. A check in a rounded box, so it reads as a state chip rather
+             than a bare tick. -->
+        <g id="i-check" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2.25" y="2.25" width="11.5" height="11.5" rx="3.5" />
+          <path d="m5.5 8.25 1.85 1.85 3.15-4.2" />
+        </g>
+        <!-- Copy: two sheets, one behind the other. -->
+        <g id="i-copy" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">
+          <rect x="5.25" y="5.25" width="8" height="8" rx="1.5" />
+          <path d="M10.75 5.25V4a1 1 0 0 0-1-1H4.5a1 1 0 0 0-1 1v5.25a1 1 0 0 0 1 1h1.25" />
+        </g>
+        <!-- Feedback: an up and a down thumb, the pair users already read as
+             "this was / was not helpful". -->
+        <g id="i-thumb-up" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M6.5 13.5H3.25a1 1 0 0 1-1-1V7.75a1 1 0 0 1 1-1H6.5" />
+          <path d="M6.5 6.75 8.6 3a1.5 1.5 0 0 1 2.65 1v2.75h2.5a1.25 1.25 0 0 1 1.24 1.4l-.55 4.1a1.5 1.5 0 0 1-1.5 1.35H6.5z" />
+        </g>
+        <g id="i-thumb-down" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9.5 2.5h3.25a1 1 0 0 1 1 1v4.75a1 1 0 0 1-1 1H9.5" />
+          <path d="M9.5 9.25 7.4 13a1.5 1.5 0 0 1-2.65-1V9.25H2.25a1.25 1.25 0 0 1-1.24-1.4l.55-4.1a1.5 1.5 0 0 1 1.5-1.35H9.5z" />
         </g>
       </defs>
     </svg>
@@ -143,8 +175,10 @@
                button, which is a worse version of a frame that never leaves. -->
           <a class="brand" href="/app">
             <span class="brand-mark" aria-hidden="true">O</span>
-            <span class="brand-text">Oh! dsh</span>
-            <span class="brand-badge">agents manager</span>
+            <span class="brand-text">
+              Oh! dsh
+              <span class="brand-sub">agents manager</span>
+            </span>
           </a>
           <!-- Collapses the sidebar on a wide screen, closes the drawer on a
                narrow one. One control, because to the user it is one thing: the
@@ -187,10 +221,18 @@
           </a>
         </div>
 
+        <!-- Endpoint health and session counts: standing facts, one quiet line
+             per endpoint. They used to live on the home page inside a collapsible
+             box, which made operator detail the page's second act; here they are
+             visible from anywhere without competing with the task at hand. -->
+        <div class="side-endpoints" id="side-endpoints"></div>
+
         <div class="side-foot">
-          <svg width="14" height="14"><use href="#i-gear" /></svg>
+          <span id="avatar" class="side-avatar" aria-hidden="true"></span>
           <span id="who" class="grow"></span>
-          <button id="logout" class="btn-quiet btn-sm" type="button">退出</button>
+          <button id="logout" class="icon-btn" type="button" aria-label="退出登录" title="退出登录">
+            <svg width="15" height="15" aria-hidden="true"><use href="#i-logout" /></svg>
+          </button>
         </div>
       </aside>
 

@@ -124,15 +124,19 @@ const main = async (): Promise<void> => {
   // Composed once at boot, so a missing fragment fails here rather than in
   // somebody's browser.
   const pages = buildPages(publicDir)
+  // HTML documents carry no version of their own: stale-proofing them is one
+  // header. (Assets are the opposite -- hash-versioned URLs plus must-revalidate
+  // -- so a restart changes their URL, but a document URL never does.)
+  const noCache = (reply: FastifyReply): FastifyReply => reply.header('cache-control', 'no-store')
   const page =
     (name: string) =>
     async (_request: unknown, reply: FastifyReply): Promise<FastifyReply> =>
-      reply.type('text/html').send(pages.get(name))
+      noCache(reply.type('text/html').send(pages.get(name)))
 
   app.get('/', async (_request, reply) => reply.redirect('/app', 302))
   // The only page outside the shell, on purpose: the sidebar is agent data, and
   // there is no session yet to fetch it with.
-  app.get('/login', async (_request, reply) => reply.type('text/html').sendFile('login.html', publicDir))
+  app.get('/login', async (_request, reply) => noCache(reply.type('text/html').sendFile('login.html', publicDir)))
   app.get('/app', { preHandler: requirePage }, page('home'))
   // One page for every agent; which board to draw comes from the path, and the
   // data comes from /api/board/:id.

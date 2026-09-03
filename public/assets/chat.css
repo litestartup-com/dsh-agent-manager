@@ -4,9 +4,45 @@
  * height and only the transcript scrolls. A composer that scrolls away with the
  * messages would take the agent identity with it, and that line is the one thing
  * this UI adds over DSH -- see UI.md §0.
+ *
+ * Visual rule: copied from DSH's own conversation view (dsh-client-ui-
+ * conversation: ConversationRoot / ChatView / MessageItem / InputBar modules),
+ * so manager and DSH read as one system:
+ *
+ *   - white sheet, one centered 748px column, 16px gaps
+ *   - assistant text 16px/28 in near-black; your words in a soft deepseek-blue
+ *     bubble (#edf3fe), radius 22, max ~525px
+ *   - composer = floating white card, radius 22, hairline border, soft shadow,
+ *     free text area (no inner well), toolbar row underneath, 34px blue send
+ *
+ * The palette values below are DSH's own (light theme): #4176e6 send, #0f1115
+ * ink, rgba(0,0,0,.1) hairlines.
  */
 
 .content-flush:has(.chat-log) {
+  /* DSH conversation palette, scoped to this page so the rest of manager keeps
+     its own tokens. */
+  --chat-bg: #fff;
+  --chat-text: #0f1115;
+  --chat-text-2: #61666b;
+  --chat-text-3: #81858c;
+  --chat-caption: #adb2b8;
+  --chat-bubble: #edf3fe;
+  --chat-send: #4176e6;
+  --chat-send-hover: #679efe;
+  --chat-line: rgba(0, 0, 0, 0.1);
+  --chat-hover: rgba(38, 49, 72, 0.06);
+  --chat-hover-strong: rgba(38, 49, 72, 0.14);
+  --chat-shadow: 0 4px 12px rgba(0, 0, 0, 0.02), 0 2px 8px rgba(0, 0, 0, 0.04);
+  --chat-col: 748px;
+  --chat-composer-w: 780px;
+  --chat-input-max-h: 336px;
+  /* DSH's decision-card amber: strip bg / ink / border, from its own
+     state-warn tokens. */
+  --chat-ask-strip: #fef5e7;
+  --chat-ask-ink: #f59e0b;
+  --chat-ask-border: #f7ad31;
+
   display: flex;
   flex-direction: column;
   /* The shell's own height, not the document's: the transcript owns the only
@@ -19,52 +55,7 @@
   height: calc(100dvh - var(--topbar-h));
   min-height: 0;
   overflow: hidden;
-}
-
-/* ---- header ---- */
-
-.chat-head {
-  flex: 0 0 auto;
-  padding: 14px 20px 10px;
-  border-bottom: 1px solid var(--line);
-  background: var(--surface);
-}
-
-.chat-head-row {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-
-.chat-head h1 {
-  font-size: 16px;
-  font-weight: 600;
-  margin: 0;
-  flex: 1 1 auto;
-  /* Titles come from the user's own first words and can be long. */
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.chat-actions {
-  display: flex;
-  gap: 6px;
-  flex: 0 0 auto;
-}
-
-.chat-sub {
-  margin: 3px 0 0;
-  font-size: 12px;
-  color: var(--muted);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.chat-sub .sep {
-  opacity: 0.45;
+  background: var(--chat-bg);
 }
 
 /* ---- notices ---- */
@@ -77,17 +68,27 @@
   display: none;
 }
 
-/* A state strip, not a banner: `cold` is normal and must not look like a fault.
-   Only `lost` earns the alarm colour, because only `lost` stops you working. */
+/* A state strip, not a banner: `lost` and busy are the two states that stop
+   work, so they get the full-width treatment. Dormancy lives in the composer
+   hint instead -- it is a note about the next send, not a problem. */
 .state-strip {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 20px;
+  padding: 8px 24px;
   font-size: 12.5px;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--chat-line);
   background: var(--surface-sunken);
-  color: var(--muted);
+  color: var(--chat-text-3);
+}
+
+.state-strip > span {
+  max-width: var(--chat-col);
+  width: 100%;
+  margin-inline: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .state-strip.warn {
@@ -114,26 +115,68 @@
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior-y: contain;
-  padding: 18px 20px 8px;
+  /* DSH: padding 16px calc(composer-side-clearance + 16px) = 32px sides. */
+  padding: 16px 32px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 16px;
+}
+
+/* Every child of the scroller sits on the same 748px axis -- nothing in the
+   transcript is allowed to be wider than its neighbours, folds included. */
+.chat-log > * {
+  width: 100%;
+  max-width: var(--chat-col);
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .chat-empty {
   margin: auto;
   text-align: center;
-  color: var(--muted);
-  font-size: 13px;
+  color: var(--chat-text-3);
+  font-size: 14px;
   max-width: 32em;
   line-height: 1.7;
+  padding: 8px 0 16px;
 }
+
+.chat-empty-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--surface-sunken);
+  color: var(--chat-text-2);
+  margin-bottom: 12px;
+}
+
+.chat-empty strong {
+  display: block;
+  color: var(--chat-text);
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.chat-empty p {
+  margin: 0;
+}
+
+.chat-empty .small {
+  margin-top: 8px;
+  color: var(--chat-caption);
+}
+
+/* ---- turns ---- */
 
 .turn {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  max-width: 46em;
+  gap: 5px;
+  max-width: var(--chat-col);
   width: 100%;
 }
 
@@ -143,30 +186,55 @@
 }
 
 .bubble {
-  border-radius: var(--r-lg);
-  padding: 9px 13px;
-  font-size: 14px;
-  line-height: 1.65;
+  border-radius: 22px;
+  padding: 10px 16px;
+  font-size: 16px;
+  line-height: 24px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
+/* DSH's user bubble: deepseek-blue tint, big radius, bounded width. No name
+   row -- alignment and colour are the identity. */
 .from-user .bubble {
-  background: var(--surface-sunken);
-  border: 1px solid var(--line);
-  max-width: 90%;
+  background: var(--chat-bubble);
+  border-radius: 22px;
+  max-width: min(525px, 82%);
+  color: var(--chat-text);
 }
 
+/* Assistant: ink on the sheet, 16px/28 like DSH's AssistantMarkdown. */
 .from-agent .bubble {
   background: transparent;
   padding-left: 0;
   padding-right: 0;
+  font-size: 16px;
+  line-height: 28px;
 }
 
+/* Who spoke: a round bot mark plus the agent's name -- the one element DSH
+   does not have, because manager is the multi-agent shell and identity is the
+   point (UI.md §0). */
 .turn-who {
-  font-size: 11.5px;
-  color: var(--muted);
-  letter-spacing: 0.02em;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--chat-text-3);
+  letter-spacing: 0;
+}
+
+.turn-who .who-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--surface-sunken);
+  color: var(--chat-text-2);
 }
 
 /* The waiting row drops its name once a bubble above it carries one, and an empty
@@ -183,7 +251,7 @@
   height: 1em;
   margin-left: 2px;
   vertical-align: -0.15em;
-  background: var(--accent);
+  background: var(--chat-send);
   animation: caret 1s steps(2) infinite;
 }
 
@@ -213,7 +281,7 @@
   align-items: center;
   gap: 8px;
   font-size: 12.5px;
-  color: var(--muted);
+  color: var(--chat-caption);
   min-height: 22px;
 }
 
@@ -227,7 +295,7 @@
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--chat-send);
   animation: wait-dot 1.3s ease-in-out infinite;
 }
 
@@ -272,7 +340,7 @@
 }
 
 .waiting.slow .wait-time {
-  color: var(--text-2);
+  color: var(--chat-text-2);
 }
 
 /* The clock alone still tells the whole story, so nothing is lost by holding the
@@ -286,38 +354,67 @@
 
 /* ---- asks: what the agent is blocked on ---- */
 
-/* Deliberately not styled like a bubble. A bubble is a record of something that
-   was said; this is a control that something is waiting on, and the accent edge
-   plus the raised surface is what separates "read this" from "do this". */
+/* Copied from DSH's decision cards (ApprovalPanel / PlanReviewPanel): a white
+   card with an amber strip on top -- "this is waiting on you" -- the question
+   or request in the body, and the actions pinned to the bottom-right. Both the
+   question card and the approval card share this grammar. */
 .asks {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  width: 100%;
+  max-width: var(--chat-col);
+  margin-inline: auto;
 }
 
 .ask {
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
-  border-radius: var(--r);
-  background: var(--surface);
-  padding: 12px 14px;
+  width: 100%;
+  border: 1px solid var(--chat-ask-border);
+  background: var(--chat-bg);
+  box-shadow: var(--chat-shadow);
+  border-radius: 20px;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 10px;
 }
 
-.ask-title {
-  display: flex;
+.ask-strip {
+  background: var(--chat-ask-strip);
+  color: var(--chat-ask-ink);
+  flex-shrink: 0;
   align-items: center;
-  gap: 6px;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--text-2);
+  gap: 8px;
+  padding: 10px 16px;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+  display: flex;
 }
 
-.ask-title svg {
+.ask-dot {
+  background: var(--chat-ask-ink);
+  border-radius: 50%;
+  width: 8px;
+  height: 8px;
   flex: 0 0 auto;
-  color: var(--accent);
+}
+
+.ask-body {
+  flex: auto;
+  min-height: 0;
+  max-height: var(--chat-input-max-h);
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 16px 6px;
+  display: flex;
+  overflow-y: auto;
+}
+
+.ask-headline {
+  color: var(--chat-text);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 24px;
 }
 
 .ask-q {
@@ -330,17 +427,19 @@
   font-size: 11.5px;
   letter-spacing: 0.02em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--chat-caption);
 }
 
 .ask-q-text {
   font-size: 14px;
-  line-height: 1.5;
+  line-height: 22px;
+  color: var(--chat-text);
 }
 
 .ask-q-detail {
   font-size: 12.5px;
-  color: var(--text-2);
+  line-height: 1.6;
+  color: var(--chat-text-2);
 }
 
 .ask-opts {
@@ -356,71 +455,109 @@
   flex-direction: column;
   gap: 2px;
   text-align: left;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
+  padding: 9px 12px;
+  border: 1px solid var(--chat-line);
+  border-radius: 10px;
   background: var(--surface-sunken);
   color: inherit;
   cursor: pointer;
   font: inherit;
+  transition:
+    border-color var(--motion),
+    background-color var(--motion);
 }
 
 .ask-opt:hover {
-  border-color: var(--accent);
+  border-color: var(--chat-send);
 }
 
 .ask-opt.on {
-  border-color: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--accent);
+  border-color: var(--chat-send);
+  box-shadow: inset 0 0 0 1px var(--chat-send);
 }
 
 .ask-opt-label {
-  font-size: 13px;
+  font-size: 13.5px;
 }
 
 .ask-opt-desc {
   font-size: 11.5px;
-  color: var(--muted);
+  color: var(--chat-caption);
 }
 
 .ask-custom {
-  padding: 7px 9px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
+  padding: 9px 12px;
+  border: 1px solid var(--chat-line);
+  border-radius: 10px;
   background: var(--surface-sunken);
-  color: inherit;
+  color: var(--chat-text);
   font: inherit;
-  font-size: 13px;
+  font-size: 13.5px;
+  transition:
+    border-color var(--motion),
+    box-shadow var(--motion);
+}
+
+.ask-custom:focus {
+  outline: none;
+  border-color: var(--chat-send);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .ask-actions {
-  display: flex;
+  flex-shrink: 0;
+  justify-content: flex-end;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+  padding: 12px 16px 14px;
+  display: flex;
+}
+
+.ask-error {
+  color: var(--bad);
+  font-size: 12px;
+  margin-right: auto;
 }
 
 .ask-actions button {
-  padding: 6px 12px;
-  border-radius: var(--r-sm);
-  border: 1px solid var(--border);
-  background: var(--surface-sunken);
-  color: inherit;
-  font: inherit;
-  font-size: 13px;
+  padding: 7px 14px;
+  border-radius: var(--r);
+  border: 1px solid var(--chat-line);
+  background: var(--surface);
+  color: var(--chat-text-2);
+  font: 500 13px/1 var(--font);
   cursor: pointer;
+  transition:
+    background-color var(--motion),
+    border-color var(--motion),
+    color var(--motion);
+}
+
+.ask-actions button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  color: var(--chat-text);
 }
 
 .ask-send,
 .ask-allow {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--accent-fg);
+  border-color: var(--chat-send);
+  background: var(--chat-send);
+  color: #fff;
 }
 
 .ask-send:hover:not(:disabled),
 .ask-allow:hover:not(:disabled) {
-  background: var(--accent-hover);
+  background: var(--chat-send-hover);
+  border-color: var(--chat-send-hover);
+  color: #fff;
+}
+
+/* DSH's reject treatment: quiet until hovered, then the danger colours. Skip
+   ("不答") stays neutral -- it is a dismissal, not a refusal. */
+.ask-reject:hover:not(:disabled) {
+  background: var(--bad-bg);
+  border-color: transparent;
+  color: var(--bad);
 }
 
 .ask-actions button:disabled {
@@ -428,15 +565,24 @@
   cursor: default;
 }
 
-.ask-error {
-  font-size: 12px;
-  color: var(--bad);
-}
-
 /* Kept on screen after sending rather than hidden: the gateway's own resolved
    frame removes the card, and until it arrives the answer is still in flight. */
 .ask.sent {
   opacity: 0.6;
+}
+
+@media (max-width: 720px) {
+  .ask {
+    border-radius: 16px;
+  }
+
+  .ask-body {
+    padding: 10px 12px 4px;
+  }
+
+  .ask-actions {
+    padding: 8px 12px 10px;
+  }
 }
 
 /* ---- rendered markdown ---- */
@@ -459,7 +605,7 @@
 }
 
 .prose p {
-  margin: 0 0 0.7em;
+  margin: 0 0 0.75em;
 }
 
 .prose h1,
@@ -489,12 +635,12 @@
 .prose h5,
 .prose h6 {
   font-size: 1em;
-  color: var(--muted);
+  color: var(--chat-text-3);
 }
 
 .prose ul,
 .prose ol {
-  margin: 0 0 0.7em;
+  margin: 0 0 0.75em;
   padding-left: 1.5em;
 }
 
@@ -507,28 +653,28 @@
 }
 
 .prose blockquote {
-  margin: 0 0 0.7em;
+  margin: 0 0 0.75em;
   padding: 0.1em 0 0.1em 0.9em;
-  border-left: 2px solid var(--line);
-  color: var(--muted);
+  border-left: 2px solid var(--chat-line);
+  color: var(--chat-text-3);
 }
 
 .prose code {
   font-family: var(--mono);
   font-size: 0.9em;
   background: var(--surface-sunken);
-  border: 1px solid var(--line);
+  border: 1px solid var(--chat-line);
   border-radius: var(--r-sm);
   padding: 0.1em 0.34em;
   overflow-wrap: anywhere;
 }
 
 .prose pre {
-  margin: 0 0 0.7em;
+  margin: 0 0 0.75em;
   padding: 10px 12px;
   background: var(--surface-sunken);
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
+  border: 1px solid var(--chat-line);
+  border-radius: 12px;
   /* Code is the one thing that must not be re-wrapped: a broken line changes
      what it says. Scroll instead. */
   overflow-x: auto;
@@ -544,19 +690,24 @@
   overflow-wrap: normal;
 }
 
+/* Tables: one outer frame, hairline rows, a tinted header. No grid of boxes --
+   a grid of boxes is what a markdown table looks like before it is designed. */
 .prose table {
-  margin: 0 0 0.7em;
-  border-collapse: collapse;
-  font-size: 13px;
+  margin: 0 0 0.75em;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--chat-line);
+  border-radius: 10px;
+  font-size: 13.5px;
   display: block;
-  overflow-x: auto;
+  overflow: auto;
 }
 
 .prose th,
 .prose td {
-  border: 1px solid var(--line);
-  padding: 4px 9px;
+  padding: 7px 12px;
   text-align: left;
+  border-bottom: 1px solid var(--chat-line);
 }
 
 .prose th {
@@ -564,14 +715,34 @@
   font-weight: 600;
 }
 
+/* Round the frame's corners at the cell level: the table's own border is
+   rounded, and the tinted header would otherwise poke out of it. */
+.prose th:first-child {
+  border-top-left-radius: 9px;
+}
+.prose th:last-child {
+  border-top-right-radius: 9px;
+}
+.prose tr:last-child td:first-child {
+  border-bottom-left-radius: 9px;
+}
+.prose tr:last-child td:last-child {
+  border-bottom-right-radius: 9px;
+}
+
+.prose tr:last-child th,
+.prose tr:last-child td {
+  border-bottom: 0;
+}
+
 .prose hr {
   margin: 1em 0;
   border: 0;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--chat-line);
 }
 
 .prose a {
-  color: var(--accent);
+  color: var(--chat-send);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -580,12 +751,13 @@
 
 /* Folded by default: this is what the harness told the agent, not part of the
    conversation. One measured session carried 3.6KB of it against a 46-byte
-   question, so unfolded it simply is the transcript. */
+   question, so unfolded it simply is the transcript.
+   Width is the column's own: an earlier `align-self: flex-start` here let the
+   fold size against the full scroller and stick out past every neighbour. */
 .context {
   font-size: 12px;
-  color: var(--muted);
-  align-self: flex-start;
-  max-width: 90%;
+  color: var(--chat-text-3);
+  width: 100%;
 }
 
 .context > summary {
@@ -613,7 +785,7 @@
   margin: 4px 0 0 19px;
   padding: 8px 11px;
   background: var(--surface-sunken);
-  border: 1px solid var(--line);
+  border: 1px solid var(--chat-line);
   border-radius: var(--r-sm);
   font-size: 12.5px;
   line-height: 1.6;
@@ -629,7 +801,7 @@
    conversation they belong to. */
 .tools {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--chat-caption);
 }
 
 .tools > summary {
@@ -662,11 +834,11 @@
 }
 
 .tool-row .name {
-  color: var(--text);
+  color: var(--chat-text);
 }
 
 .tool-row .args {
-  color: var(--muted);
+  color: var(--chat-caption);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -691,11 +863,11 @@
   align-items: center;
   gap: 6px;
   font-size: 12.5px;
-  color: var(--text);
+  color: var(--chat-text);
 }
 
 .write-row .pen {
-  color: var(--accent);
+  color: var(--chat-send);
   flex: 0 0 auto;
 }
 
@@ -709,83 +881,127 @@
   text-decoration-style: solid;
 }
 
-/* ---- turn footer ---- */
+/* ---- turn footer: one meta line + the reply actions ---- */
 
+/* One quiet line per reply (never per tool call): when it ended, duration,
+   throughput and cost on the left; copy / up / down icons on the right. */
 .turn-foot {
   font-size: 11.5px;
-  color: var(--muted);
+  color: var(--chat-caption);
   display: flex;
+  align-items: center;
   gap: 8px;
   flex-wrap: wrap;
   padding-top: 2px;
-  border-top: 1px solid var(--line);
+  min-width: 0;
+}
+
+.turn-meta {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.turn-actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.turn-act {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--chat-caption);
+  cursor: pointer;
+  transition:
+    background-color var(--motion),
+    color var(--motion);
+}
+
+.turn-act:hover {
+  background: var(--chat-hover);
+  color: var(--chat-text-2);
+}
+
+.turn-act.on {
+  color: var(--chat-send);
+  background: var(--chat-hover);
 }
 
 .turn-foot.failed {
   color: var(--bad);
-  border-top-color: var(--bad-border);
 }
 
-/* ---- composer ---- */
+/* ---- composer (DSH InputBar, copied) ---- */
 
+/* DSH's composer: a floating white card -- radius 22, hairline border, soft
+   shadow, max-width = chat column + 32px. Text sits free on the card (no inner
+   well); the toolbar row underneath carries the agent identity pill on the left
+   and the send button on the right (UI.md §0: identity inside the send's field
+   of view). */
 .composer {
   flex: 0 0 auto;
-  border-top: 1px solid var(--line);
-  background: var(--surface);
-  padding: 10px 20px calc(12px + env(safe-area-inset-bottom));
-  display: flex;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--chat-composer-w);
+  border: 1px solid var(--chat-line);
+  background: var(--chat-bg);
+  box-shadow: var(--chat-shadow);
+  border-radius: 22px;
   flex-direction: column;
-  gap: 7px;
-}
-
-/* Never `display: none`, at any width. */
-.composer-identity {
+  gap: 12px;
+  padding-top: 10px;
+  font-size: 16px;
+  line-height: 24px;
   display: flex;
-  align-items: baseline;
-  gap: 8px;
-  font-size: 12px;
-  min-width: 0;
+  position: relative;
+  margin: 0 auto 12px;
 }
 
-.composer-identity .who {
-  font-weight: 600;
-  flex: 0 0 auto;
-}
-
-.composer-identity .path {
-  font-family: var(--mono);
-  font-size: 11px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  direction: rtl;
-  text-align: left;
+.composer > * {
+  width: 100%;
 }
 
 .composer-row {
   display: flex;
   align-items: flex-end;
-  gap: 8px;
+  min-width: 0;
 }
 
+/* Free text on the card, like DSH: transparent, 16/24, placeholder in caption
+   grey, caret in DSH blue. */
 .composer-input {
   flex: 1 1 auto;
   resize: none;
-  border: 1px solid var(--line);
-  border-radius: var(--r-lg);
-  background: var(--surface-sunken);
-  color: var(--text);
-  padding: 9px 12px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--chat-text);
+  min-height: 52px;
+  padding: 4px 12px 0 16px;
   font: inherit;
-  font-size: 14px;
-  line-height: 1.55;
-  max-height: 40vh;
+  font-size: 16px;
+  line-height: 24px;
+  max-height: var(--chat-input-max-h);
   overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  caret-color: var(--chat-send);
 }
 
-.composer-input:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: -1px;
+.composer-input::placeholder {
+  color: var(--chat-caption);
 }
 
 .composer-input:disabled {
@@ -793,18 +1009,82 @@
   cursor: not-allowed;
 }
 
-.composer-send {
-  flex: 0 0 auto;
-  height: 38px;
-  min-width: 42px;
+/* DSH's bottom row, copied: padding 2px 8px 6px, space-between with three
+   groups -- tools left, modes middle, trailing right (margin-left auto). The
+   send button is the trailing group's last child, i.e. always the far right
+   of the operations area. New features slot into `.composer-tools` or
+   `.composer-modes` without layout changes. */
+.composer-bar {
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 2px 8px 6px;
+  display: flex;
+  container-type: inline-size;
+}
+
+.composer-tools,
+.composer-modes,
+.composer-trailing {
+  align-items: center;
+  min-width: 0;
+  display: flex;
+}
+
+.composer-tools {
+  gap: 8px;
+}
+
+.composer-modes {
+  gap: 12px;
+}
+
+.composer-trailing {
+  flex: none;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.composer-agent {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--chat-line);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  color: var(--chat-text-2);
+  font-size: 11.5px;
+  font-weight: 600;
+  flex: 0 0 auto;
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-path {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--chat-caption);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .composer-hint {
   margin: 0;
-  min-height: 1em;
+  color: var(--chat-caption);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.composer-hint:empty {
+  display: none;
 }
 
 .composer-hint a {
@@ -812,20 +1092,71 @@
   text-decoration: underline;
 }
 
+/* DSH's send: 34px, fully round, deepseek blue, white glyph. The stop control
+   is a quiet pill in the same seat while a turn runs. */
+.composer-send {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  min-width: 34px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 12.5px;
+  transition: background-color 0.1s;
+}
+
+.composer-send.btn-primary {
+  width: 34px;
+  min-width: 34px;
+  padding: 0;
+  border-radius: 999px;
+  background: var(--chat-send);
+  color: #fff;
+  box-shadow: none;
+  transform: translateY(-2px);
+}
+
+.composer-send.btn-primary:hover:not(:disabled) {
+  background: var(--chat-send-hover);
+}
+
+.composer-send.btn-primary:disabled {
+  opacity: 0.4;
+  cursor: default;
+  background: var(--chat-send);
+}
+
+.composer-send.btn-quiet {
+  border: 1px solid var(--chat-line);
+  background: var(--surface);
+  color: var(--chat-text-2);
+}
+
 /* ---- narrow ---- */
 
 @media (max-width: 720px) {
-  .chat-head,
-  .chat-log,
-  .composer,
+  .chat-log {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .composer {
+    max-width: calc(100% - 24px);
+    margin-bottom: 8px;
+  }
+
   .state-strip {
-    padding-left: 13px;
-    padding-right: 13px;
+    padding-left: 16px;
+    padding-right: 16px;
   }
 
   /* The path is the first thing to go when there is no room -- but the agent
-     name never is. */
-  .composer-identity .path {
+     pill never is. */
+  .composer-path {
     display: none;
   }
 }

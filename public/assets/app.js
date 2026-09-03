@@ -6,8 +6,14 @@
 // The sidebar used to live here too. It now lives in shell.js, because it is on
 // every page and this file is not.
 
-import { $, bannerHtml as rawBanner, esc, money, setHtml, when } from './ui.js'
-import { currentStatus } from './shell.js'
+import { $, bannerHtml as rawBanner, esc, icon, money, setHtml, when } from './ui.js'
+
+// Deliberately NOT `import { currentStatus } from './shell.js'`: that import
+// resolves to a URL without the ?v= stamp, so the browser loaded shell.js a
+// second time as a separate module. Every sidebar listener existed twice, and
+// each click on the collapse button toggled the rail twice -- a perfect undo.
+// The status rides the `shell:status` event plus the window global instead,
+// and shell.js stays a single module per page.
 
 // Every banner on this page carries plain text, so it is escaped here rather
 // than at each of the seven call sites -- one of which would eventually be
@@ -65,28 +71,9 @@ const banners = (status) => {
   return out
 }
 
-const endpointRow = (ep) => {
-  if (!ep.reachable) {
-    return `<div class="row">
-      <div class="row-main">
-        <div class="row-title"><span class="dot bad"></span><strong>${esc(ep.id)}</strong> <code>${esc(ep.url)}</code></div>
-        <span class="badge bad">不可达</span>
-      </div>
-      <div class="detail error">${esc(ep.error ?? '未知错误')}</div>
-    </div>`
-  }
-  const badges = [
-    ep.apiKeySet ? '<span class="badge ok">密钥已校验</span>' : '<span class="badge bad">未校验密钥</span>',
-    ep.enabled ? '' : '<span class="badge warn">已停用</span>',
-  ].join('')
-  return `<div class="row">
-    <div class="row-main">
-      <div class="row-title"><span class="dot ${ep.apiKeySet ? 'ok' : 'warn'}"></span><strong>${esc(ep.id)}</strong> <code>${esc(ep.url)}</code></div>
-      <span>${badges}</span>
-    </div>
-    <div class="detail">当前会话 ${esc(ep.sessions ?? 0)} 个</div>
-  </div>`
-}
+// Endpoint health and session counts now live in the sidebar (shell.js) as one
+// quiet line each -- standing facts, not home-page furniture. The banners above
+// still surface the problems that genuinely need a human right now.
 
 // ---------------------------------------------------------------------------
 // runs
@@ -206,14 +193,81 @@ const loadRuns = async () => {
 const updateScopePill = (agents) => {
   const agent = agents.find((a) => a.id === $('run-agent').value)
   const pill = $('run-scope')
+  const identity = $('run-identity')
   if (agent === undefined) {
     pill.hidden = true
+    if (identity !== null) identity.hidden = true
     return
   }
   pill.hidden = false
   pill.className = `pill ${agent.public ? 'warn' : ''}`
   pill.textContent = agent.public ? '对外可调用 · 只写自己的工作区' : '只写自己的工作区'
   pill.title = agent.workspacePath
+  if (identity !== null) {
+    identity.hidden = false
+    $('run-who').textContent = `发送给 ${agent.name}`
+    $('run-path').textContent = agent.workspacePath
+    identity.title = agent.workspacePath
+  }
+}
+
+// ---------------------------------------------------------------------------
+// suggestions + quick actions
+// ---------------------------------------------------------------------------
+
+/**
+ * Ways to use the composer, as tappable cards. Deliberately static and honest:
+ * three prompts that are always useful, rather than a model guessing at what
+ * you might want tonight. Dismissed for good via the × (remembered locally).
+ */
+const SUGGEST_KEY = 'manager.home.suggestions.off'
+const SUGGESTIONS = [
+  { icon: 'chat', name: '记一条工作日志', prompt: '在日志里记一条：今天做了什么，有什么结果。' },
+  { icon: 'folder', name: '写本周周报', prompt: '把这周的工作整理成一份周报，写进工作区。' },
+  { icon: 'board', name: '更新大盘', prompt: '把最近的进展同步进大盘，更新对应的 board 页。' },
+]
+
+const suggestionsOff = () => {
+  try {
+    return window.localStorage.getItem(SUGGEST_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+const renderSuggestions = (agents) => {
+  const box = $('suggest')
+  if (box === null) return
+  // No agent, or the user closed them once, and the row goes away entirely.
+  if (agents.length === 0 || suggestionsOff()) {
+    box.hidden = true
+    return
+  }
+  box.hidden = false
+  const target = agents[0]
+  setHtml(
+    'suggest-grid',
+    SUGGESTIONS.map(
+      (s) => `<button class="suggest-card" type="button" data-prompt="${esc(s.prompt)}" data-agent="${esc(target.id)}">
+        <span class="suggest-icon">${icon(s.icon, 16)}</span>
+        <span class="suggest-text">
+          <span class="suggest-name">${esc(s.name)}</span>
+          <span class="suggest-sub">交给 ${esc(target.name)}</span>
+        </span>
+      </button>`,
+    ).join(''),
+  )
+}
+
+const renderQuickBoard = (agents) => {
+  const link = $('quick-board')
+  if (link === null) return
+  if (agents.length === 0) {
+    link.hidden = true
+    return
+  }
+  link.hidden = false
+  link.href = `/board/${encodeURIComponent(agents[0].id)}`
 }
 
 let knownAgents = []
@@ -229,10 +283,6 @@ const render = async (status) => {
   knownAgents = status.agents
 
   setHtml('banners', banners(status).map(bannerHtml).join(''))
-  setHtml(
-    'endpoints',
-    status.endpoints.length === 0 ? '<p class="muted small">未配置端点</p>' : status.endpoints.map(endpointRow).join(''),
-  )
 
   const ids = status.agents.map((a) => a.id)
   // Only rebuild when the set changed, so polling never resets your choice.
@@ -241,14 +291,38 @@ const render = async (status) => {
     $('run-agent').innerHTML = status.agents.map((a) => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('')
   }
   updateScopePill(status.agents)
+  renderSuggestions(status.agents)
+  renderQuickBoard(status.agents)
   await loadRuns()
 }
+
+// Suggestions are a preference at the frame's level, not the agent's: closing
+// them once closes them everywhere.
+$('suggest-hide').addEventListener('click', () => {
+  try {
+    window.localStorage.setItem(SUGGEST_KEY, '1')
+  } catch {
+    // Private-mode storage failures are not worth a visible error.
+  }
+  $('suggest').hidden = true
+})
+
+$('suggest-grid').addEventListener('click', (event) => {
+  const card = event.target.closest('.suggest-card')
+  if (card === null) return
+  $('run-agent').value = card.dataset.agent
+  updateScopePill(knownAgents)
+  promptBox.value = card.dataset.prompt
+  autosize()
+  promptBox.focus()
+})
 
 window.addEventListener('shell:status', (event) => void render(event.detail))
 
 // The shell may have finished its first fetch before this module ran, in which
-// case the event has already been and gone.
-const initial = currentStatus()
+// case the event has already been and gone -- the window global holds the
+// latest status either way.
+const initial = window.__shellLastStatus ?? null
 if (initial !== null) void render(initial)
 
 // ---------------------------------------------------------------------------
