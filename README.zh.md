@@ -54,6 +54,25 @@ sudo ./install.sh     # 节点容器 + manager systemd 服务 + 验收脚本
 
 脚本幂等、可用 `DRY_RUN=1` 预演；手动部署方式见 `docker/README.md`。
 
+### 安装后的运维（install.sh 之后）
+
+| 操作 | 命令 |
+| --- | --- |
+| manager 状态 | `systemctl status ohdsh-manager` |
+| manager 日志 | `journalctl -u ohdsh-manager -f` |
+| 重启 / 停止 manager | `sudo systemctl restart ohdsh-manager` / `sudo systemctl stop ohdsh-manager` |
+| 节点容器状态 | `docker compose -f docker/docker-compose.yml ps` |
+| 节点容器日志 | `docker compose -f docker/docker-compose.yml logs -f` |
+| 重启 / 停止节点 | `docker compose -f docker/docker-compose.yml restart` / `... down` |
+| 升级代码 | `git pull && sudo ./install.sh`（幂等，已有配置不覆盖） |
+| 重建节点镜像 | `docker compose -f docker/docker-compose.yml up -d --build` |
+
+数据位置：
+
+- manager SQLite：`./data`（已 gitignore）
+- 节点会话/settings：Docker 卷 `dsh-data`
+- agent 工作区：`WORKSPACE_PATH`（默认仓库旁的 `../workspace`）
+
 ## 配置
 
 `manager.config.yaml` 是唯一配置源：

@@ -60,6 +60,25 @@ sudo ./install.sh     # node container + manager systemd service + smoke scripts
 See `install.sh` (idempotent, `DRY_RUN=1` for a plan-only pass) and `docker/README.md`
 for the manual path.
 
+### Operating it (after install.sh)
+
+| Task | Command |
+| --- | --- |
+| Manager status | `systemctl status ohdsh-manager` |
+| Manager logs | `journalctl -u ohdsh-manager -f` |
+| Restart / stop manager | `sudo systemctl restart ohdsh-manager` / `sudo systemctl stop ohdsh-manager` |
+| Node container status | `docker compose -f docker/docker-compose.yml ps` |
+| Node container logs | `docker compose -f docker/docker-compose.yml logs -f` |
+| Restart / stop node | `docker compose -f docker/docker-compose.yml restart` / `... down` |
+| Upgrade the code | `git pull && sudo ./install.sh`（idempotent，configs 不被覆盖） |
+| Rebuild node image | `docker compose -f docker/docker-compose.yml up -d --build` |
+
+Data locations:
+
+- manager SQLite: `./data`（gitignored）
+- node sessions/settings: Docker volume `dsh-data`
+- agent workspace: `WORKSPACE_PATH`（default `../workspace` next to the repo）
+
 ## Configuration
 
 `manager.config.yaml` is the single source of truth:

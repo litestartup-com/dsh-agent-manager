@@ -104,6 +104,30 @@ scp dsh-api-gateway-0.2.0.tgz 服务器:~/ohdsh/dsh-agent-manager/docker/package
 
 ---
 
+## 日常管理（容器）
+
+| 操作 | 命令（在 docker/ 目录下） |
+| --- | --- |
+| 状态 | `docker compose ps` |
+| 日志 | `docker compose logs -f --tail 100 dsh-node` |
+| 重启节点 | `docker compose restart` |
+| 停止 / 启动 | `docker compose stop` / `docker compose start` |
+| 完全停止（保留数据） | `docker compose down` |
+| 完全停止并清空数据 | `docker compose down -v`（会删 dsh-data 卷与容器内配置，慎用） |
+| 重建镜像（升级） | `docker compose up -d --build` |
+| 进容器排查 | `docker compose exec dsh-node bash` |
+
+数据卷：
+
+- `dsh-data` → 容器内 `/data`（会话、settings、skills、凭据——**备份优先备份它**）
+- `WORKSPACE_PATH` → 容器内 `/workspace`（agent 写的文件，宿主机同路径可见）
+
+备份示例：
+
+```bash
+docker run --rm -v dsh-node_dsh-data:/data -v $PWD:/backup alpine tar czf /backup/dsh-data.tar.gz -C /data .
+```
+
 ## 已知坑
 
 - **GitHub 网络**：首次启动要 `dsh plugin add github:litestartup-com/dsh-api-gateway`。
