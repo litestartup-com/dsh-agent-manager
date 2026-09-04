@@ -124,6 +124,13 @@ const main = (): void => {
         console.error(`节点 "${target}" 看起来已在跑（pidfile 存在：${pidFile}）。先执行 down 再 up。`)
         process.exit(2)
       }
+      // managed 且无 logFile 的节点是「manager 常驻托管」形态：CLI 拉起的子进程
+      // 随本进程退出变孤儿，manager 进程的状态机也不知情（侧栏仍是 offline）。
+      // 正确姿势是重启 manager 由其拉起；CLI 只适合 detached + log_file 的独立节点。
+      if (spec.logFile === null) {
+        console.log(`提示：${target} 由 manager 托管（无 log_file）。CLI 拉起的进程不受 manager 跟踪，`)
+        console.log('     侧栏状态不会同步——建议重启 manager 让它自己拉起；本条命令仅作临时调试用。')
+      }
       node.start(spec)
       const ok = await waitSettled(node, 'up', spec.readyTimeoutMs + 15_000)
       printStatus(node)
