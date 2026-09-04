@@ -8,7 +8,6 @@ import type { Db } from '../db/index.js'
 import { schema } from '../db/index.js'
 import type { GatewayClient } from '../gateway/client.js'
 import type { UpstreamClient } from '../upstream/client.js'
-import { drainAgentQueue } from '../chat/queue.js'
 import { listChats, getChat } from '../chat/store.js'
 import { publish } from './chat.js'
 import { readBoard } from '../board/store.js'
@@ -223,7 +222,6 @@ export const registerInternalRoutes = (
           silenceMs: config.runner.silenceMs,
         },
       )
-      drainAgentQueue(agent.id)
       // 蜂群 P2：主脑会话页的 delegation 帧实时态——派工结束推一帧，页面据
       // 此刷新该会话的派工列表。
       if (body.sourceChatId !== undefined && body.sourceChatId !== '') {

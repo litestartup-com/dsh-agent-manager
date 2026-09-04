@@ -6,7 +6,6 @@ import type { Db } from '../db/index.js'
 import { schema } from '../db/index.js'
 import type { GatewayClient } from '../gateway/client.js'
 import type { UpstreamClient } from '../upstream/client.js'
-import { drainAgentQueue } from '../chat/queue.js'
 import { activeRunCount, runAgent, runningRunId } from '../runner.js'
 
 const runBody = z.object({
@@ -66,8 +65,6 @@ export const registerRunRoutes = (
             silenceMs: config.runner.silenceMs,
           },
         )
-        // Start any chat turn that was queued behind this run.
-        drainAgentQueue(agent.id)
         // A failed turn is a valid outcome that the caller must see, not a 500.
         return reply.code(200).send(outcome)
       } catch (error) {

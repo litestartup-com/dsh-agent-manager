@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { FastifyInstance, FastifyReply, preHandlerHookHandler } from 'fastify'
 import { count, desc, eq } from 'drizzle-orm'
 import { z } from 'zod'
@@ -9,7 +10,7 @@ import type { GatewayFrame } from '../gateway/stream.js'
 import type { UpstreamClient } from '../upstream/client.js'
 import { UpstreamError } from '../upstream/rpc.js'
 import { activeRunCount, runAgent, runningRunId, type RunOutcome } from '../runner.js'
-import { cancelQueuedTurn, cancelQueuedTurns, drainAgentQueue } from '../chat/queue.js'
+import { cancelQueuedTurn, cancelQueuedTurns, drainChatQueue, enqueueTurn } from '../chat/queue.js'
 import { compactHistory } from '../chat/replay.js'
 import {
   bindSession,
@@ -531,6 +532,43 @@ export const registerChatRoutes = (
     return outcome
   }
 
+  /**
+   * 蜂群 P5.4 修订：并发语义 = **会话内串行、会话间并行**。
+   *
+   * 同一个 gateway 会话同时只能跑一个回合，所以每个 chat 同一时刻最多一个
+   * 回合（chatTurns 登记）；同会话的新消息排进该 chat 的队列，前一个完成
+   * 后自动接着跑。不同 chat 互不阻塞——那才是并发。会话名额（maxSessions）
+   * 仍是全局上限，满了的失败如实透给用户。
+   */
+  const chatTurns = new Map<string, Promise<unknown>>()
+
+  const startChatTurn = (
+    chat: NonNullable<ReturnType<typeof getChat>>,
+    agent: ResolvedAgent,
+    client: GatewayClient,
+    upstream: UpstreamClient | null,
+    driver: 'gateway' | 'apiproxy',
+    text: string,
+  ): Promise<unknown> => {
+    const tracked = (async () => {
+      try {
+        await runChatTurn(chat, agent, client, upstream, driver, text)
+      } catch (error) {
+        // No HTTP reply carries the failure any more; the relay does.
+        publish(chat.id, {
+          kind: 'turn_done',
+          state: 'failed',
+          error: error instanceof Error ? error.message : String(error),
+        })
+      } finally {
+        chatTurns.delete(chat.id)
+        drainChatQueue(chat.id)
+      }
+    })()
+    chatTurns.set(chat.id, tracked)
+    return tracked
+  }
+
   app.post<{ Params: { id: string }; Body: unknown }>(
     '/api/chats/:id/messages',
     {
@@ -564,19 +602,34 @@ export const registerChatRoutes = (
       // would hold the browser's `sending` state for the whole turn and make
       // the second message impossible to send.
       //
-      // 蜂群 P5.4：不再因「agent 忙」排队——同 agent 多会话直接并发，
-      // 上限由 gateway 名额约束；真满员时该回合失败并给友好说明。
+      // 蜂群 P5.4 修订：同会话上一回合还在跑 → 排进本会话队列（dock 可见、
+      // 可删），完成后自动接着跑；不同会话直接并行。
       try {
-        void runChatTurn(chat, agent, client, upstream, driver, text)
-          .then(() => drainAgentQueue(agent.id))
-          .catch((error: unknown) => {
-            // No HTTP reply carries the failure any more; the relay does.
-            publish(chat.id, {
-              kind: 'turn_done',
-              state: 'failed',
-              error: error instanceof Error ? error.message : String(error),
-            })
+        if (chatTurns.has(chat.id)) {
+          const queuedId = randomUUID()
+          const position = enqueueTurn(chat.id, {
+            id: queuedId,
+            chatId: chat.id,
+            // Re-read the chat when the turn finally runs: the queued closure
+            // must not carry a stale snapshot (a null dshSessionId would make
+            // the second turn start a fresh session), and an archived chat
+            // must not fire at all. Await the turn, so the queue chain only
+            // advances once the previous round-trip truly finished.
+            execute: () => {
+              const fresh = getChat(db, chat.id)
+              if (fresh === null || fresh.removedAt !== null) return Promise.resolve()
+              return startChatTurn(fresh, agent, client, upstream, driver, text).then(() => undefined)
+            },
           })
+          publish(chat.id, { kind: 'turn_queued', id: queuedId, position, text })
+          return reply.code(202).send({
+            queued: true,
+            position,
+            chat: getChat(db, chat.id),
+          })
+        }
+
+        void startChatTurn(chat, agent, client, upstream, driver, text)
         return reply.code(202).send({ accepted: true, chat: getChat(db, chat.id) })
       } catch (error) {
         app.log.error(`chat turn failed for ${chat.id}: ${(error as Error).message}`)

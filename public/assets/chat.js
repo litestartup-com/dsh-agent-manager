@@ -1147,23 +1147,6 @@ const renderHead = () => {
   window.dispatchEvent(new CustomEvent('shell:title', { detail: title }))
 }
 
-/**
- * The other chat holding this agent, if any.
- *
- * `busyRunId` says the agent is occupied but not by which thread, so the chat is
- * found through the sidebar's own list. Returning null means "busy, but we
- * cannot say where" -- the composer still locks, it just cannot offer the link.
- */
-let siblingChats = []
-
-const busyElsewhere = () => {
-  if (state === null || state.busyRunId === null) return null
-  if (sending) return null
-  const mine = state.turns.some((t) => t.id === state.busyRunId)
-  if (mine) return null
-  return siblingChats.find((c) => c.id !== state.chat.id) ?? null
-}
-
 const strip = (level, html) => `<div class="state-strip ${level}">${icon('alert', 13)}<span>${html}</span></div>`
 
 /**
@@ -1226,18 +1209,6 @@ const renderNotices = () => {
     out.push(strip('bad', '这个会话已无法继续，历史仅供查阅'))
   }
 
-  // Busy is reported whenever the agent is held by work this page did not start,
-  // even when the offending thread cannot be named: the composer locks either
-  // way, so an unexplained lock would be the worse outcome (UI.md §4).
-  if (state.busyRunId !== null && !sending) {
-    const busy = busyElsewhere()
-    const where =
-      busy === null
-        ? '另一个会话'
-        : `会话「<a href="/chat/${encodeURIComponent(busy.id)}">${esc(busy.title ?? '新会话')}</a>」`
-    out.push(strip('warn', `${esc(state.agent.name)} 正忙于${where} · 新消息会自动排队，前一个完成后接着跑`))
-  }
-
   el.notices.innerHTML = out.join('')
   renderQueueDock()
 }
@@ -1261,10 +1232,9 @@ const renderComposer = () => {
   el.path.title = state.agent.workspacePath ?? ''
 
   const lost = state.sessionState === 'lost'
-  const busy = state.busyRunId !== null && !sending
   const cold = state.sessionState === 'cold'
-  // Busy no longer locks the composer: a message sent while the agent runs is
-  // queued server-side and starts automatically when the run finishes.
+  // 蜂群 P5.4：跨会话不再互锁，composer 永不因别的会话而禁用；同会话的
+  // 新消息在上一回合跑完前由服务端排队，dock 可见可删。
   const locked = lost || sending
 
   el.input.disabled = lost
@@ -1277,8 +1247,8 @@ const renderComposer = () => {
 
   el.input.placeholder = lost
     ? '这个会话已无法继续'
-    : busy
-      ? `${state.agent.name} 正在忙，新消息会自动排队`
+    : turnRunning && !sending
+      ? '正在跑上一回合 · 新消息会自动排队'
       : sending
         ? '正在等它回答…'
         : '说点什么…'
@@ -1458,20 +1428,6 @@ const reload = () => {
   return chain
 }
 
-/** The agent's other chats, for naming the thread that is holding it. */
-const loadSiblings = async () => {
-  try {
-    const response = await fetch('/api/chats')
-    if (!response.ok) return
-    const { agents } = await response.json()
-    const mine = agents.find((a) => state !== null && a.id === state.agent.id)
-    siblingChats = mine === undefined ? [] : mine.chats
-    render()
-  } catch {
-    // Only costs the link inside the busy notice.
-  }
-}
-
 // ---------------------------------------------------------------------------
 // live stream
 // ---------------------------------------------------------------------------
@@ -1560,7 +1516,6 @@ const connect = () => {
       // and because a first turn has just bound a gateway session, which changes
       // sessionState from `fresh` to `live`.
       void reload()
-      void loadSiblings()
       return
     }
     render()
@@ -1640,7 +1595,6 @@ const send = async () => {
     if (result.queued === true) {
       toast(`已排队（第 ${result.position} 位），前一个任务完成后自动开始`)
     }
-    void loadSiblings()
   } catch (error) {
     sending = false
     el.input.value = text
@@ -1737,6 +1691,6 @@ if (chatId === null) {
     </div>`
   reattachToBottom()
 } else {
-  void reload().then(loadSiblings)
+  void reload()
   connect()
 }

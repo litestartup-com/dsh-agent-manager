@@ -1,10 +1,9 @@
 /**
- * Per-agent chat send queue (scheme C).
+ * Per-chat send queue（蜂群 P5.4 修订）。
  *
- * 蜂群 P5.4：busy 触发已退役——同 agent 多会话直接并发，上限由 gateway
- * 名额约束。本模块与「取消排队」端点、前端的 turn_queued dock 一并保留，
- * 作为将来「gateway 满员时降级为排队」的缓冲机制接线点（触发条件待接入，
- * 目前没有生产者，队列恒为空）。
+ * 并发语义：**会话内串行、会话间并行**。同一个 gateway 会话同时只能跑一个
+ * 回合，所以同一会话的新消息在本会话上一回合完成前排队（FIFO，跨页面一致）；
+ * 不同会话互不阻塞——那才是 P5.4 要的并发。
  *
  * In-memory only — a manager restart drops queued turns, which is no worse
  * than today's refusal (the sender re-sends).
@@ -19,38 +18,40 @@ export interface QueuedTurn {
 const queues = new Map<string, QueuedTurn[]>()
 const draining = new Set<string>()
 
-/** How many turns are queued for one agent. */
-export const queuedTurnsFor = (agentId: string): number => queues.get(agentId)?.length ?? 0
+/** How many turns are queued for one chat. */
+export const queuedTurnsFor = (chatId: string): number => queues.get(chatId)?.length ?? 0
 
 /**
- * Add one turn to the agent's queue. Returns its 1-based position.
+ * Add one turn to the chat's queue. Returns its 1-based position.
  */
-export const enqueueTurn = (agentId: string, turn: QueuedTurn): number => {
-  const q = queues.get(agentId) ?? []
+export const enqueueTurn = (chatId: string, turn: QueuedTurn): number => {
+  const q = queues.get(chatId) ?? []
   q.push(turn)
-  queues.set(agentId, q)
+  queues.set(chatId, q)
   return q.length
 }
 
 /**
- * Start the next queued turn for an agent, if any. Safe to call at any time:
+ * Start the next queued turn for a chat, if any. Safe to call at any time:
  * a concurrent drain is a no-op, and when the queue is empty nothing happens.
+ * The queued turn's own `execute` awaits the round-trip, so the chain only
+ * advances when the previous turn truly finished.
  */
-export const drainAgentQueue = (agentId: string): void => {
-  if (draining.has(agentId)) return
-  const q = queues.get(agentId)
+export const drainChatQueue = (chatId: string): void => {
+  if (draining.has(chatId)) return
+  const q = queues.get(chatId)
   if (q === undefined || q.length === 0) {
-    queues.delete(agentId)
+    queues.delete(chatId)
     return
   }
   const next = q.shift()!
-  draining.add(agentId)
+  draining.add(chatId)
   // The catch is load-bearing: a rejecting execute would otherwise surface as
   // an unhandledRejection and, on some runtimes, take the process down. The
   // turn's own error reporting is the execute closure's job.
   void next.execute().catch(() => undefined).finally(() => {
-    draining.delete(agentId)
-    drainAgentQueue(agentId)
+    draining.delete(chatId)
+    drainChatQueue(chatId)
   })
 }
 
@@ -60,21 +61,16 @@ export const drainAgentQueue = (agentId: string): void => {
  * caller can apply the UI removal optimistically.
  */
 export const cancelQueuedTurn = (chatId: string, turnId: string): void => {
-  for (const [agentId, items] of Array.from(queues.entries())) {
-    const kept = items.filter((turn) => !(turn.chatId === chatId && turn.id === turnId))
-    if (kept.length === items.length) continue
-    if (kept.length === 0) queues.delete(agentId)
-    else queues.set(agentId, kept)
-  }
+  const q = queues.get(chatId)
+  if (q === undefined) return
+  const kept = q.filter((turn) => turn.id !== turnId)
+  if (kept.length === 0) queues.delete(chatId)
+  else queues.set(chatId, kept)
 }
 
 /** Drop every queued turn of one chat (archive / delete). */
 export const cancelQueuedTurns = (chatId: string): void => {
-  for (const [agentId, q] of Array.from(queues.entries())) {
-    const kept = q.filter((turn) => turn.chatId !== chatId)
-    if (kept.length === 0) queues.delete(agentId)
-    else queues.set(agentId, kept)
-  }
+  queues.delete(chatId)
 }
 
 /** Clear all queues (shutdown / tests). */
