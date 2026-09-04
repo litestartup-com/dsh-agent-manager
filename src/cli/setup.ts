@@ -27,6 +27,8 @@ interface SetupOptions {
   dshHome: string
   dshBin: string | null
   installProfiles: boolean
+  /** 本地 gateway 包路径（file: 依赖，离线安装）；null = 用 GitHub 引用。 */
+  gatewayLocal: string | null
   force: boolean
 }
 
@@ -37,12 +39,12 @@ interface ProfileSpec {
 
 const PROFILE_BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-api-gateway']
 
-const profileFiles = (spec: ProfileSpec): Record<string, string> => {
+const profileFiles = (spec: ProfileSpec, gatewayDep: string): Record<string, string> => {
   const pkg = {
     name: `dsh-profile-${spec.name}`,
     private: true,
     dsh: { profile: { bundles: PROFILE_BUNDLES } },
-    dependencies: { 'dsh-api-gateway': 'github:litestartup-com/dsh-api-gateway' },
+    dependencies: { 'dsh-api-gateway': gatewayDep },
   }
   const patch = [
     {
@@ -63,7 +65,7 @@ const profileFiles = (spec: ProfileSpec): Record<string, string> => {
 }
 
 /** 在 $DSH_HOME/profiles 下生成节点 profile（已存在则不动）。 */
-export const ensureNodeProfiles = (dshHome: string, specs: ProfileSpec[]): string[] => {
+export const ensureNodeProfiles = (dshHome: string, specs: ProfileSpec[], gatewayDep: string): string[] => {
   const profilesDir = join(dshHome, 'profiles')
   mkdirSync(profilesDir, { recursive: true })
   const created: string[] = []
@@ -71,7 +73,7 @@ export const ensureNodeProfiles = (dshHome: string, specs: ProfileSpec[]): strin
     const dir = join(profilesDir, spec.name)
     if (existsSync(dir)) continue
     mkdirSync(dir, { recursive: true })
-    for (const [name, content] of Object.entries(profileFiles(spec))) {
+    for (const [name, content] of Object.entries(profileFiles(spec, gatewayDep))) {
       writeFileSync(join(dir, name), content, 'utf8')
     }
     created.push(dir)
@@ -228,6 +230,7 @@ const parseArgs = (argv: string[]): { options: SetupOptions; help: boolean } => 
     dshHome: process.env.DSH_HOME ?? `${process.env.USERPROFILE ?? process.env.HOME ?? '.'}/.dsh`,
     dshBin: null,
     installProfiles: true,
+    gatewayLocal: null,
     force: false,
   }
   let help = false
@@ -248,6 +251,7 @@ const parseArgs = (argv: string[]): { options: SetupOptions; help: boolean } => 
       if (b !== undefined && Number.isInteger(b) && b > 0) defaults.brainPort = b
     } else if (arg === '--dsh-home') defaults.dshHome = next()
     else if (arg === '--dsh-bin') defaults.dshBin = next()
+    else if (arg === '--gateway-local') defaults.gatewayLocal = next()
     else if (arg === '--no-install') defaults.installProfiles = false
     else if (arg === '--force') defaults.force = true
   }
@@ -255,7 +259,8 @@ const parseArgs = (argv: string[]): { options: SetupOptions; help: boolean } => 
 }
 
 const usage = (): void => {
-  console.log('用法: npm run setup -- [--workspace 路径] [--brain-workspace 路径] [--ports 3081,3082] [--dsh-bin 路径] [--no-install] [--force]')
+  console.log('用法: npm run setup -- [--workspace 路径] [--brain-workspace 路径] [--ports 3081,3082] [--dsh-bin 路径] [--gateway-local 路径] [--no-install] [--force]')
+  console.log('  --gateway-local  用本地 dsh-api-gateway 目录做 file: 依赖（离线安装；缺省从 GitHub 拉）')
 }
 
 const main = (): void => {
@@ -287,7 +292,12 @@ const main = (): void => {
     { name: 'ohdsh-personal', port: options.personalPort },
     { name: 'ohdsh-brain', port: options.brainPort },
   ]
-  for (const dir of ensureNodeProfiles(options.dshHome, specs)) {
+  const gatewayDep =
+    options.gatewayLocal === null
+      ? 'github:litestartup-com/dsh-api-gateway'
+      : `file:${resolve(options.gatewayLocal).replace(/\\/g, '/')}`
+  console.log(`   gateway 依赖: ${gatewayDep}`)
+  for (const dir of ensureNodeProfiles(options.dshHome, specs, gatewayDep)) {
     console.log(`   profile 已生成: ${dir}`)
   }
   const dshBin = detectDshBin(options.dshHome, options.dshBin)
@@ -299,7 +309,7 @@ const main = (): void => {
         execFileSync('pnpm', ['install'], { cwd: dir, stdio: ['ignore', 'inherit', 'inherit'] })
       } catch (error) {
         console.error(`   pnpm install 失败于 ${dir}: ${(error as Error).message.split('\n')[0]}`)
-        console.error('   可稍后手动在该目录执行 pnpm install，或用 --no-install 跳过。')
+        console.error(`   可稍后手动在该目录执行 pnpm install；GitHub 不通时改用 --gateway-local 指向本地 dsh-api-gateway 目录重跑 setup --force。`)
       }
     }
   }

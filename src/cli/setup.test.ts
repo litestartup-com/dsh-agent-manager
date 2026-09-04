@@ -34,7 +34,7 @@ test('ensureNodeProfiles writes web-style profiles with a port patch, idempotent
       { name: 'ohdsh-personal', port: 3081 },
       { name: 'ohdsh-brain', port: 3082 },
     ]
-    const created = ensureNodeProfiles(home, specs)
+    const created = ensureNodeProfiles(home, specs, 'github:litestartup-com/dsh-api-gateway')
     assert.equal(created.length, 2)
     for (const spec of specs) {
       const dir = join(home, 'profiles', spec.name)
@@ -42,11 +42,28 @@ test('ensureNodeProfiles writes web-style profiles with a port patch, idempotent
       assert.equal(patch[0]?.id, 'webserver')
       assert.equal(patch[0]?.config.port, spec.port)
       assert.equal(patch[0]?.config.host, '127.0.0.1')
-      const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as { dsh: { profile: { bundles: string[] } } }
+      const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as {
+        dsh: { profile: { bundles: string[] } }
+        dependencies: Record<string, string>
+      }
       assert.ok(pkg.dsh.profile.bundles.includes('dsh-api-gateway'))
+      assert.equal(pkg.dependencies['dsh-api-gateway'], 'github:litestartup-com/dsh-api-gateway')
     }
     // 幂等：第二次不重建、不报错
-    assert.deepEqual(ensureNodeProfiles(home, specs), [])
+    assert.deepEqual(ensureNodeProfiles(home, specs, 'github:litestartup-com/dsh-api-gateway'), [])
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('ensureNodeProfiles writes a file: dependency when given a local gateway path', () => {
+  const home = mkdtempSync(join(tmpdir(), 'setup-dsh-home-local-'))
+  try {
+    ensureNodeProfiles(home, [{ name: 'ohdsh-personal', port: 3081 }], 'file:C:/src/dsh-api-gateway')
+    const pkg = JSON.parse(readFileSync(join(home, 'profiles', 'ohdsh-personal', 'package.json'), 'utf8')) as {
+      dependencies: Record<string, string>
+    }
+    assert.equal(pkg.dependencies['dsh-api-gateway'], 'file:C:/src/dsh-api-gateway')
   } finally {
     rmSync(home, { recursive: true, force: true })
   }
