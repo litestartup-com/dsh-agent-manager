@@ -76,7 +76,7 @@ const renderBrain = (status) => {
   box.hidden = false
   const chats = chatsByAgent.get('brain') ?? []
   const busy = busyByAgent.get('brain') ?? null
-  const open = !collapsedSet().has('brain')
+  const open = expandedSet().has('brain')
   const unfolded = chatsMoreSet().has('brain')
   const shown = open ? (unfolded ? chats : chats.slice(0, BRAIN_CHATS_SHOWN)) : []
   const rest = chats.length - shown.length
@@ -89,12 +89,12 @@ const renderBrain = (status) => {
     `<div class="side-brain-card${open ? ' open' : ''}">
       <div class="side-brain-head">
         <button class="side-brain-btn" type="button" data-brain-open title="${esc(openTitle)}">
-          <span class="side-brain-icon" aria-hidden="true">${icon('chat', 15)}</span>
+          <span class="side-brain-icon" aria-hidden="true">${icon('hive', 15)}</span>
           <span class="side-brain-main">
             <span class="side-brain-name">主脑${
               busy !== null ? '<span class="brain-busy" title="正在运行一个回合">忙</span>' : ''
             }</span>
-            <span class="side-brain-sub">总控 · 可调度所有 agent</span>
+            <span class="side-brain-sub">总控 agent</span>
           </span>
         </button>
         <button class="side-brain-ghost" type="button" data-brain-toggle aria-expanded="${open}"
@@ -169,7 +169,7 @@ $('side-brain')?.addEventListener('click', async (event) => {
 
   const toggle = event.target.closest('[data-brain-toggle]')
   if (toggle !== null) {
-    setCollapsed('brain', toggle.getAttribute('aria-expanded') === 'true')
+    setExpanded('brain', toggle.getAttribute('aria-expanded') !== 'true')
     if (lastStatus !== null) renderBrain(lastStatus)
     return
   }
@@ -244,12 +244,15 @@ const CHATS_SHOWN = 5
 /**
  * Which agents are expanded.
  *
+ * 蜂群 Q4 起默认全部收起（主脑与各 agent 组都一样）：侧栏一屏要装得下
+ * 整支队伍，会话列表是点开才看的第二层。只记住用户主动展开的组。
+ *
  * In localStorage because it is a view preference, not state the server owns,
  * and it has to survive the full page loads this app navigates with.
  */
-const STORE_KEY = 'manager.agents.collapsed'
+const STORE_KEY = 'manager.agents.expanded'
 
-const collapsedSet = () => {
+const expandedSet = () => {
   try {
     const raw = JSON.parse(window.localStorage.getItem(STORE_KEY) ?? '[]')
     return new Set(Array.isArray(raw) ? raw : [])
@@ -259,9 +262,9 @@ const collapsedSet = () => {
   }
 }
 
-const setCollapsed = (agentId, collapsed) => {
-  const set = collapsedSet()
-  if (collapsed) set.add(agentId)
+const setExpanded = (agentId, open) => {
+  const set = expandedSet()
+  if (open) set.add(agentId)
   else set.delete(agentId)
   try {
     window.localStorage.setItem(STORE_KEY, JSON.stringify([...set]))
@@ -312,7 +315,7 @@ const revealOpenChat = (agents) => {
   if (revealed || openChatId === '') return
   revealed = true
   const owner = agents.find((a) => a.chats.some((c) => c.id === openChatId))
-  if (owner !== undefined) setCollapsed(owner.id, false)
+  if (owner !== undefined) setExpanded(owner.id, true)
 }
 
 const chatRow = (chat) => {
@@ -360,16 +363,15 @@ const treeAgents = (status) => status.agents.filter((agent) => agent.id !== 'bra
  * the whole-row click belongs to the frequent one -- UI.md §2.
  */
 const agentNav = (status) => {
-  const collapsed = collapsedSet()
+  const expanded = expandedSet()
   return treeAgents(status)
     .map((agent) => {
       const health = agentHealth(agent, status.endpoints)
       const chats = chatsByAgent.get(agent.id) ?? []
-      // Nothing overrides this: an agent the user collapsed on purpose stays
-      // collapsed, even the one holding the open chat. Forcing it open made the
-      // toggle look broken, because the click was silently undone on redraw.
-      // Landing on a chat expands its agent once instead -- see revealOpenChat.
-      const open = !collapsed.has(agent.id)
+      // 默认收起：只有用户展开过的组才显示会话。展开过的组不会因为
+      // 重绘被悄悄收起，哪怕它正持有打开的会话——强行展开反而让点击
+      // 看起来像失效了。进入某个会话页时展开其组一次（revealOpenChat）。
+      const open = expanded.has(agent.id)
       const busy = busyByAgent.get(agent.id) ?? null
       const unfolded = chatsMoreSet().has(agent.id)
       const shown = open ? (unfolded ? chats : chats.slice(0, CHATS_SHOWN)) : []
@@ -972,7 +974,7 @@ $('agent-nav').addEventListener('click', async (event) => {
   }
 
   // "Show x more sessions" / "Show less": unfold or re-cap this agent's chat
-  // list. Remembered per agent, like the collapse preference.
+  // list. Remembered per agent, like the expand preference.
   const chatMore = event.target.closest('[data-chat-more]')
   if (chatMore !== null) {
     setChatsMore(chatMore.dataset.chatMore, chatMore.dataset.less !== '1')
@@ -985,7 +987,7 @@ $('agent-nav').addEventListener('click', async (event) => {
     const group = toggle.closest('.tree-group')
     const open = group.classList.toggle('open')
     toggle.setAttribute('aria-expanded', String(open))
-    setCollapsed(toggle.dataset.toggle, !open)
+    setExpanded(toggle.dataset.toggle, open)
     // Redrawn from data rather than by hiding a node: the children are not
     // rendered at all while collapsed, so there is nothing to show.
     if (lastStatus !== null) setHtml('agent-nav', agentNav(lastStatus))
