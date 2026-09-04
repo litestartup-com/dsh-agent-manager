@@ -2267,6 +2267,9 @@ button:disabled {
   border: 0;
   border-radius: 8px;
   background: none;
+  /* 全局 button 重置带 9px 14px 的内边距，ghost 必须显式清掉，
+     否则 28px 的盒子里内容区会被 padding 吃光，svg 随之被压成 0。 */
+  padding: 0;
   color: var(--text-2);
   cursor: pointer;
   transition: background 150ms ease, color 150ms ease;
@@ -2276,6 +2279,7 @@ button:disabled {
   color: var(--text);
 }
 .side-brain-ghost svg {
+  flex: 0 0 auto;
   transition: transform 150ms ease;
 }
 .side-brain-ghost[aria-expanded='true'] svg {
