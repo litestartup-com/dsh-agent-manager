@@ -335,14 +335,22 @@ const main = (): void => {
   }
   const dshBin = detectDshBin(options.dshHome, options.dshBin)
   console.log(`   DSH bin: ${dshBin}`)
+  // Windows 上 pnpm 是 .cmd 垫片：execFileSync 不经 shell 解析不到 'pnpm'，
+  // 必须指向 pnpm.cmd（PowerShell 里用户能跑 pnpm，正是这个原因）。
+  const pnpmCmd = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
   if (options.installProfiles) {
     for (const [name, home] of nodeHomes) {
       const dir = join(home, 'profiles', name)
       try {
-        execFileSync('pnpm', ['install'], { cwd: dir, stdio: ['ignore', 'inherit', 'inherit'] })
+        execFileSync(pnpmCmd, ['install'], { cwd: dir, stdio: ['ignore', 'inherit', 'inherit'] })
       } catch (error) {
-        console.error(`   pnpm install 失败于 ${dir}: ${(error as Error).message.split('\n')[0]}`)
-        console.error(`   可稍后手动在该目录执行 pnpm install；GitHub 不通时改用 --gateway-local 指向本地 dsh-api-gateway 目录重跑 setup --force。`)
+        const message = ((error as Error).message ?? String(error)).split('\n')[0] ?? ''
+        console.error(`   pnpm install 失败于 ${dir}: ${message}`)
+        if (message.includes('ENOENT')) {
+          console.error('   找不到 pnpm 命令——请确认 pnpm 在 PATH（或稍后手动进入该目录执行 pnpm install）。')
+        } else {
+          console.error('   可稍后手动在该目录执行 pnpm install；GitHub 不通时改用 --gateway-local 指向本地 dsh-api-gateway 目录重跑 setup --force。')
+        }
       }
     }
   }
