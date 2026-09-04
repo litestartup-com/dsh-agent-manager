@@ -144,8 +144,9 @@ export const resolveGatewayKey = (dshHome: string, settingsPath: string | null):
   return minted
 }
 
-/** .env 合并：已有的值绝不覆盖。返回最终的 env 记录。 */
-export const mergeEnv = (path: string, values: Record<string, string>): Record<string, string> => {
+/** .env 合并：已有的值绝不覆盖（用户手改优先）；forceKeys 例外——setup 自己
+ * 拥有这些密钥（必须与刚生成的节点 settings 一致），一律以新值为准。 */
+export const mergeEnv = (path: string, values: Record<string, string>, forceKeys: string[] = []): Record<string, string> => {
   const existing: Record<string, string> = {}
   if (existsSync(path)) {
     for (const line of readFileSync(path, 'utf8').split(/\r?\n/)) {
@@ -156,6 +157,9 @@ export const mergeEnv = (path: string, values: Record<string, string>): Record<s
     }
   }
   const merged = { ...values, ...existing }
+  for (const key of forceKeys) {
+    if (values[key] !== undefined) merged[key] = values[key]
+  }
   const content = Object.entries(merged)
     .map(([key, value]) => `${key}=${value}`)
     .join('\n')
@@ -369,12 +373,17 @@ const main = (): void => {
   // 每个节点自己的 settings.yaml 里一把独立的 gateway 密钥；manager 分 ref 引用。
   const personalKey = resolveGatewayKey(nodeHomes.get('ohdsh-personal')!, null)
   const brainKey = resolveGatewayKey(nodeHomes.get('ohdsh-brain')!, null)
-  mergeEnv('.env', {
-    SESSION_SECRET: randomBytes(32).toString('hex'),
-    GW_KEY_A: personalKey,
-    GW_KEY_B: brainKey,
-    BRAIN_TOKEN: randomBytes(24).toString('hex'),
-  })
+  mergeEnv(
+    '.env',
+    {
+      SESSION_SECRET: randomBytes(32).toString('hex'),
+      GW_KEY_A: personalKey,
+      GW_KEY_B: brainKey,
+      BRAIN_TOKEN: randomBytes(24).toString('hex'),
+    },
+    // GW 密钥必须与节点 settings 一致（setup 每次重新铸造节点钥）：
+    ['GW_KEY_A', 'GW_KEY_B'],
+  )
 
   // ---- manager 配置 -------------------------------------------------------
   console.log('④ 生成 manager.config.yaml…')

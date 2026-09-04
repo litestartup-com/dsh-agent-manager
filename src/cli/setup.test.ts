@@ -126,3 +126,20 @@ test('mergeEnv fills missing values and never overwrites existing ones', () => {
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('mergeEnv forceKeys overrides stale values (setup-owned secrets must match node settings)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'setup-env-force-'))
+  const env = join(dir, '.env')
+  try {
+    mergeEnv(env, { GW_KEY_A: 'old-key', GW_KEY_B: 'old-b' })
+    const again = mergeEnv(env, { GW_KEY_A: 'new-key', GW_KEY_B: 'new-b', SESSION_SECRET: 's' }, ['GW_KEY_A', 'GW_KEY_B'])
+    assert.equal(again.GW_KEY_A, 'new-key')
+    assert.equal(again.GW_KEY_B, 'new-b')
+    assert.equal(again.SESSION_SECRET, 's')
+    // 非 force 键仍是旧值优先
+    const third = mergeEnv(env, { SESSION_SECRET: 'later' }, ['GW_KEY_A', 'GW_KEY_B'])
+    assert.equal(third.SESSION_SECRET, 's')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
