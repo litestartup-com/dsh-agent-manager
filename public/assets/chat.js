@@ -1242,12 +1242,22 @@ const renderNotices = () => {
   renderQueueDock()
 }
 
+/**
+ * Windows 长路径的中间省略：保留盘符开头与尾部（工作区名），掐掉最无信息量
+ * 的中段。完整路径始终在 title 里（hover 可见）。
+ */
+const shortPath = (path) => {
+  const s = String(path ?? '')
+  if (s.length <= 52) return s
+  return `${s.slice(0, 16)}…${s.slice(-32)}`
+}
+
 const renderComposer = () => {
   if (state === null) return
   // The agent pill carries the name; the full path is one hover away.
   el.agent.textContent = state.agent.name
   el.agent.title = state.agent.workspacePath ?? ''
-  el.path.textContent = state.agent.workspacePath ?? ''
+  el.path.textContent = shortPath(state.agent.workspacePath)
   el.path.title = state.agent.workspacePath ?? ''
 
   const lost = state.sessionState === 'lost'

@@ -1153,6 +1153,8 @@
 
 .composer-tools {
   gap: 8px;
+  /* 身份区主动占满可用宽度：路径才有空间收缩省略，尾部按钮永不换行错位 */
+  flex: 1 1 auto;
 }
 
 .composer-modes {
@@ -1192,6 +1194,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+  flex: 1 1 auto;
 }
 
 .composer-hint {
