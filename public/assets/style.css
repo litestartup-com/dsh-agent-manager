@@ -2005,15 +2005,24 @@ button:disabled {
     margin-left: 0;
   }
 
-  /* 主脑钉顶不折叠，但 rail 里只剩一个居中的图标；chev、"+”、会话列表一并收起。 */
-  body.nav-rail .side-brain-btn {
+  /* 主脑钉顶不折叠，但 rail 里只剩卡内一个居中的图标；ghost 钮、分隔线、
+     会话列表一并收起，卡本身去阴影融入窄栏。 */
+  body.nav-rail .side-brain-card {
+    box-shadow: none;
+  }
+  body.nav-rail .side-brain-head {
     justify-content: center;
-    padding-left: 0;
-    padding-right: 0;
+    padding: 8px 0;
+  }
+  body.nav-rail .side-brain-btn {
+    flex: 1 1 auto;
+    justify-content: center;
+    margin-right: 0;
+    padding: 0;
   }
   body.nav-rail .side-brain-main,
-  body.nav-rail .side-brain-plus,
-  body.nav-rail .side-brain-chev,
+  body.nav-rail .side-brain-ghost,
+  body.nav-rail .side-brain-div,
   body.nav-rail .brain-chats {
     display: none;
   }
@@ -2164,76 +2173,133 @@ button:disabled {
 
 /* ── 蜂群 P3：主脑入口 + 节点区 ─────────────────────────── */
 
+/* 主脑块是一张卡，不是三块并排的按钮：边框只属于卡本身，内部控件
+   全部无边框（ghost），靠悬停底色表态。会话列表长在卡内部，与头部
+   用一条分隔线相接——一个整体，而不是拼起来的三个盒子。 */
+.side-brain-card {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--sh-1);
+  overflow: hidden;
+  /* 与下方 AGENTS 区头隔开，卡自己就是一个完整的视觉单元。 */
+  margin-bottom: 10px;
+}
+
+.side-brain-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 7px 6px 7px 10px;
+}
+
+/* 主按钮 = 头部左侧整块（图标 + 名称/副标）。 */
 .side-brain-btn {
   display: flex;
   align-items: center;
-  gap: 9px;
-  width: 100%;
-  padding: 9px 12px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--surface);
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-right: 4px;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 10px;
+  background: none;
   color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: background 150ms ease, box-shadow 150ms ease;
+  transition: background 150ms ease;
 }
 .side-brain-btn:hover {
   background: var(--surface-hover, #f1f3f5);
-  box-shadow: var(--sh-1, none);
 }
-.side-brain-main { display: flex; flex-direction: column; min-width: 0; }
-.side-brain-name { font-weight: 600; font-size: 14px; line-height: 1.35; }
-.side-brain-sub { font-size: 11.5px; color: var(--muted); }
 
-/* 主脑入口 = 主按钮（最近会话）+ chevron（展开会话列表）+ 小 "+"（新会话） */
-.side-brain-row { display: flex; align-items: stretch; gap: 6px; }
-.side-brain-row .side-brain-btn { flex: 1 1 auto; min-width: 0; }
-.side-brain-plus,
-.side-brain-chev {
+/* 图标底座：一小块 accent 软底，给主脑一个与树不同的视觉锚点。 */
+.side-brain-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 30px;
+  height: 30px;
   flex: 0 0 auto;
-  width: 38px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--surface);
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.side-brain-main { display: flex; flex-direction: column; min-width: 0; }
+.side-brain-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 1.35;
+}
+.side-brain-sub { font-size: 11.5px; color: var(--muted); }
+
+/* 「忙」徽章：与 hero 的 warn pill 同一语言，自成一体不依赖 .hero 作用域。 */
+.brain-busy {
+  display: inline-flex;
+  align-items: center;
+  height: 15px;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  color: var(--warn);
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 500;
+}
+
+/* 右侧两个 ghost 钮（chevron / ＋）与两者之间的细分隔线。 */
+.side-brain-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 8px;
+  background: none;
   color: var(--muted);
   cursor: pointer;
   transition: background 150ms ease, color 150ms ease;
 }
-.side-brain-chev { width: 30px; }
-.side-brain-plus:hover,
-.side-brain-chev:hover {
-  background: var(--surface-hover, #f1f3f5);
+.side-brain-ghost:hover {
+  background: var(--surface-sunken);
   color: var(--text);
 }
-.side-brain-chev svg {
+.side-brain-ghost svg {
   transition: transform 150ms ease;
 }
-.side-brain-chev[aria-expanded='true'] svg {
+.side-brain-ghost[aria-expanded='true'] svg {
   transform: rotate(90deg);
 }
 
-.side-brain-busy {
-  margin-left: auto;
-  flex: 0 0 auto;
+.side-brain-div {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--border);
 }
 
-/* 主脑会话列表：结构与树的孩子区一致，仅少一层缩进（主脑块自身就是头）。 */
+/* 会话列表：分隔线 + 收紧内边距，行圆角跟着卡的圆角走。 */
 .brain-chats {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  margin: 2px 0 8px 14px;
-  padding-left: 9px;
-  border-left: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+  padding: 4px;
 }
+.brain-chats .tree-child { border-radius: 8px; }
+.brain-chats .tree-child.more { justify-content: center; }
 
 .brain-empty {
-  padding: 6px 12px;
+  padding: 8px 12px 4px;
 }
 
 /* 节点区：汇总行与异常行都是去 /nodes 的链接 */

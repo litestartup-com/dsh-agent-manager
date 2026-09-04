@@ -85,38 +85,42 @@ const renderBrain = (status) => {
   const openTitle = latest === undefined ? '主脑 · 还没有会话，点击开始第一个' : `主脑 · 最近：${latestTitle}`
   setHtml(
     'side-brain',
-    `<div class="side-brain-row">
-      <button class="side-brain-btn" type="button" data-brain-open title="${esc(openTitle)}">
-        ${icon('chat', 15)}
-        <span class="side-brain-main">
-          <span class="side-brain-name">主脑</span>
-          <span class="side-brain-sub">总控 · 可调度所有 agent</span>
-        </span>
-        ${busy !== null ? '<span class="dot busy side-brain-busy" title="正在运行一个回合"></span>' : ''}
-      </button>
-      <button class="side-brain-chev" type="button" data-brain-toggle aria-expanded="${open}"
-              title="${open ? '收起' : '展开'}主脑会话列表" aria-label="${open ? '收起' : '展开'}主脑会话列表">
-        ${icon('chev', 12)}
-      </button>
-      <button class="side-brain-plus" type="button" data-brain-new title="主脑新会话" aria-label="主脑新会话">
-        ${icon('add', 14)}
-      </button>
-    </div>
-    ${
-      open
-        ? `<div class="brain-chats">
-          ${
-            chats.length === 0
-              ? '<p class="muted small brain-empty">还没有会话，点 ＋ 开始</p>'
-              : shown.map(chatRow).join('') +
-                (rest > 0 ? `<button class="tree-child more" type="button" data-chat-more="brain">Show ${rest} more sessions</button>` : '') +
-                (unfolded && chats.length > BRAIN_CHATS_SHOWN
-                  ? `<button class="tree-child more" type="button" data-chat-more="brain" data-less="1">Show less</button>`
-                  : '')
-          }
-        </div>`
-        : ''
-    }`,
+    `<div class="side-brain-card${open ? ' open' : ''}">
+      <div class="side-brain-head">
+        <button class="side-brain-btn" type="button" data-brain-open title="${esc(openTitle)}">
+          <span class="side-brain-icon" aria-hidden="true">${icon('chat', 15)}</span>
+          <span class="side-brain-main">
+            <span class="side-brain-name">主脑${
+              busy !== null ? '<span class="brain-busy" title="正在运行一个回合">忙</span>' : ''
+            }</span>
+            <span class="side-brain-sub">总控 · 可调度所有 agent</span>
+          </span>
+        </button>
+        <button class="side-brain-ghost" type="button" data-brain-toggle aria-expanded="${open}"
+                title="${open ? '收起' : '展开'}主脑会话列表" aria-label="${open ? '收起' : '展开'}主脑会话列表">
+          ${icon('chev', 12)}
+        </button>
+        <span class="side-brain-div" aria-hidden="true"></span>
+        <button class="side-brain-ghost" type="button" data-brain-new title="主脑新会话" aria-label="主脑新会话">
+          ${icon('add', 14)}
+        </button>
+      </div>
+      ${
+        open
+          ? `<div class="brain-chats">
+            ${
+              chats.length === 0
+                ? '<p class="muted small brain-empty">还没有会话，点 ＋ 开始</p>'
+                : shown.map(chatRow).join('') +
+                  (rest > 0 ? `<button class="tree-child more" type="button" data-chat-more="brain">Show ${rest} more sessions</button>` : '') +
+                  (unfolded && chats.length > BRAIN_CHATS_SHOWN
+                    ? `<button class="tree-child more" type="button" data-chat-more="brain" data-less="1">Show less</button>`
+                    : '')
+            }
+          </div>`
+          : ''
+      }
+    </div>`,
   )
 }
 
