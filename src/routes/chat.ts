@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { FastifyInstance, FastifyReply, preHandlerHookHandler } from 'fastify'
-import { desc, eq } from 'drizzle-orm'
+import { count, desc, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import type { AppConfig, ResolvedAgent } from '../config.js'
 import type { Db } from '../db/index.js'
@@ -410,6 +410,34 @@ export const registerChatRoutes = (
       releaseFailure,
       detail,
     })
+  })
+
+  /**
+   * 蜂群 Q5：清掉「建了但一个字没写」的空会话。
+   *
+   * 硬删除而不是归档：空会话没有 transcript、没有账单、没有网关 session，
+   * 把这样的空壳收进「可恢复的已归档」反而是对恢复承诺的谎报。有过回合
+   * 或已被网关起过标题的会话一律 409——红线：有内容的会话只能归档，
+   * 永远不许物理删除。
+   */
+  app.post<{ Params: { id: string } }>('/api/chats/:id/vacate', { preHandler: requireUser }, async (request, reply) => {
+    const chat = getChat(db, request.params.id)
+    if (chat === null || chat.removedAt !== null) return reply.code(404).send({ error: 'unknown_chat' })
+
+    const turns = db
+      .select({ n: count() })
+      .from(schema.run)
+      .where(eq(schema.run.chatId, chat.id))
+      .all()
+    if ((turns[0]?.n ?? 0) > 0 || (chat.title ?? '') !== '') {
+      return reply.code(409).send({
+        error: 'chat_not_empty',
+        detail: '这个会话有内容，只能归档，不会自动删除',
+      })
+    }
+
+    db.delete(schema.chat).where(eq(schema.chat.id, chat.id)).run()
+    return reply.send({ ok: true, vacated: true })
   })
 
   /**

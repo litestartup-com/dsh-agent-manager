@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, test } from 'node:test'
 import Fastify, { type FastifyInstance } from 'fastify'
+import { eq } from 'drizzle-orm'
 import type { AppConfig, ResolvedAgent } from '../config.js'
 import { openDb, schema, type Db } from '../db/index.js'
 import { GatewayClient } from '../gateway/client.js'
@@ -333,4 +334,60 @@ test('delegations: a chat lists the brain runs it dispatched (蜂群 P2)', async
 
   const missing = await fetch(`${base}/api/chats/no-such-chat/delegations`)
   assert.equal(missing.status, 404)
+})
+
+test('vacate: an empty chat is hard-deleted; a chat with turns or a title refuses (蜂群 Q5)', async () => {
+  const { base, db } = await boot({ frames: [] })
+  const now = Date.now()
+
+  const insertChat = (id: string, title: string | null) => {
+    db.insert(schema.chat)
+      .values({ id, agentId: 'personal', title, createdAt: now, lastActiveAt: now, removedAt: null, dshSessionId: null })
+      .run()
+  }
+
+  // 空会话：删掉，行消失
+  insertChat('empty-1', null)
+  const vacated = await fetch(`${base}/api/chats/empty-1/vacate`, { method: 'POST' })
+  assert.equal(vacated.status, 200)
+  assert.deepEqual(await vacated.json(), { ok: true, vacated: true })
+  assert.equal(db.select().from(schema.chat).where(eq(schema.chat.id, 'empty-1')).all().length, 0)
+
+  // 有回合：409，行保留
+  insertChat('busy-1', null)
+  db.insert(schema.run)
+    .values({
+      id: 'run-1',
+      agentId: 'personal',
+      chatId: 'busy-1',
+      sourceChatId: null,
+      cronId: null,
+      apiKeyId: null,
+      dshSessionId: null,
+      trigger: 'manual',
+      idempotencyKey: null,
+      state: 'done',
+      resultSummary: 'x',
+      startedAt: now,
+      endedAt: now,
+      error: null,
+      commitHash: null,
+    })
+    .run()
+  const busy = await fetch(`${base}/api/chats/busy-1/vacate`, { method: 'POST' })
+  assert.equal(busy.status, 409)
+  assert.equal(db.select().from(schema.chat).where(eq(schema.chat.id, 'busy-1')).all().length, 1)
+
+  // 有标题：409
+  insertChat('titled-1', '被网关起过名字')
+  const titled = await fetch(`${base}/api/chats/titled-1/vacate`, { method: 'POST' })
+  assert.equal(titled.status, 409)
+
+  // 未知 / 已归档：404
+  const missing = await fetch(`${base}/api/chats/no-such/vacate`, { method: 'POST' })
+  assert.equal(missing.status, 404)
+  insertChat('gone-1', null)
+  db.update(schema.chat).set({ removedAt: now }).where(eq(schema.chat.id, 'gone-1')).run()
+  const archived = await fetch(`${base}/api/chats/gone-1/vacate`, { method: 'POST' })
+  assert.equal(archived.status, 404)
 })

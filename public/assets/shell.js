@@ -1,7 +1,7 @@
 // The sidebar, on every page.
 //
-// Split out of app.js when the frame stopped being the dashboard's private
-// property. app.js keeps only what is specific to the home page.
+// Split out of the (since-deleted) home page script when the frame stopped
+// being the dashboard's private property; every page owns the shell equally.
 
 import { $, ago, banner, esc, icon, setHtml, when } from './ui.js'
 
@@ -24,8 +24,8 @@ const endpointHealth = (ep) => {
 
 /**
  * The quiet line at the foot of the sidebar: one row per endpoint, saying how
- * it is doing. The home page's endpoint box moved here because these are
- * standing facts -- nothing changes about them by opening the home page.
+ * it is doing. These are standing facts, shown everywhere rather than on one
+ * page somebody has to remember to open.
  */
 const renderEndpointLines = (status) => {
   const box = $('side-endpoints')
@@ -436,9 +436,6 @@ const agentNav = (status) => {
 /**
  * Broadcasts the status the sidebar already fetched.
  *
- * Without this the home page would fetch /api/status a second time on load, for
- * the same bytes, purely because the two scripts were split.
- *
  * The event is one channel; `window.__shellLastStatus` is the other, for pages
  * whose script ran after the first poll already answered. A module *import* is
  * deliberately NOT used as a third channel: an import resolves to a URL without
@@ -453,6 +450,29 @@ const publishStatus = (status) => {
 }
 
 let lastStatus = null
+
+/**
+ * 蜂群 Q5：离开上一个会话时，若它「建了但一个字没写」，顺手清掉。
+ *
+ * 用 sessionStorage 记住上一次的会话：刷新同一会话（prev 与当前相同）
+ * 不算离开，避免「刷新即删自己」；跳到别的会话/别的页才算切换。判断
+ * 交给后端 vacate——有回合或有标题的会话它自己会拒。
+ */
+let prevVacated = false
+const maybeVacatePrevious = () => {
+  if (prevVacated) return
+  prevVacated = true
+  const prevId = window.sessionStorage.getItem('manager.prevChatId') ?? ''
+  window.sessionStorage.setItem('manager.prevChatId', openChatId)
+  if (prevId === '' || prevId === openChatId) return
+  const prev = chatById.get(prevId)
+  if (prev === undefined || prev.turns > 0 || (prev.title ?? '') !== '') return
+  void fetch(`/api/chats/${encodeURIComponent(prevId)}/vacate`, { method: 'POST' })
+    .then(() => loadShell())
+    .catch(() => {
+      // 清理是顺手为之，失败不打扰。
+    })
+}
 
 export const loadShell = async () => {
   try {
@@ -475,6 +495,7 @@ export const loadShell = async () => {
       chatById = new Map(threads.agents.flatMap((a) => a.chats.map((c) => [c.id, c])))
       busyByAgent = new Map(threads.agents.map((a) => [a.id, a.busyRunId]))
       revealOpenChat(threads.agents)
+      maybeVacatePrevious()
     }
 
     $('who').textContent = me.username
@@ -816,7 +837,7 @@ const archive = async (chatId) => {
         break
       }
     }
-    window.location.href = fallback === undefined ? '/app' : `/chat/${encodeURIComponent(fallback.id)}`
+    window.location.href = fallback === undefined ? '/' : `/chat/${encodeURIComponent(fallback.id)}`
     return
   }
   await Promise.all([loadShell(), loadArchiveHint()])
@@ -1107,7 +1128,7 @@ let healed = false
 const selfHealStaleFrame = async () => {
   if (healed || loadedShellVersion === null) return
   try {
-    const response = await fetch('/app', { headers: { accept: 'text/html' }, cache: 'no-store' })
+    const response = await fetch('/', { headers: { accept: 'text/html' }, cache: 'no-store' })
     if (!response.ok) return
     const html = await response.text()
     const match = html.match(/shell\.js\?v=([a-f0-9]+)/)

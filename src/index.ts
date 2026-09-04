@@ -4,7 +4,7 @@ import cookie from '@fastify/cookie'
 import rateLimit from '@fastify/rate-limit'
 import fastifyStatic from '@fastify/static'
 import Fastify, { type FastifyReply } from 'fastify'
-import { eq, inArray } from 'drizzle-orm'
+import { desc, eq, inArray, isNull } from 'drizzle-orm'
 import { loadConfig } from './config.js'
 import { openDb, schema } from './db/index.js'
 import { generatePassword, hashPassword } from './auth/password.js'
@@ -149,11 +149,24 @@ const main = async (): Promise<void> => {
     async (_request: unknown, reply: FastifyReply): Promise<FastifyReply> =>
       noCache(reply.type('text/html').send(pages.get(name)))
 
-  app.get('/', async (_request, reply) => reply.redirect('/app', 302))
+  // 蜂群 Q5：首页已删。/ 与 /app 都直达最近会话——首页最后剩下的职能就
+  // 是重定向，那就让它只是重定向。一条会话都没有时落在 /chat 空态
+  // （chat.js 会提示从侧栏选会话），绝不在 GET 上做创建副作用。
+  const landing = async (_request: unknown, reply: FastifyReply): Promise<FastifyReply> => {
+    const rows = db
+      .select()
+      .from(schema.chat)
+      .where(isNull(schema.chat.removedAt))
+      .orderBy(desc(schema.chat.lastActiveAt))
+      .all()
+    const latest = rows.find((row) => config.agents[row.agentId] !== undefined)
+    return reply.redirect(latest === undefined ? '/chat' : `/chat/${encodeURIComponent(latest.id)}`, 302)
+  }
+  app.get('/', landing)
+  app.get('/app', landing)
   // The only page outside the shell, on purpose: the sidebar is agent data, and
   // there is no session yet to fetch it with.
   app.get('/login', async (_request, reply) => noCache(reply.type('text/html').sendFile('login.html', publicDir)))
-  app.get('/app', { preHandler: requirePage }, page('home'))
   // One page for every agent; which board to draw comes from the path, and the
   // data comes from /api/board/:id.
   app.get<{ Params: { id: string } }>('/board/:id', { preHandler: requirePage }, page('board'))

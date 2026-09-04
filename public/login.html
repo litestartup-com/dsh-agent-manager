@@ -41,7 +41,7 @@
             }),
           })
           if (response.ok) {
-            window.location.href = '/app'
+            window.location.href = '/'
             return
           }
           errorEl.textContent = response.status === 429 ? '尝试过于频繁，请稍后再试' : '用户名或密码错误'

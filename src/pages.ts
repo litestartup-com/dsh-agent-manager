@@ -44,8 +44,7 @@ export const PAGES: Record<string, PageDef> = {
   // Titles carry the product name, not the repository name: "Oh! dsh" is the
   // brand (ohdsh.com), and `ohdsh` is its technical spelling wherever `!` is
   // not a legal character -- package name, CLI, cookie prefix.
-  home: { file: 'home.html', title: 'Oh! dsh · dsh agents manager', css: [], script: 'app.js', contentClass: '' },
-  // `wide` buys these two a roomier column than the home page's reading width:
+  // `wide` buys these a roomier column than the old home page's reading width:
   // a month of daily bars and a cron's full prompt both need it.
   spend: { file: 'spend.html', title: '花费 · Oh! dsh', css: ['spend.css'], script: 'spend.js', contentClass: 'wide' },
   crons: {

@@ -19,7 +19,7 @@ test('every page composes against the real layout', () => {
     // HTML, on every page, rather than appearing after a script runs.
     assert.match(html, /<aside id="sidebar" class="sidebar">/, `${name} has the sidebar`)
     assert.match(html, /assets\/shell\.js/, `${name} loads the shell`)
-    assert.match(html, /<a class="brand" href="\/app">/, `${name} can get home`)
+    assert.match(html, /<a class="brand" href="\/">/, `${name} can get home`)
     // Narrow-screen navigation is part of the frame, not of any one page: below
     // 1024px the sidebar is an off-canvas drawer and this bar is the only way to
     // open it. A page missing it would be a page a phone cannot navigate from.
@@ -40,7 +40,7 @@ test('each page gets its own title, stylesheets and script', () => {
 
   // The board opts out of the standard content padding; the others keep it.
   assert.match(pages.get('board') ?? '', /<main class="content content-flush">/)
-  assert.match(pages.get('home') ?? '', /<main class="content ">/)
+  assert.match(pages.get('nodes') ?? '', /<main class="content wide">/)
 })
 
 test('every asset URL carries a content version', () => {
@@ -59,7 +59,7 @@ test('every asset URL carries a content version', () => {
   const shell = /\/assets\/shell\.js\?v=([0-9a-f]{8})/.exec(chat)?.[1]
   assert.notEqual(style, shell)
   // Same file, same version, on every page.
-  assert.match(pages.get('home') ?? '', new RegExp(`/assets/style\\.css\\?v=${style}`))
+  assert.match(pages.get('nodes') ?? '', new RegExp(`/assets/style\\.css\\?v=${style}`))
 })
 
 test('assets are served must-revalidate', async () => {
