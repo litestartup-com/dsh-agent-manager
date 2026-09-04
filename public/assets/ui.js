@@ -21,7 +21,10 @@ export const esc = (value) =>
 export const $ = (id) => document.getElementById(id)
 
 export const icon = (name, size = 14) =>
-  `<svg width="${size}" height="${size}" aria-hidden="true"><use href="#i-${name}" /></svg>`
+  // viewBox：sprite 画在 16 单位坐标系里，没有它 16 单位的图标会按 1:1
+  // 塞进 12-15px 的盒子——不缩放、还裁掉右边；xlink:href 是老 Edge 内核
+  // （EdgeHTML）唯一认的写法，没有它 <use> 整个不画，按钮成了隐形按钮。
+  `<svg width="${size}" height="${size}" viewBox="0 0 16 16" aria-hidden="true"><use href="#i-${name}" xlink:href="#i-${name}" /></svg>`
 
 /**
  * Writes only when the markup actually changed.
