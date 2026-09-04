@@ -64,6 +64,16 @@ const renderEndpointLines = (status) => {
 // 主脑列表最多 3 条，其余与 agent 树一样折叠在 Show more 后面。
 const BRAIN_CHATS_SHOWN = 3
 
+// 头部两个 ghost 钮的图标直接内联 path，不经过 <use>：曾经只有这两个
+// 按钮的图标画不出来（与 sprite 引用无关的浏览器差异），内联是零依赖
+// 的最稳写法——任何能画 svg path 的内核都能画。
+const CHEV_SVG =
+  '<svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">' +
+  '<path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+const ADD_SVG =
+  '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">' +
+  '<path d="M8 3.5v9M3.5 8h9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>'
+
 const renderBrain = (status) => {
   const box = $('side-brain')
   if (box === null) return
@@ -99,11 +109,11 @@ const renderBrain = (status) => {
         </button>
         <button class="side-brain-ghost" type="button" data-brain-toggle aria-expanded="${open}"
                 title="${open ? '收起' : '展开'}主脑会话列表" aria-label="${open ? '收起' : '展开'}主脑会话列表">
-          ${icon('chev', 13)}
+          ${CHEV_SVG}
         </button>
         <span class="side-brain-div" aria-hidden="true"></span>
         <button class="side-brain-ghost" type="button" data-brain-new title="主脑新会话" aria-label="主脑新会话">
-          ${icon('add', 14)}
+          ${ADD_SVG}
         </button>
       </div>
       ${
