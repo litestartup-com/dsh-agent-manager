@@ -143,7 +143,7 @@ export class NodeSupervisor {
     }
     const child = spawn(spec.command, spec.args, {
       cwd: spec.cwd ?? undefined,
-      env: process.env,
+      env: { ...process.env, ...spec.env },
       stdio,
       windowsHide: true,
       detached: spec.detached,

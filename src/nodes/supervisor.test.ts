@@ -14,6 +14,7 @@ const spec = (over: Partial<ResolvedSpawnSpec> = {}): ResolvedSpawnSpec => ({
   readyTimeoutMs: 5_000,
   detached: false,
   logFile: null,
+  env: {},
   restart: { maxAttempts: 3, baseDelayMs: 20, maxDelayMs: 100 },
   ...over,
 })

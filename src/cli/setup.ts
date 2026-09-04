@@ -24,7 +24,10 @@ interface SetupOptions {
   brainWorkspace: string
   personalPort: number
   brainPort: number
+  /** 主 DSH_HOME（GUI/日常用），只用于取模型凭据副本。 */
   dshHome: string
+  /** 节点目录根：每个节点一个独立 DSH_HOME，会话/settings/附件完全隔离。 */
+  nodesHome: string
   dshBin: string | null
   installProfiles: boolean
   /** 本地 gateway 包路径（file: 依赖，离线安装）；null = 用 GitHub 引用。 */
@@ -64,21 +67,34 @@ const profileFiles = (spec: ProfileSpec, gatewayDep: string): Record<string, str
   }
 }
 
-/** 在 $DSH_HOME/profiles 下生成节点 profile（已存在则不动）。 */
-export const ensureNodeProfiles = (dshHome: string, specs: ProfileSpec[], gatewayDep: string): string[] => {
-  const profilesDir = join(dshHome, 'profiles')
-  mkdirSync(profilesDir, { recursive: true })
+/**
+ * 在 nodesHome 下为每个节点生成独立 DSH_HOME（<nodesHome>/<name>/profiles/<name>）。
+ * 节点目录已存在则不动。
+ */
+export const ensureNodeProfiles = (nodesHome: string, specs: ProfileSpec[], gatewayDep: string): string[] => {
+  mkdirSync(nodesHome, { recursive: true })
   const created: string[] = []
   for (const spec of specs) {
-    const dir = join(profilesDir, spec.name)
+    const nodeHome = join(nodesHome, spec.name)
+    const dir = join(nodeHome, 'profiles', spec.name)
     if (existsSync(dir)) continue
     mkdirSync(dir, { recursive: true })
     for (const [name, content] of Object.entries(profileFiles(spec, gatewayDep))) {
       writeFileSync(join(dir, name), content, 'utf8')
     }
-    created.push(dir)
+    created.push(nodeHome)
   }
   return created
+}
+
+/** 把主 DSH_HOME 的模型凭据复制进节点目录（同一用户同一把 key，缺省不覆盖）。 */
+export const ensureNodeCredentials = (mainDshHome: string, nodeHome: string): boolean => {
+  const source = join(mainDshHome, '.credentials.yaml')
+  const target = join(nodeHome, '.credentials.yaml')
+  if (!existsSync(source) || existsSync(target)) return false
+  mkdirSync(nodeHome, { recursive: true })
+  writeFileSync(target, readFileSync(source, 'utf8'), 'utf8')
+  return true
 }
 
 /** 解析 DSH 命令所在目录：优先 $DSH_BIN，其次 `where dsh` 的 .ps1 包装器。 */
@@ -156,26 +172,30 @@ export const buildManagerConfig = (options: {
   dshBin: string
   personalProfile: string
   brainProfile: string
+  /** 各节点自己的 DSH_HOME：会话/settings/附件完全隔离（蜂群 v1.1）。 */
+  personalHome: string
+  brainHome: string
 }): Record<string, unknown> => {
-  const endpoint = (port: number, profile: string) => ({
+  const endpoint = (port: number, profile: string, home: string, keyRef: string) => ({
     url: `http://127.0.0.1:${port}`,
     driver: 'apiproxy',
     prefix: '/api',
     key_ref: '',
     sandbox_base: `http://127.0.0.1:${port}/api-gw/v1`,
-    sandbox_key_ref: 'GW_KEY_A',
+    sandbox_key_ref: keyRef,
     spawn: {
       managed: true,
       command: 'node',
       args: [options.dshBin, '--profile', profile],
       ready_timeout_ms: 30_000,
+      env: { DSH_HOME: home },
     },
   })
   return {
     listen: { host: '127.0.0.1', port: 8080 },
     endpoints: {
-      personal_node: endpoint(options.personalPort, options.personalProfile),
-      brain_node: endpoint(options.brainPort, options.brainProfile),
+      personal_node: endpoint(options.personalPort, options.personalProfile, options.personalHome, 'GW_KEY_A'),
+      brain_node: endpoint(options.brainPort, options.brainProfile, options.brainHome, 'GW_KEY_B'),
     },
     agents: {
       personal: {
@@ -228,6 +248,7 @@ const parseArgs = (argv: string[]): { options: SetupOptions; help: boolean } => 
     personalPort: 3081,
     brainPort: 3082,
     dshHome: process.env.DSH_HOME ?? `${process.env.USERPROFILE ?? process.env.HOME ?? '.'}/.dsh`,
+    nodesHome: `${process.env.USERPROFILE ?? process.env.HOME ?? '.'}/.dsh-ohdsh`,
     dshBin: null,
     installProfiles: true,
     gatewayLocal: null,
@@ -250,6 +271,7 @@ const parseArgs = (argv: string[]): { options: SetupOptions; help: boolean } => 
       if (a !== undefined && Number.isInteger(a) && a > 0) defaults.personalPort = a
       if (b !== undefined && Number.isInteger(b) && b > 0) defaults.brainPort = b
     } else if (arg === '--dsh-home') defaults.dshHome = next()
+    else if (arg === '--nodes-home') defaults.nodesHome = next()
     else if (arg === '--dsh-bin') defaults.dshBin = next()
     else if (arg === '--gateway-local') defaults.gatewayLocal = next()
     else if (arg === '--no-install') defaults.installProfiles = false
@@ -259,8 +281,9 @@ const parseArgs = (argv: string[]): { options: SetupOptions; help: boolean } => 
 }
 
 const usage = (): void => {
-  console.log('用法: npm run setup -- [--workspace 路径] [--brain-workspace 路径] [--ports 3081,3082] [--dsh-bin 路径] [--gateway-local 路径] [--no-install] [--force]')
+  console.log('用法: npm run setup -- [--workspace 路径] [--brain-workspace 路径] [--ports 3081,3082] [--dsh-bin 路径] [--gateway-local 路径] [--nodes-home 路径] [--no-install] [--force]')
   console.log('  --gateway-local  用本地 dsh-api-gateway 目录做 file: 依赖（离线安装；缺省从 GitHub 拉）')
+  console.log('  --nodes-home     节点目录根（每个节点一个独立 DSH_HOME，默认 ~/.dsh-ohdsh）')
 }
 
 const main = (): void => {
@@ -286,8 +309,8 @@ const main = (): void => {
   initWorkspace({ workspacePath: options.personalWorkspace, preset: 'personal' })
   initWorkspace({ workspacePath: options.brainWorkspace, preset: 'brain' })
 
-  // ---- 节点 profile -------------------------------------------------------
-  console.log('② 生成节点 profile…')
+  // ---- 节点 profile（每节点一个独立 DSH_HOME） -----------------------------
+  console.log('② 生成节点目录与 profile…')
   const specs: ProfileSpec[] = [
     { name: 'ohdsh-personal', port: options.personalPort },
     { name: 'ohdsh-brain', port: options.brainPort },
@@ -297,14 +320,24 @@ const main = (): void => {
       ? 'github:litestartup-com/dsh-api-gateway'
       : `file:${resolve(options.gatewayLocal).replace(/\\/g, '/')}`
   console.log(`   gateway 依赖: ${gatewayDep}`)
-  for (const dir of ensureNodeProfiles(options.dshHome, specs, gatewayDep)) {
-    console.log(`   profile 已生成: ${dir}`)
+  const nodeHomes = new Map<string, string>()
+  for (const spec of specs) {
+    nodeHomes.set(spec.name, join(options.nodesHome, spec.name))
+  }
+  for (const home of ensureNodeProfiles(options.nodesHome, specs, gatewayDep)) {
+    console.log(`   节点目录已生成: ${home}`)
+  }
+  // 模型凭据：同一用户同一把 key，从主 DSH_HOME 复制（绝不覆盖已有）。
+  for (const home of nodeHomes.values()) {
+    if (ensureNodeCredentials(options.dshHome, home)) {
+      console.log(`   凭据已复制到 ${home}`)
+    }
   }
   const dshBin = detectDshBin(options.dshHome, options.dshBin)
   console.log(`   DSH bin: ${dshBin}`)
   if (options.installProfiles) {
-    for (const spec of specs) {
-      const dir = join(options.dshHome, 'profiles', spec.name)
+    for (const [name, home] of nodeHomes) {
+      const dir = join(home, 'profiles', name)
       try {
         execFileSync('pnpm', ['install'], { cwd: dir, stdio: ['ignore', 'inherit', 'inherit'] })
       } catch (error) {
@@ -316,10 +349,13 @@ const main = (): void => {
 
   // ---- 密钥与 .env --------------------------------------------------------
   console.log('③ 生成密钥…')
-  const gatewayKey = resolveGatewayKey(options.dshHome, null)
+  // 每个节点自己的 settings.yaml 里一把独立的 gateway 密钥；manager 分 ref 引用。
+  const personalKey = resolveGatewayKey(nodeHomes.get('ohdsh-personal')!, null)
+  const brainKey = resolveGatewayKey(nodeHomes.get('ohdsh-brain')!, null)
   mergeEnv('.env', {
     SESSION_SECRET: randomBytes(32).toString('hex'),
-    GW_KEY_A: gatewayKey,
+    GW_KEY_A: personalKey,
+    GW_KEY_B: brainKey,
     BRAIN_TOKEN: randomBytes(24).toString('hex'),
   })
 
@@ -333,6 +369,8 @@ const main = (): void => {
     dshBin,
     personalProfile: 'ohdsh-personal',
     brainProfile: 'ohdsh-brain',
+    personalHome: nodeHomes.get('ohdsh-personal')!,
+    brainHome: nodeHomes.get('ohdsh-brain')!,
   })
   writeFileSync(configPath, stringifyYaml(managerConfig), 'utf8')
 
@@ -340,6 +378,8 @@ const main = (): void => {
   console.log('完成。下一步：')
   console.log('  npm run build && npm start     # manager 启动时会自动拉起两个节点')
   console.log('  （节点状态：npm run nodes -- list；主脑入口在侧栏顶部）')
+  console.log('  每个节点有独立 DSH_HOME（会话/settings/附件互不可见）：')
+  for (const [name, home] of nodeHomes) console.log(`    ${name}: ${home}`)
   console.log(`  访问 http://127.0.0.1:8080（登录用户 ${process.env.MANAGER_USERNAME ?? 'admin'}）`)
 }
 

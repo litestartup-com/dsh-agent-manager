@@ -20,6 +20,9 @@ const spawnSchema = z.object({
   // manager 常驻启动用默认 false（节点随 manager 同生共死）。
   detached: z.boolean().default(false),
   log_file: z.string().optional(),
+  // 蜂群 v1.1：节点的额外环境变量（典型：DSH_HOME 指向该节点自己的目录，
+  // 会话/settings/附件与其它节点完全隔离）。
+  env: z.record(z.string(), z.string()).optional(),
   restart: z
     .object({
       max_attempts: z.number().int().positive().default(3),
@@ -125,6 +128,8 @@ export interface ResolvedSpawnSpec {
   detached: boolean
   /** Absolute path for node stdout/stderr (and its pidfile), or null for in-memory capture. */
   logFile: string | null
+  /** Extra env vars layered over the manager's own (典型：DSH_HOME 节点专属目录). */
+  env: Record<string, string>
   restart: { maxAttempts: number; baseDelayMs: number; maxDelayMs: number }
 }
 
@@ -226,6 +231,7 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
             readyTimeoutMs: spawnRaw.ready_timeout_ms,
             detached: spawnRaw.detached,
             logFile: spawnRaw.log_file === undefined ? null : resolve(spawnRaw.log_file),
+            env: spawnRaw.env ?? {},
             restart: {
               maxAttempts: spawnRaw.restart.max_attempts,
               baseDelayMs: spawnRaw.restart.base_delay_ms,

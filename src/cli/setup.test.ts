@@ -1,10 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
-import { buildManagerConfig, ensureNodeProfiles, mergeEnv, resolveGatewayKey } from './setup.js'
+import { buildManagerConfig, ensureNodeCredentials, ensureNodeProfiles, mergeEnv, resolveGatewayKey } from './setup.js'
 
 test('buildManagerConfig wires two managed nodes, agents, sandbox and presets', () => {
   const config = buildManagerConfig({
@@ -15,29 +15,36 @@ test('buildManagerConfig wires two managed nodes, agents, sandbox and presets', 
     dshBin: 'C:/nvm4w/nodejs/node_modules/@deepseek-ai/dsh/lib/bin.js',
     personalProfile: 'ohdsh-personal',
     brainProfile: 'ohdsh-brain',
+    personalHome: 'C:/Users/me/.dsh-ohdsh/ohdsh-personal',
+    brainHome: 'C:/Users/me/.dsh-ohdsh/ohdsh-brain',
   })
   const ep = config.endpoints as Record<string, Record<string, unknown>>
   const spawn = (id: string) => (ep[id]?.spawn ?? {}) as Record<string, unknown>
   assert.equal(ep['personal_node']?.url, 'http://127.0.0.1:3081')
   assert.equal(ep['brain_node']?.url, 'http://127.0.0.1:3082')
   assert.deepEqual(spawn('brain_node').args, ['C:/nvm4w/nodejs/node_modules/@deepseek-ai/dsh/lib/bin.js', '--profile', 'ohdsh-brain'])
+  assert.deepEqual(spawn('personal_node').env, { DSH_HOME: 'C:/Users/me/.dsh-ohdsh/ohdsh-personal' })
+  assert.deepEqual(spawn('brain_node').env, { DSH_HOME: 'C:/Users/me/.dsh-ohdsh/ohdsh-brain' })
+  // 每节点独立 gateway 密钥（分 ref 引用）
+  assert.equal(ep['personal_node']?.sandbox_key_ref, 'GW_KEY_A')
+  assert.equal(ep['brain_node']?.sandbox_key_ref, 'GW_KEY_B')
   const agents = config.agents as Record<string, Record<string, unknown>>
   assert.equal(agents['personal']?.preset, 'standard')
   assert.equal(agents['personal']?.sandbox_mode, 'workspace-write')
   assert.equal(agents['brain']?.endpoint, 'brain_node')
 })
 
-test('ensureNodeProfiles writes web-style profiles with a port patch, idempotently', () => {
-  const home = mkdtempSync(join(tmpdir(), 'setup-dsh-home-'))
+test('ensureNodeProfiles writes one isolated DSH_HOME per node, idempotently', () => {
+  const nodesHome = mkdtempSync(join(tmpdir(), 'setup-nodes-home-'))
   try {
     const specs = [
       { name: 'ohdsh-personal', port: 3081 },
       { name: 'ohdsh-brain', port: 3082 },
     ]
-    const created = ensureNodeProfiles(home, specs, 'github:litestartup-com/dsh-api-gateway')
-    assert.equal(created.length, 2)
+    const created = ensureNodeProfiles(nodesHome, specs, 'github:litestartup-com/dsh-api-gateway')
+    assert.deepEqual(created.sort(), [join(nodesHome, 'ohdsh-personal'), join(nodesHome, 'ohdsh-brain')].sort())
     for (const spec of specs) {
-      const dir = join(home, 'profiles', spec.name)
+      const dir = join(nodesHome, spec.name, 'profiles', spec.name)
       const patch = parseYaml(readFileSync(join(dir, 'cordis.patch.yml'), 'utf8')) as Array<{ id: string; config: { port: number; host: string } }>
       assert.equal(patch[0]?.id, 'webserver')
       assert.equal(patch[0]?.config.port, spec.port)
@@ -50,22 +57,40 @@ test('ensureNodeProfiles writes web-style profiles with a port patch, idempotent
       assert.equal(pkg.dependencies['dsh-api-gateway'], 'github:litestartup-com/dsh-api-gateway')
     }
     // 幂等：第二次不重建、不报错
-    assert.deepEqual(ensureNodeProfiles(home, specs, 'github:litestartup-com/dsh-api-gateway'), [])
+    assert.deepEqual(ensureNodeProfiles(nodesHome, specs, 'github:litestartup-com/dsh-api-gateway'), [])
   } finally {
-    rmSync(home, { recursive: true, force: true })
+    rmSync(nodesHome, { recursive: true, force: true })
   }
 })
 
 test('ensureNodeProfiles writes a file: dependency when given a local gateway path', () => {
-  const home = mkdtempSync(join(tmpdir(), 'setup-dsh-home-local-'))
+  const nodesHome = mkdtempSync(join(tmpdir(), 'setup-nodes-home-local-'))
   try {
-    ensureNodeProfiles(home, [{ name: 'ohdsh-personal', port: 3081 }], 'file:C:/src/dsh-api-gateway')
-    const pkg = JSON.parse(readFileSync(join(home, 'profiles', 'ohdsh-personal', 'package.json'), 'utf8')) as {
+    ensureNodeProfiles(nodesHome, [{ name: 'ohdsh-personal', port: 3081 }], 'file:C:/src/dsh-api-gateway')
+    const pkg = JSON.parse(readFileSync(join(nodesHome, 'ohdsh-personal', 'profiles', 'ohdsh-personal', 'package.json'), 'utf8')) as {
       dependencies: Record<string, string>
     }
     assert.equal(pkg.dependencies['dsh-api-gateway'], 'file:C:/src/dsh-api-gateway')
   } finally {
-    rmSync(home, { recursive: true, force: true })
+    rmSync(nodesHome, { recursive: true, force: true })
+  }
+})
+
+test('ensureNodeCredentials copies the model key once, never overwriting', () => {
+  const root = mkdtempSync(join(tmpdir(), 'setup-cred-'))
+  const main = join(root, 'main')
+  const node = join(root, 'node')
+  try {
+    mkdirSync(main, { recursive: true })
+    writeFileSync(join(main, '.credentials.yaml'), 'provider: x\n', 'utf8')
+    assert.equal(ensureNodeCredentials(main, node), true)
+    assert.equal(readFileSync(join(node, '.credentials.yaml'), 'utf8'), 'provider: x\n')
+    // 已有凭据不覆盖
+    writeFileSync(join(node, '.credentials.yaml'), 'provider: mine\n', 'utf8')
+    assert.equal(ensureNodeCredentials(main, node), false)
+    assert.equal(readFileSync(join(node, '.credentials.yaml'), 'utf8'), 'provider: mine\n')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
   }
 })
 
