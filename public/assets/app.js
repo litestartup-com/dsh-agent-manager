@@ -8,6 +8,38 @@
 
 import { $, bannerHtml as rawBanner, esc, icon, money, setHtml, when } from './ui.js'
 
+// ---------------------------------------------------------------------------
+// 蜂群 P3：/app 直通主脑。
+//
+// 主脑是日常入口，首页的派活 composer 退居次席。配置里有 brain agent
+// 时，/app 直接跳到主脑最近一次会话（没有才新建）；没有主脑就保留原
+// 来的首页。异步执行：跳转完成前用户看到的是完整首页，而不是白屏。
+// ---------------------------------------------------------------------------
+void (async () => {
+  try {
+    const response = await fetch('/api/chats')
+    if (!response.ok) return
+    const { agents } = await response.json()
+    const brain = agents.find((a) => a.id === 'brain')
+    if (brain === undefined) return
+    const latest = brain.chats?.[0]
+    if (latest !== undefined) {
+      window.location.replace(`/chat/${encodeURIComponent(latest.id)}`)
+      return
+    }
+    const created = await fetch('/api/chats', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ agentId: 'brain' }),
+    })
+    if (!created.ok) return
+    const { chat } = await created.json()
+    window.location.replace(`/chat/${encodeURIComponent(chat.id)}`)
+  } catch {
+    // 网络失败就当没有主脑，首页照常渲染。
+  }
+})()
+
 // Deliberately NOT `import { currentStatus } from './shell.js'`: that import
 // resolves to a URL without the ?v= stamp, so the browser loaded shell.js a
 // second time as a separate module. Every sidebar listener existed twice, and

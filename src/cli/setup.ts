@@ -199,13 +199,13 @@ export const buildManagerConfig = (options: {
   return {
     listen: { host: '127.0.0.1', port: 8080 },
     endpoints: {
-      personal_node: endpoint(options.personalPort, options.personalProfile, options.personalHome, 'GW_KEY_A'),
-      brain_node: endpoint(options.brainPort, options.brainProfile, options.brainHome, 'GW_KEY_B'),
+      personal: endpoint(options.personalPort, options.personalProfile, options.personalHome, 'GW_KEY_A'),
+      brain: endpoint(options.brainPort, options.brainProfile, options.brainHome, 'GW_KEY_B'),
     },
     agents: {
       personal: {
         name: '个人',
-        endpoint: 'personal_node',
+        endpoint: 'personal',
         workspace: options.personalWorkspace,
         public: false,
         preset: 'standard',
@@ -213,7 +213,7 @@ export const buildManagerConfig = (options: {
       },
       brain: {
         name: '主脑',
-        endpoint: 'brain_node',
+        endpoint: 'brain',
         workspace: options.brainWorkspace,
         public: false,
         preset: 'standard',

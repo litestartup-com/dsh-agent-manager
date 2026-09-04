@@ -81,6 +81,14 @@ export const PAGES: Record<string, PageDef> = {
     script: 'chat.js',
     contentClass: 'content-flush',
   },
+  // 蜂群 Q4：节点（fleet）总览——侧栏只留汇总与异常，完整列表在这里。
+  nodes: {
+    file: 'nodes.html',
+    title: '节点 · Oh! dsh',
+    css: [],
+    script: 'nodes.js',
+    contentClass: 'wide',
+  },
 }
 
 const PLACEHOLDERS = ['{{TITLE}}', '{{HEAD}}', '{{CONTENT_CLASS}}', '{{CONTENT}}', '{{SCRIPT}}'] as const

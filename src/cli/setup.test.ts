@@ -20,18 +20,18 @@ test('buildManagerConfig wires two managed nodes, agents, sandbox and presets', 
   })
   const ep = config.endpoints as Record<string, Record<string, unknown>>
   const spawn = (id: string) => (ep[id]?.spawn ?? {}) as Record<string, unknown>
-  assert.equal(ep['personal_node']?.url, 'http://127.0.0.1:3081')
-  assert.equal(ep['brain_node']?.url, 'http://127.0.0.1:3082')
-  assert.deepEqual(spawn('brain_node').args, ['C:/nvm4w/nodejs/node_modules/@deepseek-ai/dsh/lib/bin.js', '--profile', 'ohdsh-brain', '--no-open'])
-  assert.deepEqual(spawn('personal_node').env, { DSH_HOME: 'C:/Users/me/.dsh-ohdsh/ohdsh-personal' })
-  assert.deepEqual(spawn('brain_node').env, { DSH_HOME: 'C:/Users/me/.dsh-ohdsh/ohdsh-brain' })
+  assert.equal(ep['personal']?.url, 'http://127.0.0.1:3081')
+  assert.equal(ep['brain']?.url, 'http://127.0.0.1:3082')
+  assert.deepEqual(spawn('brain').args, ['C:/nvm4w/nodejs/node_modules/@deepseek-ai/dsh/lib/bin.js', '--profile', 'ohdsh-brain', '--no-open'])
+  assert.deepEqual(spawn('personal').env, { DSH_HOME: 'C:/Users/me/.dsh-ohdsh/ohdsh-personal' })
+  assert.deepEqual(spawn('brain').env, { DSH_HOME: 'C:/Users/me/.dsh-ohdsh/ohdsh-brain' })
   // 每节点独立 gateway 密钥（分 ref 引用）
-  assert.equal(ep['personal_node']?.sandbox_key_ref, 'GW_KEY_A')
-  assert.equal(ep['brain_node']?.sandbox_key_ref, 'GW_KEY_B')
+  assert.equal(ep['personal']?.sandbox_key_ref, 'GW_KEY_A')
+  assert.equal(ep['brain']?.sandbox_key_ref, 'GW_KEY_B')
   const agents = config.agents as Record<string, Record<string, unknown>>
   assert.equal(agents['personal']?.preset, 'standard')
   assert.equal(agents['personal']?.sandbox_mode, 'workspace-write')
-  assert.equal(agents['brain']?.endpoint, 'brain_node')
+  assert.equal(agents['brain']?.endpoint, 'brain')
 })
 
 test('ensureNodeProfiles writes one isolated DSH_HOME per node, idempotently', () => {

@@ -54,7 +54,10 @@ const renderEndpointLines = (status) => {
 
 /**
  * 蜂群 P3：主脑入口。config 里有 brain agent 才渲染——没有主脑就没有这个
- * 按钮，界面不撒谎。点击 = 给主脑开新会话并跳过去。
+ * 按钮，界面不撒谎。
+ *
+ * 主按钮 = 回到主脑最近一次会话（没有才新建），旁边的 "+" = 显式新会话。
+ * 之前每次点击都开新会话，一天下来主脑会话列表被点出一排垃圾。
  */
 const renderBrain = (status) => {
   const box = $('side-brain')
@@ -68,19 +71,30 @@ const renderBrain = (status) => {
   box.hidden = false
   setHtml(
     'side-brain',
-    `<button class="side-brain-btn" type="button" data-brain-new title="总控 · 可调度所有 agent">
-      ${icon('chat', 15)}
-      <span class="side-brain-main">
-        <span class="side-brain-name">主脑</span>
-        <span class="side-brain-sub">总控 · 可调度所有 agent</span>
-      </span>
-    </button>`,
+    `<div class="side-brain-row">
+      <button class="side-brain-btn" type="button" data-brain-open title="主脑 · 最近一次会话">
+        ${icon('chat', 15)}
+        <span class="side-brain-main">
+          <span class="side-brain-name">主脑</span>
+          <span class="side-brain-sub">总控 · 可调度所有 agent</span>
+        </span>
+      </button>
+      <button class="side-brain-plus" type="button" data-brain-new title="主脑新会话" aria-label="主脑新会话">
+        ${icon('add', 14)}
+      </button>
+    </div>`,
   )
 }
 
-$('side-brain')?.addEventListener('click', async (event) => {
-  const button = event.target.closest('[data-brain-new]')
-  if (button === null) return
+/** 打开主脑会话：fresh=1 强制新建，否则跳到最近一次、没有才新建。 */
+const openBrainChat = async (fresh) => {
+  if (!fresh) {
+    const latest = (chatsByAgent.get('brain') ?? [])[0]
+    if (latest !== undefined) {
+      window.location.href = `/chat/${encodeURIComponent(latest.id)}`
+      return
+    }
+  }
   try {
     const response = await fetch('/api/chats', {
       method: 'POST',
@@ -91,14 +105,28 @@ $('side-brain')?.addEventListener('click', async (event) => {
       banner('主脑会话创建失败', 'warn')
       return
     }
-    const body = await response.json()
-    window.location.href = `/chat/${encodeURIComponent(body.chat.id)}`
+    const { chat } = await response.json()
+    window.location.href = `/chat/${encodeURIComponent(chat.id)}`
   } catch (error) {
     banner(`主脑不可用：${error.message}`, 'warn')
   }
+}
+
+$('side-brain')?.addEventListener('click', async (event) => {
+  if (event.target.closest('[data-brain-new]') !== null) {
+    await openBrainChat(true)
+    return
+  }
+  if (event.target.closest('[data-brain-open]') !== null) {
+    await openBrainChat(false)
+  }
 })
 
-/** 蜂群 P3：节点区。托管节点读监督器状态机，未托管读探活结果。 */
+/** 蜂群 P3：节点区。托管节点读监督器状态机，未托管读探活结果。
+ *
+ * 侧栏只留一行汇总 + 异常节点；完整列表在 /nodes。100 个节点时侧栏
+ * 也不能变成 100 行——正常是沉默的，只有异常值得张嘴。
+ */
 const NODE_STATE_DOT = { live: 'ok', cold: 'muted', starting: 'warn', restarting: 'warn', offline: 'bad' }
 const NODE_STATE_LABEL = { live: 'live', cold: '未启动', starting: '启动中', restarting: '重启中', offline: 'offline' }
 
@@ -111,21 +139,27 @@ const renderNodes = (nodesData) => {
     return
   }
   box.hidden = false
+  const live = rows.filter((n) => n.state === 'live').length
+  const abnormal = rows.filter((n) => n.state !== 'live')
+  const summary = `<a class="endpoint-line nodes-summary" href="/nodes" title="节点总览 · 全部 ${rows.length} 个节点">
+    <span class="dot ${abnormal.length === 0 ? 'ok' : 'warn'}"></span>节点 ${live}/${rows.length} 正常${
+      abnormal.length > 0 ? ` · ${abnormal.length} 个异常` : ''
+    } ›
+  </a>`
   setHtml(
     'side-endpoints',
-    rows
-      .map((n) => {
-        const dot = NODE_STATE_DOT[n.state] ?? 'muted'
-        const label = NODE_STATE_LABEL[n.state] ?? n.state
-        const parts = [n.managed ? '托管' : '外管', label]
-        if (typeof n.sessions === 'number') parts.push(`会话 ${n.sessions}`)
-        const agents = Array.isArray(n.agents) && n.agents.length > 0 ? ` · ${n.agents.join('/')}` : ''
-        const err = typeof n.lastError === 'string' && n.lastError !== '' ? ` — ${n.lastError}` : ''
-        return `<span class="endpoint-line" title="${esc(n.id + agents + err)}">
-          <span class="dot ${dot}"></span>${esc(`${n.id} · ${parts.join(' · ')}${agents}`)}
-        </span>`
-      })
-      .join(''),
+    summary +
+      abnormal
+        .map((n) => {
+          const dot = NODE_STATE_DOT[n.state] ?? 'muted'
+          const label = NODE_STATE_LABEL[n.state] ?? n.state
+          const agents = Array.isArray(n.agents) && n.agents.length > 0 ? n.agents.join('/') : ''
+          const err = typeof n.lastError === 'string' && n.lastError !== '' ? ` — ${n.lastError}` : ''
+          return `<a class="endpoint-line" href="/nodes" title="${esc([n.managed ? '托管' : '外管', agents, err].filter(Boolean).join(' · '))}">
+            <span class="dot ${dot}"></span>${esc(`${n.id} · ${label}`)}
+          </a>`
+        })
+        .join(''),
   )
 }
 
@@ -252,6 +286,12 @@ const chatRow = (chat) => {
 }
 
 /**
+ * AGENTS 树里的 agent：不含主脑。主脑是 manager 级的总控，入口是上方
+ * 的独立按钮，再出现在树里就重复了（之前还带着错误的大盘）。
+ */
+const treeAgents = (status) => status.agents.filter((agent) => agent.id !== 'brain')
+
+/**
  * One expandable row per agent, with its conversations under it.
  *
  * The row toggles rather than navigating, and the board moved to its own ⊞
@@ -260,7 +300,7 @@ const chatRow = (chat) => {
  */
 const agentNav = (status) => {
   const collapsed = collapsedSet()
-  return status.agents
+  return treeAgents(status)
     .map((agent) => {
       const health = agentHealth(agent, status.endpoints)
       const chats = chatsByAgent.get(agent.id) ?? []
@@ -367,8 +407,8 @@ export const loadShell = async () => {
     $('who').textContent = me.username
     const avatar = $('avatar')
     if (avatar !== null) avatar.textContent = [...me.username][0] ?? '?'
-    $('agent-count').textContent = status.agents.length === 0 ? '' : status.agents.length
-    setHtml('agent-nav', status.agents.length === 0 ? '<p class="muted small">未配置 agent</p>' : agentNav(status))
+    $('agent-count').textContent = treeAgents(status).length === 0 ? '' : treeAgents(status).length
+    setHtml('agent-nav', treeAgents(status).length === 0 ? '<p class="muted small">未配置 agent</p>' : agentNav(status))
     renderBrain(status)
     if (nodesData !== null && Array.isArray(nodesData.nodes)) renderNodes(nodesData)
     else renderEndpointLines(status)

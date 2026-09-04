@@ -1851,6 +1851,70 @@ button:disabled {
   font-size: 11.5px;
 }
 
+/* ---- 节点页（/nodes）：节点列表 + 全局任务流 ---- */
+
+.nodes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.node-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--surface);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-1);
+}
+
+.node-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.node-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-meta {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+
+.node-detail {
+  margin-top: 2px;
+  color: var(--text-2);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.node-side {
+  flex: 0 0 auto;
+}
+
+.node-link {
+  color: var(--accent);
+  font-size: 12px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.node-link:hover {
+  text-decoration: underline;
+}
+
 /* ---- docked, collapsed to a rail (>= 1024px) ---- */
 
 /* Scoped to the docked width on purpose. `nav-rail` is a remembered preference,
@@ -1939,6 +2003,17 @@ button:disabled {
   body.nav-rail .tree-item .dot,
   body.nav-rail .dot-btn {
     margin-left: 0;
+  }
+
+  /* 主脑钉顶不折叠，但 rail 里只剩一个居中的图标；"+" 一并收起。 */
+  body.nav-rail .side-brain-btn {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+  body.nav-rail .side-brain-main,
+  body.nav-rail .side-brain-plus {
+    display: none;
   }
 }
 
@@ -2109,5 +2184,31 @@ button:disabled {
 .side-brain-main { display: flex; flex-direction: column; min-width: 0; }
 .side-brain-name { font-weight: 600; font-size: 14px; line-height: 1.35; }
 .side-brain-sub { font-size: 11.5px; color: var(--muted); }
+
+/* 主脑入口 = 主按钮（最近会话）+ 右侧小 "+"（显式新会话） */
+.side-brain-row { display: flex; align-items: stretch; gap: 6px; }
+.side-brain-row .side-brain-btn { flex: 1 1 auto; min-width: 0; }
+.side-brain-plus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 38px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+.side-brain-plus:hover {
+  background: var(--surface-hover, #f1f3f5);
+  color: var(--text);
+}
+
+/* 节点区：汇总行与异常行都是去 /nodes 的链接 */
+.endpoint-line { text-decoration: none; }
+.endpoint-line:hover { color: var(--text); }
+.nodes-summary { padding: 2px 0; }
 
 .dot.muted { background: var(--muted); }

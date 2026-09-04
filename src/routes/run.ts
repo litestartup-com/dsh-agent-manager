@@ -118,6 +118,27 @@ export const registerRunRoutes = (
     },
   )
 
+  // 蜂群 Q4：全局最近任务流，跨所有 agent。/nodes 页的第二栏用，
+  // 主脑在脑内看不到全局，节点页就是它的后视镜。
+  app.get<{ Querystring: { limit?: string } }>('/api/runs', { preHandler: requireUser }, async (request, reply) => {
+    const limit = Math.min(Math.max(Number(request.query.limit ?? 30) || 30, 1), 100)
+    const rows = db.select().from(schema.run).orderBy(desc(schema.run.startedAt)).limit(limit).all()
+    return reply.header('cache-control', 'no-store').send({
+      runs: rows.map((r) => ({
+        id: r.id,
+        agentId: r.agentId,
+        agentName: config.agents[r.agentId]?.name ?? r.agentId,
+        trigger: r.trigger,
+        state: r.state,
+        summary: r.resultSummary,
+        error: r.error,
+        sourceChatId: r.sourceChatId,
+        startedAt: r.startedAt,
+        endedAt: r.endedAt,
+      })),
+    })
+  })
+
   app.get<{ Params: { id: string; runId: string } }>(
     '/api/agents/:id/runs/:runId',
     { preHandler: requireUser },

@@ -165,6 +165,7 @@ const main = async (): Promise<void> => {
   app.get('/archive', { preHandler: requirePage }, page('archive'))
   app.get('/spend', { preHandler: requirePage }, page('spend'))
   app.get('/crons', { preHandler: requirePage }, page('crons'))
+  app.get('/nodes', { preHandler: requirePage }, page('nodes'))
 
   registerAuthRoutes(app, db, secureCookies)
   registerStatusRoutes(app, config, db, clients, requireUser, upstreamClients)
