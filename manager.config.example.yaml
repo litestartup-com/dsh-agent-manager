@@ -21,7 +21,7 @@ endpoints:
     # spawn:
     #   managed: true
     #   command: node
-    #   args: ["C:/nvm4w/nodejs/node_modules/@deepseek-ai/dsh/lib/bin.js", "--profile", "web"]
+    #   args: ["C:/nvm4w/nodejs/node_modules/@deepseek-ai/dsh/lib/bin.js", "--profile", "web", "--no-open"]
     #   ready_timeout_ms: 30000
     #   # 蜂群 v1.1：节点独立 DSH_HOME（会话/settings/附件互不可见），setup 自动生成：
     #   env: { DSH_HOME: "C:/Users/you/.dsh-ohdsh/ohdsh-personal" }

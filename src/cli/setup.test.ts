@@ -22,7 +22,7 @@ test('buildManagerConfig wires two managed nodes, agents, sandbox and presets', 
   const spawn = (id: string) => (ep[id]?.spawn ?? {}) as Record<string, unknown>
   assert.equal(ep['personal_node']?.url, 'http://127.0.0.1:3081')
   assert.equal(ep['brain_node']?.url, 'http://127.0.0.1:3082')
-  assert.deepEqual(spawn('brain_node').args, ['C:/nvm4w/nodejs/node_modules/@deepseek-ai/dsh/lib/bin.js', '--profile', 'ohdsh-brain'])
+  assert.deepEqual(spawn('brain_node').args, ['C:/nvm4w/nodejs/node_modules/@deepseek-ai/dsh/lib/bin.js', '--profile', 'ohdsh-brain', '--no-open'])
   assert.deepEqual(spawn('personal_node').env, { DSH_HOME: 'C:/Users/me/.dsh-ohdsh/ohdsh-personal' })
   assert.deepEqual(spawn('brain_node').env, { DSH_HOME: 'C:/Users/me/.dsh-ohdsh/ohdsh-brain' })
   // 每节点独立 gateway 密钥（分 ref 引用）

@@ -190,7 +190,8 @@ export const buildManagerConfig = (options: {
     spawn: {
       managed: true,
       command: 'node',
-      args: [options.dshBin, '--profile', profile],
+      // --no-open：节点是后台服务，不允许每次拉起都弹浏览器（web app 的自身参数）。
+      args: [options.dshBin, '--profile', profile, '--no-open'],
       ready_timeout_ms: 30_000,
       env: { DSH_HOME: home },
     },
