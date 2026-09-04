@@ -223,8 +223,69 @@ test('dispatch: unknown agent 404, success runs with trigger=brain, concurrent d
   assert.ok(live.length >= 3, `concurrent dispatches all landed (${live.length} runs)`)
 })
 
-test('crons: drafted disabled by default, duplicate name 409, bad schedule 400', async () => {
-  const { app, db } = await boot(SUCCESS)
+test('蜂群 P5.1: brain dispatch stops at the daily budget, and lifts when the cap is off', async () => {
+  const { app, db, config } = await boot(SUCCESS)
+  // 今天一笔超预算的主脑派工花销
+  const now = Date.now()
+  db.insert(schema.run)
+    .values({
+      id: 'r-budget',
+      agentId: 'personal',
+      chatId: null,
+      sourceChatId: null,
+      cronId: null,
+      apiKeyId: null,
+      dshSessionId: null,
+      trigger: 'brain',
+      idempotencyKey: null,
+      state: 'done',
+      resultSummary: 'x',
+      startedAt: now,
+      endedAt: now,
+      error: null,
+      commitHash: null,
+    })
+    .run()
+  db.insert(schema.usageRecord)
+    .values({
+      runId: 'r-budget',
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-pro',
+      inputTokens: 1000,
+      outputTokens: 100,
+      cacheRead: null,
+      cacheWrite: null,
+      reasoningTokens: null,
+      cost: 1_500_000,
+      peakCost: 0,
+      at: now,
+    })
+    .run()
+
+  config.brainDailyBudgetMicroUsd = 1_000_000 // $1 上限，已花 $1.5
+  const denied = await app.inject({
+    method: 'POST',
+    url: '/api/internal/dispatch',
+    headers: authed(),
+    payload: { agentId: 'personal', prompt: '写一行' },
+  })
+  assert.equal(denied.statusCode, 409)
+  const deniedBody = denied.json() as { error: string; detail: string }
+  assert.equal(deniedBody.error, 'brain_budget_exhausted')
+  assert.match(deniedBody.detail, /1\.50/)
+
+  // 关闭上限后恢复放行
+  config.brainDailyBudgetMicroUsd = null
+  const ok = await app.inject({
+    method: 'POST',
+    url: '/api/internal/dispatch',
+    headers: authed(),
+    payload: { agentId: 'personal', prompt: '写一行' },
+  })
+  assert.equal(ok.statusCode, 200)
+})
+
+test('crons: drafted disabled by default, duplicate name 409, bad schedule 400', async () => {  const { app, db } = await boot(SUCCESS)
   const ok = await app.inject({
     method: 'POST',
     url: '/api/internal/crons',

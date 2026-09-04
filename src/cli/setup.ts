@@ -249,6 +249,10 @@ export const adoptOldWorkspaces = (
       max_consecutive_failures: 3,
       daily_budget_usd: 2.0,
     },
+    // 蜂群 P5.1：主脑日派工预算熔断（只拦 trigger=brain，人手动不拦）。
+    brain: {
+      daily_budget_usd: 1.0,
+    },
     database: { path: './data/manager.db' },
     pricing: {
       peak_windows_utc: [

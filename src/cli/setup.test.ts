@@ -37,6 +37,9 @@ test('buildManagerConfig wires two managed nodes, agents, sandbox and presets', 
   assert.equal(agents['personal']?.preset, 'standard')
   assert.equal(agents['personal']?.sandbox_mode, 'workspace-write')
   assert.equal(agents['brain']?.endpoint, 'brain')
+  // 蜂群 P5.1：主脑日派工预算熔断随 setup 默认开启
+  const brain = config.brain as Record<string, unknown>
+  assert.equal(brain['daily_budget_usd'], 1.0)
 })
 
 test('ensureNodeProfiles writes one isolated DSH_HOME per node, idempotently', () => {

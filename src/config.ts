@@ -116,6 +116,11 @@ const fileSchema = z.object({
     })
     .default({ timeout_minutes: 15, silence_timeout_minutes: 5, max_consecutive_failures: 3 }),
   database: z.object({ path: z.string().min(1) }).default({ path: './data/manager.db' }),
+  // 蜂群 P5.1：主脑派工（trigger=brain）的日预算熔断——超限拒绝并转述；
+  // 人手动操作保持不拦。缺省 = 不设上限。
+  brain: z
+    .object({ daily_budget_usd: z.number().positive().optional() })
+    .default({}),
   pricing: pricingSchema.optional(),
 })
 
@@ -174,6 +179,11 @@ export interface AppConfig {
     dailyBudgetMicroUsd: number | null
   }
   databasePath: string
+  /**
+   * 蜂群 P5.1：主脑日派工预算（微美元），null = 不设上限。只拦 trigger=brain
+   * 的派工；人工直连与手动派工不受影响。
+   */
+  brainDailyBudgetMicroUsd?: number | null
   /** Token rates and peak windows, from config or the built-in defaults. */
   pricing: PricingTable
   sessionSecret: string
@@ -371,6 +381,8 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
         file.runner.daily_budget_usd === undefined ? null : Math.round(file.runner.daily_budget_usd * 1e6),
     },
     databasePath: resolve(file.database.path),
+    brainDailyBudgetMicroUsd:
+      file.brain.daily_budget_usd === undefined ? null : Math.round(file.brain.daily_budget_usd * 1e6),
     pricing,
     sessionSecret,
     initialUser: {

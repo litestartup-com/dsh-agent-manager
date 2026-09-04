@@ -72,6 +72,8 @@ export class NodeSupervisor {
   private readyTimer: NodeJS.Timeout | null = null
   private restartTimer: NodeJS.Timeout | null = null
   private manualStop = false
+  /** 蜂群 P5.1：主动重启标记——stop 后进程消失时再拉起，而不是进入冷态。 */
+  private restartRequested = false
   private lastError: string | null = null
   private pidFile: string | null = null
   private logLines: string[] = []
@@ -120,6 +122,17 @@ export class NodeSupervisor {
       return
     }
     this.killTree()
+  }
+
+  /** 蜂群 P5.1：主动重启。stop 之后进程消失时自动重新拉起，清零重试计数。 */
+  restart(spec: ResolvedSpawnSpec): void {
+    // 没有进程在跑 = 直接启动；否则等进程消失后再拉起，避免残留标记。
+    if (this.child === null && this.restartTimer === null) {
+      this.start(spec)
+      return
+    }
+    this.restartRequested = true
+    this.stop()
   }
 
   /** Buffered stdout/stderr of the current (or last) child, as text. */
@@ -210,6 +223,15 @@ export class NodeSupervisor {
     const exitNote = `exited code=${String(code)} signal=${String(signal)}`
     if (this.manualStop) {
       this.clearPidFile()
+      // 蜂群 P5.1：主动重启——进程消失即重新拉起，而不是停在冷态。
+      if (this.restartRequested) {
+        this.restartRequested = false
+        this.manualStop = false
+        this.status = { ...this.status, state: 'cold', pid: null, attempts: 0, stateSince: Date.now() }
+        this.deps.log?.(`node ${this.id}: restarting (${exitNote})`)
+        this.spawnOnce(spec)
+        return
+      }
       this.status = { ...this.status, state: 'cold', pid: null, stateSince: Date.now() }
       this.deps.log?.(`node ${this.id}: stopped (${exitNote})`)
       return

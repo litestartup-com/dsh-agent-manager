@@ -19,12 +19,26 @@ const nodeRow = (n) => {
     .filter(Boolean)
     .join(' · ')
   const err = typeof n.lastError === 'string' && n.lastError !== '' ? ` — ${n.lastError}` : ''
-  return `<div class="node-row">
+  const starting = n.state === 'starting'
+  // 蜂群 P5.1：托管节点可起/停/重启；外管节点按钮不撒谎，直接说明。
+  const controls = n.managed
+    ? `<div class="node-actions">
+        ${
+          n.state === 'cold' || n.state === 'offline'
+            ? `<button type="button" class="btn-quiet btn-sm" data-node-up="${esc(n.id)}">启动</button>`
+            : `<button type="button" class="btn-quiet btn-sm" data-node-down="${esc(n.id)}" ${starting ? 'disabled' : ''}>停止</button>
+               <button type="button" class="btn-quiet btn-sm" data-node-restart="${esc(n.id)}" ${starting ? 'disabled' : ''}>重启</button>`
+        }
+        <button type="button" class="btn-quiet btn-sm" data-node-logs="${esc(n.id)}">日志</button>
+      </div>`
+    : '<span class="muted small">外管 · 手动维护</span>'
+  return `<div class="node-row" data-node-row="${esc(n.id)}">
     <div class="node-main">
       <div class="node-title"><span class="dot ${dot}"></span>${esc(n.id)} <span class="muted">· ${esc(label)}</span></div>
       <div class="node-meta">${esc(meta)}${esc(err)}</div>
       <div class="node-detail">agent：${esc(agents)}</div>
     </div>
+    ${controls}
   </div>`
 }
 
@@ -52,6 +66,65 @@ const runRow = (r) => {
     ${link !== '' ? `<div class="node-side">${link}</div>` : ''}
   </div>`
 }
+
+// 蜂群 P5.1：节点管控（起/停/重启）+ 日志抽屉。
+const nodeAction = async (id, action) => {
+  try {
+    const response = await fetch(`/api/nodes/${encodeURIComponent(id)}/${action}`, { method: 'POST' })
+    const body = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      alert(body.detail ?? `操作失败（${response.status}）`)
+    }
+  } catch (error) {
+    alert(`操作失败：${error.message}`)
+  }
+  await load()
+}
+
+let logsNode = null
+let logsTimer = null
+
+const refreshLogs = async () => {
+  if (logsNode === null) return
+  try {
+    const response = await fetch(`/api/nodes/${encodeURIComponent(logsNode)}/logs`)
+    const body = await response.json().catch(() => ({}))
+    $('node-logs-body').textContent = typeof body.logs === 'string' && body.logs !== '' ? body.logs : '（暂无输出）'
+    $('node-logs-body').scrollTop = $('node-logs-body').scrollHeight
+  } catch {
+    $('node-logs-body').textContent = '读取日志失败'
+  }
+}
+
+const openLogs = (id) => {
+  logsNode = id
+  $('node-logs').hidden = false
+  $('node-logs-title').textContent = `节点 ${id} · 日志`
+  void refreshLogs()
+  if (logsTimer !== null) clearInterval(logsTimer)
+  logsTimer = setInterval(() => void refreshLogs(), 5_000)
+}
+
+const closeLogs = () => {
+  logsNode = null
+  $('node-logs').hidden = true
+  if (logsTimer !== null) clearInterval(logsTimer)
+  logsTimer = null
+}
+
+$('nodes-list').addEventListener('click', (event) => {
+  const up = event.target.closest('[data-node-up]')
+  if (up !== null) return void nodeAction(up.dataset.nodeUp, 'up')
+  const down = event.target.closest('[data-node-down]')
+  if (down !== null) return void nodeAction(down.dataset.nodeDown, 'down')
+  const restart = event.target.closest('[data-node-restart]')
+  if (restart !== null) return void nodeAction(restart.dataset.nodeRestart, 'restart')
+  const logs = event.target.closest('[data-node-logs]')
+  if (logs !== null) return void openLogs(logs.dataset.nodeLogs)
+})
+
+$('node-logs-refresh').addEventListener('click', () => void refreshLogs())
+$('node-logs-close').addEventListener('click', closeLogs)
 
 const load = async () => {
   try {

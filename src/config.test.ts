@@ -137,7 +137,12 @@ test('parses a managed spawn spec with defaults and resolved cwd', () => {
   assert.deepEqual(ep.spawn.restart, { maxAttempts: 3, baseDelayMs: 1_000, maxDelayMs: 30_000 })
 })
 
-test('no spawn block resolves to null (externally managed node)', () => {
-  const cfg = loadFrom(baseConfig())
+test('蜂群 P5.1: brain daily budget defaults off and parses when set', () => {
+  assert.equal(loadFrom(baseConfig()).brainDailyBudgetMicroUsd, null)
+  const capped = loadFrom(baseConfig({ brain: { daily_budget_usd: 1.5 } }))
+  assert.equal(capped.brainDailyBudgetMicroUsd, 1_500_000)
+})
+
+test('no spawn block resolves to null (externally managed node)', () => {  const cfg = loadFrom(baseConfig())
   assert.equal(cfg.endpoints['A']?.spawn, null)
 })

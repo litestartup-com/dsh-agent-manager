@@ -91,3 +91,77 @@ test('an unreachable unmanaged node reports offline with the reason', async () =
   assert.equal(body.nodes[0]?.state, 'offline')
   assert.ok((body.nodes[0]?.lastError ?? '').length > 0)
 })
+
+// ---- 蜂群 P5.1：节点管控 ----
+
+const managedSpawn = {
+  managed: true,
+  command: 'node',
+  args: ['--version'],
+  cwd: null,
+  readyTimeoutMs: 30_000,
+  detached: false,
+  logFile: null,
+  env: {},
+  restart: { maxAttempts: 3, baseDelayMs: 10, maxDelayMs: 100 },
+}
+
+const stubSupervisor = (calls: { start: number; stop: number; restart: number }) =>
+  ({
+    start: () => {
+      calls.start += 1
+    },
+    stop: () => {
+      calls.stop += 1
+    },
+    restart: () => {
+      calls.restart += 1
+    },
+    logs: () => 'hello\nworld',
+    current: { state: 'cold' },
+  }) as unknown as NodeSupervisor
+
+test('蜂群 P5.1: managed nodes accept up/down/restart and serve their log buffer', async () => {
+  const gw = await startFakeGateway({ frames: [] }, API_KEY)
+  gateways.push(gw)
+  const config = configFor(gw)
+  config.endpoints['A']!.spawn = managedSpawn as never
+  const calls = { start: 0, stop: 0, restart: 0 }
+  const app = Fastify()
+  registerNodesRoutes(app, config, new Map([['A', stubSupervisor(calls)]]), new Map(), new Map(), async () => {})
+
+  const up = await app.inject({ method: 'POST', url: '/api/nodes/A/up' })
+  assert.equal(up.statusCode, 200)
+  assert.equal(calls.start, 1)
+
+  const down = await app.inject({ method: 'POST', url: '/api/nodes/A/down' })
+  assert.equal(down.statusCode, 200)
+  assert.equal(calls.stop, 1)
+
+  const restart = await app.inject({ method: 'POST', url: '/api/nodes/A/restart' })
+  assert.equal(restart.statusCode, 200)
+  assert.equal(calls.restart, 1)
+
+  const logs = await app.inject({ method: 'GET', url: '/api/nodes/A/logs' })
+  assert.equal(logs.statusCode, 200)
+  assert.equal((logs.json() as { logs: string; source: string }).logs, 'hello\nworld')
+  assert.equal((logs.json() as { source: string }).source, 'buffer')
+})
+
+test('蜂群 P5.1: unmanaged nodes get a friendly 409, unknown nodes a 404', async () => {
+  const gw = await startFakeGateway({ frames: [] }, API_KEY)
+  gateways.push(gw)
+  const config = configFor(gw)
+  const app = Fastify()
+  registerNodesRoutes(app, config, new Map(), new Map(), new Map(), async () => {})
+
+  const up = await app.inject({ method: 'POST', url: '/api/nodes/A/up' })
+  assert.equal(up.statusCode, 409)
+  assert.match(String((up.json() as { detail: string }).detail), /外部管理/)
+
+  const logs = await app.inject({ method: 'GET', url: '/api/nodes/A/logs' })
+  assert.equal(logs.statusCode, 409)
+
+  const missing = await app.inject({ method: 'POST', url: '/api/nodes/nope/down' })
+  assert.equal(missing.statusCode, 404)
+})

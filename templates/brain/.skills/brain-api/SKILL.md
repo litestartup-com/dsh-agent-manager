@@ -13,7 +13,9 @@ description: manager 内部 REST API 执行手册——查各 agent 状态、派
 - 错误码读法：
   - `401` = token 不对（检查头部拼写，不打印 token）
   - `403` = 非本机调用（不应发生）
-  - `409` = agent 忙或重名——**读 `detail` 原样转述给用户，不重试硬闯**
+  - `409` = 派工被 manager 拒绝——**读 `detail` 原样转述给用户，不重试硬闯**。常见两类：
+    - `brain_budget_exhausted` = 主脑今日派工预算已用完（明天自动恢复）；告诉用户「今日派工额度用完了，可以自己直接去对应 agent 手动操作」。
+    - `not_managed`/其他 = 见 detail 原文。
   - `404` = 目标不存在（agent/chat 名写错）
   - `400` = 请求体或 cron 表达式有误——读 `detail` 修正
 
@@ -59,11 +61,11 @@ GET 类请求直接 curl，不需要文件。
 
 ## 典型流程
 
-1. **先查状态再派工**：`GET /api/internal/agents`。目标 `busy=false` 才 dispatch；`busy=true` 就告诉用户「谁正忙（run xxx）」，不硬派。
+1. **先查状态与预算**：`GET /api/internal/agents`。返回里 `brainBudget`（可能为 null=不限额）是你的日派工预算余量；`agents[].activeRuns` 是各 agent 进行中的回合数（同 agent 多派工是允许的，无需因 busy 拒绝）。预算见底就别派，如实告诉用户。
 2. **派工**：`POST /api/internal/dispatch`，body 里 `sourceChatId` 填你当前会话的 id（用户界面会提供；没有就省略）。
    - `state=done` → 用 `summary` 回报用户，引用 `runId`；
    - `state=failed` → 读 `error` 转述，不自动重试；
-   - `409 agent_busy` → 转述 `detail`。
+   - `409`（如 `brain_budget_exhausted`）→ 转述 `detail`，不硬闯。
 3. **起草定时任务**：`POST /api/internal/crons` → 成功后说「已起草，请在定时任务页确认启用」。schedule 是 5 段 cron 表达式（分 时 日 月 周），时区默认 `Asia/Shanghai`。
 4. **看大盘**：`GET /api/internal/agents/personal/board`，直接引用返回里的数字回答用户。
 5. **看花费**：`GET /api/internal/usage`，注意微美元换算（1e6 微美元 = $1）。

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { timingSafeEqual } from 'node:crypto'
 import type { FastifyInstance, preHandlerHookHandler } from 'fastify'
-import { desc, eq } from 'drizzle-orm'
+import { and, desc, eq, gte } from 'drizzle-orm'
 import { z } from 'zod'
 import type { AppConfig } from '../config.js'
 import type { Db } from '../db/index.js'
@@ -86,7 +86,14 @@ export const registerInternalRoutes = (
   app.get('/api/internal/agents', gated, async () => {
     const month = currentMonth()
     const byAgent = new Map(monthByAgent(db, month).map((s) => [s.agentId, s]))
+    const cap = config.brainDailyBudgetMicroUsd ?? null
+    const spent = cap === null ? 0 : brainSpendToday()
     return {
+      // 蜂群 P5.1：主脑派工前的预算预判——余量低于任务估价时主脑应如实告知。
+      brainBudget:
+        cap === null
+          ? null
+          : { capMicroUsd: cap, spentMicroUsd: spent, remainingMicroUsd: Math.max(0, cap - spent) },
       agents: Object.values(config.agents).map((agent) => {
         const chats = listChats(db, agent.id, 1_000)
         const running = runningRunId(agent.id)
@@ -184,6 +191,22 @@ export const registerInternalRoutes = (
 
   // ---- 做（manager 侧裁决） ----
 
+  /**
+   * 蜂群 P5.1：主脑派工（trigger=brain）的日预算熔断。只拦主脑的派工，
+   * 人手动操作不拦——§8.3 借用第 2 条（成本失控是企业项目头号死因）。
+   */
+  const brainSpendToday = (): number => {
+    const start = new Date()
+    start.setHours(0, 0, 0, 0)
+    const rows = db
+      .select({ cost: schema.usageRecord.cost })
+      .from(schema.usageRecord)
+      .innerJoin(schema.run, eq(schema.usageRecord.runId, schema.run.id))
+      .where(and(eq(schema.run.trigger, 'brain'), gte(schema.usageRecord.at, start.getTime())))
+      .all()
+    return rows.reduce((sum, r) => sum + (r.cost ?? 0), 0)
+  }
+
   app.post<{ Body: unknown }>('/api/internal/dispatch', gated, async (request, reply) => {
     const parsed = dispatchBody.safeParse(request.body)
     if (!parsed.success) {
@@ -192,6 +215,17 @@ export const registerInternalRoutes = (
     const body = parsed.data
     const agent = config.agents[body.agentId]
     if (agent === undefined) return reply.code(404).send({ error: 'unknown_agent' })
+
+    const cap = config.brainDailyBudgetMicroUsd ?? null
+    if (cap !== null) {
+      const spent = brainSpendToday()
+      if (spent >= cap) {
+        return reply.code(409).send({
+          error: 'brain_budget_exhausted',
+          detail: `主脑今日派工预算已用完（${(spent / 1e6).toFixed(2)} / ${(cap / 1e6).toFixed(2)} USD），请明天再试或人工直接操作。`,
+        })
+      }
+    }
 
     const driver = config.endpoints[agent.endpoint]?.driver ?? 'gateway'
     const upstream = upstreamClients.get(agent.endpoint)
