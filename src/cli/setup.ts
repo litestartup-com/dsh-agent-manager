@@ -167,8 +167,27 @@ export const mergeEnv = (path: string, values: Record<string, string>, forceKeys
   return merged
 }
 
-/** 生成 manager.config.yaml 的配置对象（纯函数，可单测）。 */
-export const buildManagerConfig = (options: {
+/**
+ * --force 重装时把旧配置里用户定制的工作区保留下来（纯函数，可单测）。
+ * 显式传参（--workspace/--brain-workspace）优先于保留值。
+ */
+export const adoptOldWorkspaces = (
+  oldConfig: unknown,
+  explicit: { personalWorkspace: boolean; brainWorkspace: boolean },
+  options: { personalWorkspace: string; brainWorkspace: string },
+): void => {
+  const old = oldConfig as { agents?: { personal?: { workspace?: unknown }; brain?: { workspace?: unknown } } }
+  const oldPersonal = old?.agents?.personal?.workspace
+  const oldBrain = old?.agents?.brain?.workspace
+  if (!explicit.personalWorkspace && typeof oldPersonal === 'string' && oldPersonal !== '') {
+    options.personalWorkspace = oldPersonal
+  }
+  if (!explicit.brainWorkspace && typeof oldBrain === 'string' && oldBrain !== '') {
+    options.brainWorkspace = oldBrain
+  }
+}
+
+/** 生成 manager.config.yaml 的配置对象（纯函数，可单测）。 */export const buildManagerConfig = (options: {
   personalWorkspace: string
   brainWorkspace: string
   personalPort: number
@@ -250,7 +269,7 @@ export const buildManagerConfig = (options: {
   }
 }
 
-const parseArgs = (argv: string[]): { options: SetupOptions; help: boolean } => {
+const parseArgs = (argv: string[]): { options: SetupOptions; help: boolean; explicit: { personalWorkspace: boolean; brainWorkspace: boolean } } => {
   const defaults: SetupOptions = {
     personalWorkspace: './workspaces/personal',
     brainWorkspace: './workspaces/brain',
@@ -263,6 +282,7 @@ const parseArgs = (argv: string[]): { options: SetupOptions; help: boolean } => 
     gatewayLocal: null,
     force: false,
   }
+  const explicit = { personalWorkspace: false, brainWorkspace: false }
   let help = false
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
@@ -271,9 +291,13 @@ const parseArgs = (argv: string[]): { options: SetupOptions; help: boolean } => 
       return argv[i] ?? ''
     }
     if (arg === '--help' || arg === '-h') help = true
-    else if (arg === '--workspace') defaults.personalWorkspace = next()
-    else if (arg === '--brain-workspace') defaults.brainWorkspace = next()
-    else if (arg === '--ports') {
+    else if (arg === '--workspace') {
+      defaults.personalWorkspace = next()
+      explicit.personalWorkspace = true
+    } else if (arg === '--brain-workspace') {
+      defaults.brainWorkspace = next()
+      explicit.brainWorkspace = true
+    } else if (arg === '--ports') {
       const parts = next().split(',').map((n) => Number(n))
       const a = parts[0]
       const b = parts[1]
@@ -286,7 +310,7 @@ const parseArgs = (argv: string[]): { options: SetupOptions; help: boolean } => 
     else if (arg === '--no-install') defaults.installProfiles = false
     else if (arg === '--force') defaults.force = true
   }
-  return { options: defaults, help }
+  return { options: defaults, help, explicit }
 }
 
 const usage = (): void => {
@@ -296,7 +320,7 @@ const usage = (): void => {
 }
 
 const main = (): void => {
-  const { options, help } = parseArgs(process.argv.slice(2))
+  const { options, help, explicit } = parseArgs(process.argv.slice(2))
   if (help) {
     usage()
     return
@@ -307,6 +331,18 @@ const main = (): void => {
   if (existsSync(configPath) && !options.force) {
     console.error(`已存在 ${configPath}。改配置请直接编辑；重装请加 --force（不会覆盖工作区，但会重写配置）。`)
     process.exit(2)
+  }
+  // --force 重写配置前，把旧配置里用户定制过的工作区保留下来——setup 的默认
+  // 值是模板目录，一次不带参数的 --force 就会把 personal 从 note-kaka 打回
+  // workspaces/personal（2026-09-04 真实踩过）。显式传参优先于保留。
+  if (options.force && existsSync(configPath)) {
+    try {
+      const old = parseYaml(readFileSync(resolve(configPath), 'utf8')) as unknown
+      adoptOldWorkspaces(old, explicit, options)
+      console.log(`   --force：保留旧工作区 personal=${options.personalWorkspace} brain=${options.brainWorkspace}`)
+    } catch {
+      // 旧配置读不了就当没有——生成新配置总比停在原地强。
+    }
   }
   if (!existsSync(join(options.dshHome, '.credentials.yaml'))) {
     console.error(`未找到 ${options.dshHome}/.credentials.yaml —— 请先运行一次 DSH 并配置模型凭证，再执行 setup。`)
@@ -353,14 +389,15 @@ const main = (): void => {
   }
   const dshBin = detectDshBin(options.dshHome, options.dshBin)
   console.log(`   DSH bin: ${dshBin}`)
-  // Windows 上 pnpm 是 .cmd 垫片：execFileSync 不经 shell 解析不到 'pnpm'，
-  // 必须指向 pnpm.cmd（PowerShell 里用户能跑 pnpm，正是这个原因）。
+  // Windows 上 pnpm 是 .cmd 垫片，必须 shell: true 让 cmd.exe 来执行：
+  // Node ≥ 20.12（CVE-2024-27980）禁止不经 shell 直接 spawn .cmd/.bat，
+  // 旧写法 execFileSync('pnpm.cmd', ...) 会 EINVAL。
   const pnpmCmd = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
   if (options.installProfiles) {
     for (const [name, home] of nodeHomes) {
       const dir = join(home, 'profiles', name)
       try {
-        execFileSync(pnpmCmd, ['install'], { cwd: dir, stdio: ['ignore', 'inherit', 'inherit'] })
+        execFileSync(pnpmCmd, ['install'], { cwd: dir, shell: true, stdio: ['ignore', 'inherit', 'inherit'] })
       } catch (error) {
         const message = ((error as Error).message ?? String(error)).split('\n')[0] ?? ''
         console.error(`   pnpm install 失败于 ${dir}: ${message}`)

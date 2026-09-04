@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
-import { buildManagerConfig, ensureNodeCredentials, ensureNodeProfiles, mergeEnv, resolveGatewayKey } from './setup.js'
+import { buildManagerConfig, adoptOldWorkspaces, ensureNodeCredentials, ensureNodeProfiles, mergeEnv, resolveGatewayKey } from './setup.js'
 
 test('buildManagerConfig wires two managed nodes, agents, sandbox and presets', () => {
   const config = buildManagerConfig({
@@ -114,6 +114,26 @@ test('resolveGatewayKey reuses the provisioned key, else mints and appends apiKe
   } finally {
     rmSync(home, { recursive: true, force: true })
   }
+})
+
+test('adoptOldWorkspaces keeps user-customised workspaces unless explicitly overridden', () => {
+  const options = { personalWorkspace: './workspaces/personal', brainWorkspace: './workspaces/brain' }
+  const old = { agents: { personal: { workspace: 'C:/Workplace/gitee/note-kaka' }, brain: { workspace: 'D:/brain' } } }
+
+  adoptOldWorkspaces(old, { personalWorkspace: false, brainWorkspace: false }, options)
+  assert.equal(options.personalWorkspace, 'C:/Workplace/gitee/note-kaka')
+  assert.equal(options.brainWorkspace, 'D:/brain')
+
+  // 显式传参优先：--workspace 指了新的，旧值让路
+  const explicit = { personalWorkspace: './new-one', brainWorkspace: './workspaces/brain' }
+  adoptOldWorkspaces(old, { personalWorkspace: true, brainWorkspace: false }, explicit)
+  assert.equal(explicit.personalWorkspace, './new-one')
+  assert.equal(explicit.brainWorkspace, 'D:/brain')
+
+  // 旧配置缺字段/损坏：不动现状
+  const untouched = { personalWorkspace: 'a', brainWorkspace: 'b' }
+  adoptOldWorkspaces({ agents: {} }, { personalWorkspace: false, brainWorkspace: false }, untouched)
+  assert.deepEqual(untouched, { personalWorkspace: 'a', brainWorkspace: 'b' })
 })
 
 test('mergeEnv fills missing values and never overwrites existing ones', () => {
