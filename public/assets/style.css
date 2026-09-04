@@ -2254,7 +2254,9 @@ button:disabled {
   font-weight: 500;
 }
 
-/* 右侧两个 ghost 钮（chevron / ＋）与两者之间的细分隔线。 */
+/* 右侧两个 ghost 钮（chevron / ＋）与两者之间的细分隔线。
+   图标用墨色 --text-2 而不是 --muted：12px 细线图标配浅灰在纯白卡上
+   等于隐形（⋯ 按钮的同一教训，见 .row-more）。 */
 .side-brain-ghost {
   display: inline-flex;
   align-items: center;
@@ -2265,7 +2267,7 @@ button:disabled {
   border: 0;
   border-radius: 8px;
   background: none;
-  color: var(--muted);
+  color: var(--text-2);
   cursor: pointer;
   transition: background 150ms ease, color 150ms ease;
 }

@@ -61,7 +61,8 @@ const renderEndpointLines = (status) => {
  * 树的会话行与 ⋯ 菜单（改名/归档）——主脑会话有列表、可选、可管控，
  * 不再是没有入口的「二等公民」。主脑仍不进 AGENTS 树。
  */
-const BRAIN_CHATS_SHOWN = 8
+// 主脑列表最多 3 条，其余与 agent 树一样折叠在 Show more 后面。
+const BRAIN_CHATS_SHOWN = 3
 
 const renderBrain = (status) => {
   const box = $('side-brain')
@@ -98,7 +99,7 @@ const renderBrain = (status) => {
         </button>
         <button class="side-brain-ghost" type="button" data-brain-toggle aria-expanded="${open}"
                 title="${open ? '收起' : '展开'}主脑会话列表" aria-label="${open ? '收起' : '展开'}主脑会话列表">
-          ${icon('chev', 12)}
+          ${icon('chev', 13)}
         </button>
         <span class="side-brain-div" aria-hidden="true"></span>
         <button class="side-brain-ghost" type="button" data-brain-new title="主脑新会话" aria-label="主脑新会话">
