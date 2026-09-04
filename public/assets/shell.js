@@ -195,13 +195,10 @@ $('side-brain')?.addEventListener('click', async (event) => {
 
 /** 蜂群 P3：节点区。托管节点读监督器状态机，未托管读探活结果。
  *
- * 「节点 N/N」入口与花费/定时任务同款：side-links 里的图标链接（布局里
- * 静态存在，这里只更新计数）；本区只留异常行。100 个节点时侧栏也不能
- * 变成 100 行——正常是沉默的，只有异常值得张嘴。
+ * 侧栏对节点的全部表达 = 「节点 N/N」计数（未全活时用警示色，悬停列
+ * 出未就绪的节点名）。启动中的 cold/starting 是常态而非异常，不该像
+ * 故障一样张嘴；真故障的细节在 /nodes 页，栏底永远安静。
  */
-const NODE_STATE_DOT = { live: 'ok', cold: 'muted', starting: 'warn', restarting: 'warn', offline: 'bad' }
-const NODE_STATE_LABEL = { live: 'live', cold: '未启动', starting: '启动中', restarting: '重启中', offline: 'offline' }
-
 const renderNodes = (nodesData) => {
   const box = $('side-endpoints')
   const link = $('nodes-link')
@@ -214,29 +211,13 @@ const renderNodes = (nodesData) => {
     return
   }
   link.hidden = false
+  box.hidden = true
   const live = rows.filter((n) => n.state === 'live').length
   const abnormal = rows.filter((n) => n.state !== 'live')
   hint.textContent = `${live}/${rows.length}`
   hint.classList.toggle('warn', abnormal.length > 0)
-  if (abnormal.length === 0) {
-    box.hidden = true
-    return
-  }
-  box.hidden = false
-  setHtml(
-    'side-endpoints',
-    abnormal
-      .map((n) => {
-        const dot = NODE_STATE_DOT[n.state] ?? 'muted'
-        const label = NODE_STATE_LABEL[n.state] ?? n.state
-        const agents = Array.isArray(n.agents) && n.agents.length > 0 ? n.agents.join('/') : ''
-        const err = typeof n.lastError === 'string' && n.lastError !== '' ? ` — ${n.lastError}` : ''
-        return `<a class="endpoint-line" href="/nodes" title="${esc([n.managed ? '托管' : '外管', agents, err].filter(Boolean).join(' · '))}">
-          <span class="dot ${dot}"></span>${esc(`${n.id} · ${label}`)}
-        </a>`
-      })
-      .join(''),
-  )
+  link.title =
+    abnormal.length === 0 ? '节点总览' : `节点未就绪：${abnormal.map((n) => n.id).join('、')} · 点开看详情`
 }
 
 const segments = window.location.pathname.split('/').filter(Boolean)
