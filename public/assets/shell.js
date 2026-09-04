@@ -805,9 +805,18 @@ const archive = async (chatId) => {
     return
   }
   // Archiving the conversation you are reading leaves the page showing a thread
-  // that is no longer in the list, so it goes home instead.
+  // that is no longer in the list. Jump straight to that agent's latest
+  // remaining chat -- never through /app, which used to redirect to the brain's
+  // latest chat right after and reload the page twice for the user.
   if (chatId === openChatId) {
-    window.location.href = '/app'
+    let fallback
+    for (const chats of chatsByAgent.values()) {
+      if (chats.some((c) => c.id === chatId)) {
+        fallback = chats.filter((c) => c.id !== chatId)[0]
+        break
+      }
+    }
+    window.location.href = fallback === undefined ? '/app' : `/chat/${encodeURIComponent(fallback.id)}`
     return
   }
   await Promise.all([loadShell(), loadArchiveHint()])
