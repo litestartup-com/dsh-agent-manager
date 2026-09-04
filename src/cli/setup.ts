@@ -179,8 +179,10 @@ export const buildManagerConfig = (options: {
   /** 各节点自己的 DSH_HOME：会话/settings/附件完全隔离（蜂群 v1.1）。 */
   personalHome: string
   brainHome: string
+  /** 主脑调内部 API 的令牌：必须注入 brain 节点进程环境，技能手册读 $BRAIN_TOKEN。 */
+  brainToken: string
 }): Record<string, unknown> => {
-  const endpoint = (port: number, profile: string, home: string, keyRef: string) => ({
+  const endpoint = (port: number, profile: string, home: string, keyRef: string, extraEnv: Record<string, string> = {}) => ({
     url: `http://127.0.0.1:${port}`,
     driver: 'apiproxy',
     prefix: '/api',
@@ -193,14 +195,16 @@ export const buildManagerConfig = (options: {
       // --no-open：节点是后台服务，不允许每次拉起都弹浏览器（web app 的自身参数）。
       args: [options.dshBin, '--profile', profile, '--no-open'],
       ready_timeout_ms: 30_000,
-      env: { DSH_HOME: home },
+      env: { DSH_HOME: home, ...extraEnv },
     },
   })
   return {
     listen: { host: '127.0.0.1', port: 8080 },
     endpoints: {
       personal: endpoint(options.personalPort, options.personalProfile, options.personalHome, 'GW_KEY_A'),
-      brain: endpoint(options.brainPort, options.brainProfile, options.brainHome, 'GW_KEY_B'),
+      brain: endpoint(options.brainPort, options.brainProfile, options.brainHome, 'GW_KEY_B', {
+        BRAIN_TOKEN: options.brainToken,
+      }),
     },
     agents: {
       personal: {
@@ -374,7 +378,7 @@ const main = (): void => {
   // 每个节点自己的 settings.yaml 里一把独立的 gateway 密钥；manager 分 ref 引用。
   const personalKey = resolveGatewayKey(nodeHomes.get('ohdsh-personal')!, null)
   const brainKey = resolveGatewayKey(nodeHomes.get('ohdsh-brain')!, null)
-  mergeEnv(
+  const envValues = mergeEnv(
     '.env',
     {
       SESSION_SECRET: randomBytes(32).toString('hex'),
@@ -398,6 +402,7 @@ const main = (): void => {
     brainProfile: 'ohdsh-brain',
     personalHome: nodeHomes.get('ohdsh-personal')!,
     brainHome: nodeHomes.get('ohdsh-brain')!,
+    brainToken: envValues.BRAIN_TOKEN ?? '',
   })
   writeFileSync(configPath, stringifyYaml(managerConfig), 'utf8')
 

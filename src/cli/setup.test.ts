@@ -17,6 +17,7 @@ test('buildManagerConfig wires two managed nodes, agents, sandbox and presets', 
     brainProfile: 'ohdsh-brain',
     personalHome: 'C:/Users/me/.dsh-ohdsh/ohdsh-personal',
     brainHome: 'C:/Users/me/.dsh-ohdsh/ohdsh-brain',
+    brainToken: 'brain-token-1',
   })
   const ep = config.endpoints as Record<string, Record<string, unknown>>
   const spawn = (id: string) => (ep[id]?.spawn ?? {}) as Record<string, unknown>
@@ -24,7 +25,11 @@ test('buildManagerConfig wires two managed nodes, agents, sandbox and presets', 
   assert.equal(ep['brain']?.url, 'http://127.0.0.1:3082')
   assert.deepEqual(spawn('brain').args, ['C:/nvm4w/nodejs/node_modules/@deepseek-ai/dsh/lib/bin.js', '--profile', 'ohdsh-brain', '--no-open'])
   assert.deepEqual(spawn('personal').env, { DSH_HOME: 'C:/Users/me/.dsh-ohdsh/ohdsh-personal' })
-  assert.deepEqual(spawn('brain').env, { DSH_HOME: 'C:/Users/me/.dsh-ohdsh/ohdsh-brain' })
+  // 主脑节点进程必须拿到 BRAIN_TOKEN，技能手册里的 curl 才能过内部 API 的门
+  assert.deepEqual(spawn('brain').env, {
+    DSH_HOME: 'C:/Users/me/.dsh-ohdsh/ohdsh-brain',
+    BRAIN_TOKEN: 'brain-token-1',
+  })
   // 每节点独立 gateway 密钥（分 ref 引用）
   assert.equal(ep['personal']?.sandbox_key_ref, 'GW_KEY_A')
   assert.equal(ep['brain']?.sandbox_key_ref, 'GW_KEY_B')
