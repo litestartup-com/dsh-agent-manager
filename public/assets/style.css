@@ -1977,6 +1977,7 @@ button:disabled {
   body.nav-rail #cron-hint,
   body.nav-rail #spend-hint,
   body.nav-rail #archive-hint,
+  body.nav-rail #nodes-hint,
   body.nav-rail .side-endpoints,
   body.nav-rail .side-avatar,
   body.nav-rail .side-foot,
@@ -2308,9 +2309,9 @@ button:disabled {
   padding: 8px 12px 4px;
 }
 
-/* 节点区：汇总行与异常行都是去 /nodes 的链接 */
+/* 节点区：异常行是去 /nodes 的链接；「节点 N/N」入口的异常计数用警示色。 */
 .endpoint-line { text-decoration: none; }
 .endpoint-line:hover { color: var(--text); }
-.nodes-summary { padding: 2px 0; }
+.side-link .warn { color: var(--warn); font-weight: 600; }
 
 .dot.muted { background: var(--muted); }

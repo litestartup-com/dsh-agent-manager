@@ -81,6 +81,16 @@
           <circle cx="5.1" cy="5.2" r="0.75" fill="currentColor" stroke="none" />
           <circle cx="5.1" cy="10.8" r="0.75" fill="currentColor" stroke="none" />
         </g>
+        <!-- 节点（服务器）：带指示灯与卡槽的服务器正脸，侧栏「节点」入口用，
+             与 i-endpoint（端点健康）区分开。 -->
+        <g id="i-server" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+          <rect x="2.5" y="2.75" width="11" height="10.5" rx="1.25" />
+          <path d="M2.5 6.75h11" />
+          <circle cx="5" cy="4.9" r="0.9" fill="currentColor" stroke="none" />
+          <circle cx="8" cy="4.9" r="0.9" fill="currentColor" stroke="none" />
+          <circle cx="11" cy="4.9" r="0.9" fill="currentColor" stroke="none" />
+          <path d="M5 9.5h6" />
+        </g>
         <g id="i-alert" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
           <path d="M8 2.75 14.25 13.5H1.75z" stroke-linejoin="round" />
           <path d="M8 6.5v3.25M8 11.75v.5" />
@@ -219,6 +229,11 @@
         </nav>
 
         <div class="side-links">
+          <a class="side-link" href="/nodes" data-nav="nodes" id="nodes-link">
+            <svg width="14" height="14"><use href="#i-server" /></svg>
+            <span class="grow">节点</span>
+            <span id="nodes-hint" class="muted small"></span>
+          </a>
           <a class="side-link" href="/crons" data-nav="crons">
             <svg width="14" height="14"><use href="#i-clock" /></svg>
             <span class="grow">定时任务</span>

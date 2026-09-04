@@ -195,42 +195,47 @@ $('side-brain')?.addEventListener('click', async (event) => {
 
 /** 蜂群 P3：节点区。托管节点读监督器状态机，未托管读探活结果。
  *
- * 侧栏只留一行汇总 + 异常节点；完整列表在 /nodes。100 个节点时侧栏
- * 也不能变成 100 行——正常是沉默的，只有异常值得张嘴。
+ * 「节点 N/N」入口与花费/定时任务同款：side-links 里的图标链接（布局里
+ * 静态存在，这里只更新计数）；本区只留异常行。100 个节点时侧栏也不能
+ * 变成 100 行——正常是沉默的，只有异常值得张嘴。
  */
 const NODE_STATE_DOT = { live: 'ok', cold: 'muted', starting: 'warn', restarting: 'warn', offline: 'bad' }
 const NODE_STATE_LABEL = { live: 'live', cold: '未启动', starting: '启动中', restarting: '重启中', offline: 'offline' }
 
 const renderNodes = (nodesData) => {
   const box = $('side-endpoints')
-  if (box === null) return
+  const link = $('nodes-link')
+  const hint = $('nodes-hint')
+  if (box === null || link === null || hint === null) return
   const rows = Array.isArray(nodesData.nodes) ? nodesData.nodes : []
   if (rows.length === 0) {
+    link.hidden = true
+    box.hidden = true
+    return
+  }
+  link.hidden = false
+  const live = rows.filter((n) => n.state === 'live').length
+  const abnormal = rows.filter((n) => n.state !== 'live')
+  hint.textContent = `${live}/${rows.length}`
+  hint.classList.toggle('warn', abnormal.length > 0)
+  if (abnormal.length === 0) {
     box.hidden = true
     return
   }
   box.hidden = false
-  const live = rows.filter((n) => n.state === 'live').length
-  const abnormal = rows.filter((n) => n.state !== 'live')
-  const summary = `<a class="endpoint-line nodes-summary" href="/nodes" title="节点总览 · 全部 ${rows.length} 个节点">
-    <span class="dot ${abnormal.length === 0 ? 'ok' : 'warn'}"></span>节点 ${live}/${rows.length} 正常${
-      abnormal.length > 0 ? ` · ${abnormal.length} 个异常` : ''
-    } ›
-  </a>`
   setHtml(
     'side-endpoints',
-    summary +
-      abnormal
-        .map((n) => {
-          const dot = NODE_STATE_DOT[n.state] ?? 'muted'
-          const label = NODE_STATE_LABEL[n.state] ?? n.state
-          const agents = Array.isArray(n.agents) && n.agents.length > 0 ? n.agents.join('/') : ''
-          const err = typeof n.lastError === 'string' && n.lastError !== '' ? ` — ${n.lastError}` : ''
-          return `<a class="endpoint-line" href="/nodes" title="${esc([n.managed ? '托管' : '外管', agents, err].filter(Boolean).join(' · '))}">
-            <span class="dot ${dot}"></span>${esc(`${n.id} · ${label}`)}
-          </a>`
-        })
-        .join(''),
+    abnormal
+      .map((n) => {
+        const dot = NODE_STATE_DOT[n.state] ?? 'muted'
+        const label = NODE_STATE_LABEL[n.state] ?? n.state
+        const agents = Array.isArray(n.agents) && n.agents.length > 0 ? n.agents.join('/') : ''
+        const err = typeof n.lastError === 'string' && n.lastError !== '' ? ` — ${n.lastError}` : ''
+        return `<a class="endpoint-line" href="/nodes" title="${esc([n.managed ? '托管' : '外管', agents, err].filter(Boolean).join(' · '))}">
+          <span class="dot ${dot}"></span>${esc(`${n.id} · ${label}`)}
+        </a>`
+      })
+      .join(''),
   )
 }
 
