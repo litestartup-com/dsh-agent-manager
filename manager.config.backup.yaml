@@ -1,0 +1,81 @@
+# dsh-agent-manager 配置。可进 git —— 这里不放任何密钥，只放密钥的「环境变量名」。
+
+listen:
+  host: 127.0.0.1        # 上公网前改成 0.0.0.0，并确认前面有 TLS 终止
+  port: 8080
+
+# DSH + dsh-api-gateway 的端点。DSH 必须始终绑 127.0.0.1（DESIGN.md §6 铁律一）
+endpoints:
+  A:
+    url: http://127.0.0.1:3080
+    driver: apiproxy     # 方案 A：本机 loopback 直连 DSH 的 /api（S2.5 已验证）
+    prefix: /api         # apiproxy 模式下 config.ts 强制 /api，此处仅作说明
+    key_ref: ''          # loopback 直连不需要密钥
+  # B 留给 product agent（对外可调 → 必须独立进程，DESIGN.md §6 铁律二）
+  # 跨机形态（方案 B，经 dsh-api-gateway v0.2.0 代理）时写：
+  # B:
+  #   url: http://<宿主外网地址>:3080
+  #   driver: apiproxy
+  #   prefix: /api-gw/v1/proxy
+  #   key_ref: GW_KEY_B
+
+# 预设 agent。MVP 只接线 personal，另两个 M6/M8 再启用。
+agents:
+  personal:
+    name: 个人
+    endpoint: A
+    workspace: C:/Workplace/gitee/note-kaka   # --adopt 接管已有笔记库，不复制
+    public: false
+  # company:
+  #   name: 企业
+  #   endpoint: A
+  #   workspace: ./workspaces/company
+  #   public: false
+  # product:
+  #   name: 产品
+  #   endpoint: B
+  #   workspace: ./workspaces/product
+  #   public: true
+
+runner:
+  timeout_minutes: 15            # 硬超时，防一个坏 prompt 挂住整晚
+  # 静默超时：一个回合连续这么久「一帧都没有」就取消它。
+  #
+  # 和上面的硬超时是两件事，缺一不可。硬超时必须给得宽松——干二十分钟活的回合是
+  # 正常的——而这份宽松正好被卡死的回合吃掉。干活的回合会持续吐帧（文字、工具调用），
+  # 所以这么久的完全静默意味着它不是慢，是停了：通常是在等一个这里没人能点的确认。
+  # 0 表示关闭这层兜底。
+  silence_timeout_minutes: 5
+  max_consecutive_failures: 3    # 连续失败达到此数自动停用该 cron
+  # 单日花费上限（美元）。只管定时任务，手动运行不受限——你在场，你决定。
+  #
+  # 上面那条只防「反复失败」，防不了「一直成功但很贵」，而后者才是定时任务
+  # 真正烧钱的方式：准点、安静、每天都来。
+  #
+  # 今天有用量记录算不出钱时（型号没配单价），定时任务会拒绝运行而不是当成
+  # 零继续花——预算的意义就是不在看不见账的时候接着花。
+  daily_budget_usd: 2.0
+
+database:
+  path: ./data/manager.db
+
+# token 单价，美元/百万 token。没有配到的型号只记 token 不算钱（宁可留空，不编数字）
+#
+# DeepSeek 从 2026-08-16 16:00 UTC 起按时段计价，峰时恰为谷时两倍。
+# 峰时窗口换成北京时间是 09:00-12:00 与 14:00-18:00 —— 正好是工作日白天，
+# 所以 cron 排在这两段之外，同样的活直接省一半。
+#
+# 改价后只影响之后的运行：成本在运行时算好落库，历史不会被改写。
+pricing:
+  peak_windows_utc:
+    - { start: '01:00', end: '04:00' }
+    - { start: '06:00', end: '10:00' }
+  models:
+    # 键名匹配顺序：先 `provider/model`，再裸 model 名。
+    # 网关报的 provider 是 deepseek-official，所以这里用裸名更稳。
+    deepseek-v4-pro:
+      off_peak: { input: 0.66, output: 1.98, cache_read: 0.022 }
+      peak: { input: 1.32, output: 3.96, cache_read: 0.044 }
+    deepseek-v4-flash:
+      off_peak: { input: 0.22, output: 0.66, cache_read: 0.007 }
+      peak: { input: 0.44, output: 1.32, cache_read: 0.014 }
