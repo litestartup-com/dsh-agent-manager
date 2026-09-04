@@ -109,6 +109,11 @@ export const run = sqliteTable('run', {
    * Null for everything that did not come from the brain conversation.
    */
   sourceChatId: text('source_chat_id'),
+  /**
+   * 蜂群 P5.4：并发写冲突的显性化。运行期间工作区被另一个回合提交过时，
+   * 记下说明（本回合基于旧状态、文件可能被并发修改）。NULL = 无冲突。
+   */
+  conflict: text('conflict'),
   cronId: text('cron_id'),
   apiKeyId: text('api_key_id'),
   dshSessionId: text('dsh_session_id'),

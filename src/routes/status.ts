@@ -5,7 +5,7 @@ import { schema, type Db } from '../db/index.js'
 import { GatewayError, type GatewayClient } from '../gateway/client.js'
 import type { UpstreamClient } from '../upstream/client.js'
 import { listArchivedChats, listChats } from '../chat/store.js'
-import { runningRunId } from '../runner.js'
+import { activeRunCount, runningRunId } from '../runner.js'
 import { currentMonth, monthByAgent } from '../usage/store.js'
 
 export interface EndpointStatus {
@@ -167,6 +167,7 @@ export const registerStatusRoutes = (
       endpoint: health,
       sharedWith,
       busyRunId: runningRunId(agent.id),
+      activeRuns: activeRunCount(agent.id),
       chats: {
         active: listChats(db, agent.id).length,
         archived: listArchivedChats(db).filter((c) => c.agentId === agent.id).length,

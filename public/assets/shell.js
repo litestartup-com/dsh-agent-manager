@@ -102,7 +102,9 @@ const renderBrain = (status) => {
           <span class="side-brain-icon" aria-hidden="true">${icon('hive', 15)}</span>
           <span class="side-brain-main">
             <span class="side-brain-name">主脑${
-              busy !== null ? '<span class="brain-busy" title="正在运行一个回合">忙</span>' : ''
+              busy !== null
+                ? `<span class="brain-busy" title="${activeByAgent.get('brain') ?? 1} 个回合进行中">忙</span>`
+                : ''
             }</span>
             <span class="side-brain-sub">总控 agent</span>
           </span>
@@ -298,6 +300,8 @@ let chatsByAgent = new Map()
 let chatById = new Map()
 /** Agents holding a live turn, so their rows can say so. */
 let busyByAgent = new Map()
+/** 蜂群 P5.4：每 agent 活跃 run 数，忙点 title 与详情面板用。 */
+let activeByAgent = new Map()
 
 /**
  * Expands the agent that owns the conversation on screen.
@@ -383,7 +387,7 @@ const agentNav = (status) => {
           <span class="rail-badge" aria-hidden="true">${esc([...agent.name][0] ?? '?')}</span>
           <span class="label">${esc(agent.name)}</span>
         </button>
-        ${busy !== null ? '<span class="dot busy" title="正在运行一个回合"></span>' : ''}
+        ${busy !== null ? `<span class="dot busy" title="${activeByAgent.get(agent.id) ?? 1} 个回合进行中"></span>` : ''}
         ${agent.public ? `<span class="meta" title="这个 agent 对外可调">${icon('alert', 12)}</span>` : ''}
         <!-- The row's action area: endpoint health first, then the board, then
              new chat last -- the "+" owns the far end of the row. -->
@@ -480,6 +484,7 @@ export const loadShell = async () => {
       chatsByAgent = new Map(threads.agents.map((a) => [a.id, a.chats]))
       chatById = new Map(threads.agents.flatMap((a) => a.chats.map((c) => [c.id, c])))
       busyByAgent = new Map(threads.agents.map((a) => [a.id, a.busyRunId]))
+      activeByAgent = new Map(threads.agents.map((a) => [a.id, a.activeRuns ?? 0]))
       revealOpenChat(threads.agents)
       maybeVacatePrevious()
     }
@@ -898,7 +903,14 @@ const panelBody = (data) => {
     kv('对外可调', agent.public ? '是（独立进程）' : '否'),
     kv('会话', `${chats.active} 个${chats.archived > 0 ? ` · 已归档 ${chats.archived}` : ''}`),
     kv('本月花费', `${cost} · ${month.runs} 次运行`),
-    kv('当前状态', data.busyRunId === null ? '空闲' : '正在运行一个回合'),
+    kv(
+      '当前状态',
+      data.busyRunId === null
+        ? '空闲'
+        : (data.activeRuns ?? 1) > 1
+          ? `${data.activeRuns} 个回合并发进行中`
+          : '正在运行一个回合',
+    ),
   ]
 
   // Named, not counted: "shares an endpoint with 1 other agent" leaves you

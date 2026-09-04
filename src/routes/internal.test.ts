@@ -4,7 +4,7 @@ import Fastify from 'fastify'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { openDb, schema, type Db } from '../db/index.js'
 import type { AppConfig, ResolvedAgent, ResolvedEndpoint } from '../config.js'
 import { DEFAULT_PRICING } from '../pricing.js'
@@ -160,8 +160,8 @@ test('agent detail and empty board read', async () => {
   assert.equal(missing.statusCode, 404)
 })
 
-test('dispatch: unknown agent 404, success runs with trigger=brain, busy 409', async () => {
-  const { app, db, gw, config } = await boot(SUCCESS)
+test('dispatch: unknown agent 404, success runs with trigger=brain, concurrent dispatches all land', async () => {
+  const { app, db, gw } = await boot(SUCCESS)
 
   const missing = await app.inject({
     method: 'POST',
@@ -198,39 +198,29 @@ test('dispatch: unknown agent 404, success runs with trigger=brain, busy 409', a
   assert.equal(runRow?.trigger, 'brain')
   assert.equal(runRow?.sourceChatId, 'brain-chat-1')
 
-  // Busy: hold the agent with an in-flight silent run (the lock lives in the
-  // runner module, shared by the route and this direct call), then dispatch.
-  const { runAgent } = await import('../runner.js')
-  const client = new GatewayClient(config.endpoints['A']!)
-  const agent = config.agents['personal']!
-  gw.setScript({ silent: true })
-  const first = runAgent(
-    { db, pricing: DEFAULT_PRICING, log: { info: () => {}, warn: () => {}, error: () => {} } },
-    {
-      agent,
-      client,
-      upstream: undefined,
-      driver: 'gateway',
-      prompt: 'hold',
-      trigger: 'manual',
-      timeoutMs: 5_000,
-      silenceMs: 0,
-    },
-  )
-  // give the in-flight run a beat to take the lock
-  await new Promise((resolve) => setTimeout(resolve, 50))
-  const busy = await app.inject({
-    method: 'POST',
-    url: '/api/internal/dispatch',
-    headers: authed(),
-    payload: { agentId: 'personal', prompt: '再写一行' },
-  })
-  assert.equal(busy.statusCode, 409)
-  const busyBody = busy.json() as { error: string; detail: string }
-  assert.equal(busyBody.error, 'agent_busy')
-  assert.match(busyBody.detail, /正忙/)
+  // 蜂群 P5.4：不再有 busy 拒绝——同 agent 并发派工直接并行执行，
+  // 两次 dispatch 都成功、各留一行。
   gw.setScript(SUCCESS)
-  await first
+  const [c1, c2] = await Promise.all([
+    app.inject({
+      method: 'POST',
+      url: '/api/internal/dispatch',
+      headers: authed(),
+      payload: { agentId: 'personal', prompt: '再写一行' },
+    }),
+    app.inject({
+      method: 'POST',
+      url: '/api/internal/dispatch',
+      headers: authed(),
+      payload: { agentId: 'personal', prompt: '又写一行' },
+    }),
+  ])
+  assert.equal(c1.statusCode, 200)
+  assert.equal(c2.statusCode, 200)
+  assert.equal((c1.json() as { state: string }).state, 'done')
+  assert.equal((c2.json() as { state: string }).state, 'done')
+  const live = db.select().from(schema.run).where(and(eq(schema.run.agentId, 'personal'), eq(schema.run.state, 'done'))).all()
+  assert.ok(live.length >= 3, `concurrent dispatches all landed (${live.length} runs)`)
 })
 
 test('crons: drafted disabled by default, duplicate name 409, bad schedule 400', async () => {

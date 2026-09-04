@@ -12,7 +12,7 @@ import { drainAgentQueue } from '../chat/queue.js'
 import { listChats, getChat } from '../chat/store.js'
 import { publish } from './chat.js'
 import { readBoard } from '../board/store.js'
-import { AgentBusy, runAgent, runningRunId } from '../runner.js'
+import { activeRunCount, runAgent, runningRunId } from '../runner.js'
 import { monthTotals, monthByAgent, monthByModel, currentMonth } from '../usage/store.js'
 import { scheduleProblem, type Scheduler } from '../cron/schedule.js'
 
@@ -99,6 +99,7 @@ export const registerInternalRoutes = (
           sandboxMode: agent.sandboxMode,
           busy: running !== null,
           runningRunId: running,
+          activeRuns: activeRunCount(agent.id),
           chatCount: chats.length,
           spendMicroUsd: byAgent.get(agent.id)?.costMicroUsd ?? 0,
         }
@@ -125,6 +126,7 @@ export const registerInternalRoutes = (
         url: endpoint?.url ?? null,
       },
       runningRunId: runningRunId(agent.id),
+      activeRuns: activeRunCount(agent.id),
       recentRuns: runs.map((r) => ({
         id: r.id,
         state: r.state,
@@ -237,13 +239,6 @@ export const registerInternalRoutes = (
       }
       return reply.code(200).send(outcome)
     } catch (error) {
-      if (error instanceof AgentBusy) {
-        return reply.code(409).send({
-          error: 'agent_busy',
-          detail: `${agent.name} 正忙（run ${error.runningRunId}），拒绝派工，请稍后或改派其他 agent。`,
-          runningRunId: error.runningRunId,
-        })
-      }
       app.log.error(`internal dispatch failed for ${agent.id}: ${(error as Error).message}`)
       return reply.code(500).send({ error: 'dispatch_failed', detail: (error as Error).message })
     }

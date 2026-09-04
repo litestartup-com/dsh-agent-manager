@@ -7,7 +7,7 @@ import { schema } from '../db/index.js'
 import type { GatewayClient } from '../gateway/client.js'
 import type { UpstreamClient } from '../upstream/client.js'
 import { drainAgentQueue } from '../chat/queue.js'
-import { AgentBusy, runAgent, runningRunId } from '../runner.js'
+import { activeRunCount, runAgent, runningRunId } from '../runner.js'
 
 const runBody = z.object({
   prompt: z.string().min(1, 'a prompt is required').max(20_000),
@@ -71,13 +71,6 @@ export const registerRunRoutes = (
         // A failed turn is a valid outcome that the caller must see, not a 500.
         return reply.code(200).send(outcome)
       } catch (error) {
-        if (error instanceof AgentBusy) {
-          return reply.code(409).send({
-            error: 'agent_busy',
-            detail: `${agent.name} is already running a task`,
-            runningRunId: error.runningRunId,
-          })
-        }
         app.log.error(`run failed for ${agent.id}: ${(error as Error).message}`)
         return reply.code(500).send({ error: 'run_failed', detail: (error as Error).message })
       }
@@ -110,6 +103,7 @@ export const registerRunRoutes = (
 
       return reply.send({
         busy: runningRunId(agent.id),
+        activeRuns: activeRunCount(agent.id),
         runs: rows.map((r) => ({
           ...r,
           usage: byRun.get(r.id) ?? null,
@@ -133,6 +127,7 @@ export const registerRunRoutes = (
         summary: r.resultSummary,
         error: r.error,
         sourceChatId: r.sourceChatId,
+        conflict: r.conflict,
         startedAt: r.startedAt,
         endedAt: r.endedAt,
       })),

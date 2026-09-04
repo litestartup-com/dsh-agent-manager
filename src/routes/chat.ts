@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto'
 import type { FastifyInstance, FastifyReply, preHandlerHookHandler } from 'fastify'
 import { count, desc, eq } from 'drizzle-orm'
 import { z } from 'zod'
@@ -9,8 +8,8 @@ import { GatewayError, type GatewayClient, type HistoryEvent, type QuestionAnswe
 import type { GatewayFrame } from '../gateway/stream.js'
 import type { UpstreamClient } from '../upstream/client.js'
 import { UpstreamError } from '../upstream/rpc.js'
-import { runAgent, runningRunId, type RunOutcome } from '../runner.js'
-import { cancelQueuedTurn, cancelQueuedTurns, drainAgentQueue, enqueueTurn } from '../chat/queue.js'
+import { activeRunCount, runAgent, runningRunId, type RunOutcome } from '../runner.js'
+import { cancelQueuedTurn, cancelQueuedTurns, drainAgentQueue } from '../chat/queue.js'
 import { compactHistory } from '../chat/replay.js'
 import {
   bindSession,
@@ -170,6 +169,7 @@ export const registerChatRoutes = (
       public: agent.public,
       endpoint: agent.endpoint,
       busyRunId: runningRunId(agent.id),
+      activeRuns: activeRunCount(agent.id),
       chats: listChats(db, agent.id),
     }))
     return reply.header('cache-control', 'no-store').send({ agents })
@@ -268,6 +268,7 @@ export const registerChatRoutes = (
       // in user through /api/status, so nothing new is exposed.
       agent: { id: agent.id, name: agent.name, public: agent.public, workspacePath: agent.workspacePath },
       busyRunId: runningRunId(agent.id),
+      activeRuns: activeRunCount(agent.id),
       turns: chatRuns(db, chat.id),
     }
 
@@ -562,47 +563,10 @@ export const registerChatRoutes = (
       // background, and report progress through the relay. A synchronous POST
       // would hold the browser's `sending` state for the whole turn and make
       // the second message impossible to send.
+      //
+      // 蜂群 P5.4：不再因「agent 忙」排队——同 agent 多会话直接并发，
+      // 上限由 gateway 名额约束；真满员时该回合失败并给友好说明。
       try {
-        const busyRunId = runningRunId(agent.id)
-        if (busyRunId !== null) {
-          // Scheme C: queue instead of refuse. Turns stay serialised per
-          // workspace (each still snapshots alone), but the sender no longer
-          // hits a wall — the queued turn starts automatically when the
-          // current one finishes.
-          const queuedId = randomUUID()
-          const position = enqueueTurn(agent.id, {
-            id: queuedId,
-            chatId: chat.id,
-            // Re-read the chat when the turn finally runs: the queued closure
-            // must not carry a stale snapshot (a null dshSessionId would make
-            // the second turn start a fresh session), and an archived chat
-            // must not fire at all.
-            execute: () => {
-              const fresh = getChat(db, chat.id)
-              if (fresh === null || fresh.removedAt !== null) return Promise.resolve()
-              return runChatTurn(fresh, agent, client, upstream, driver, text)
-                .then(() => undefined)
-                .catch((error: unknown) => {
-                  // No HTTP reply exists for a queued turn; the failure must
-                  // still reach the browser through the relay.
-                  publish(chat.id, {
-                    kind: 'turn_done',
-                    state: 'failed',
-                    error: error instanceof Error ? error.message : String(error),
-                  })
-                })
-            },
-          })
-          publish(chat.id, { kind: 'turn_queued', id: queuedId, position, text })
-          return reply.code(202).send({
-            queued: true,
-            position,
-            runningRunId: busyRunId,
-            chat: getChat(db, chat.id),
-          })
-        }
-
-        // Idle: start in the background and answer at once.
         void runChatTurn(chat, agent, client, upstream, driver, text)
           .then(() => drainAgentQueue(agent.id))
           .catch((error: unknown) => {

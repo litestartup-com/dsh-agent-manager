@@ -6,7 +6,7 @@ import type { Db } from '../db/index.js'
 import { schema } from '../db/index.js'
 import type { GatewayClient } from '../gateway/client.js'
 import type { UpstreamClient } from '../upstream/client.js'
-import { AgentBusy, runAgent, type RunInput, type RunOutcome, type RunnerDeps } from '../runner.js'
+import { runAgent, type RunInput, type RunOutcome, type RunnerDeps } from '../runner.js'
 import { drainAgentQueue } from '../chat/queue.js'
 import { currentDay, daySpend } from '../usage/store.js'
 
@@ -306,15 +306,8 @@ export class Scheduler {
       }
       return this.countFailure(row, outcome.error ?? 'the run failed without a reason', outcome.runId)
     } catch (error) {
-      // Contention, not a defect. Counting it would let a busy morning disable a
-      // schedule that has never actually failed.
-      if (error instanceof AgentBusy) {
-        return skip(
-          'busy',
-          `agent ${row.agentId} was already running ${error.runningRunId}, so this occurrence was dropped ` +
-            'rather than queued -- a queued schedule would pile up behind a slow run.',
-        )
-      }
+      // 蜂群 P5.4：不再有「agent 忙」的拒绝——cron 与任何回合一样直接并发跑，
+      // 上限由 gateway 名额约束。这里的 catch 只剩真正的故障。
       return this.countFailure(row, error instanceof Error ? error.message : String(error), null)
     }
   }

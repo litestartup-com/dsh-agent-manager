@@ -183,6 +183,13 @@ const MIGRATIONS: readonly string[][] = [
     `ALTER TABLE run ADD COLUMN source_chat_id TEXT REFERENCES chat(id) ON DELETE SET NULL`,
     `CREATE INDEX IF NOT EXISTS run_source_chat ON run(source_chat_id, started_at)`,
   ],
+  // 8 -- 蜂群 P5.4：同 agent 多会话并发。
+  // 「每 agent 一活 run」的唯一索引退役：DSH 自身的会话名额（maxSessions）
+  // 是天然上限，manager 不再人为串行。conflict 列记录并发写冲突的显性化。
+  [
+    `DROP INDEX IF EXISTS run_one_live_per_agent`,
+    `ALTER TABLE run ADD COLUMN conflict TEXT`,
+  ],
 ]
 
 export interface OpenDbResult {

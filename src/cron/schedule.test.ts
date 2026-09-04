@@ -8,7 +8,7 @@ import type { AppConfig, ResolvedAgent } from '../config.js'
 import { openDb, schema, type Db } from '../db/index.js'
 import type { GatewayClient } from '../gateway/client.js'
 import { DEFAULT_PRICING } from '../pricing.js'
-import { AgentBusy, type RunOutcome } from '../runner.js'
+import { type RunOutcome } from '../runner.js'
 import { Scheduler, missedBetween, scheduleProblem, type CronDeps } from './schedule.js'
 
 const AGENT: ResolvedAgent = {
@@ -101,6 +101,7 @@ const outcome = (over: Partial<RunOutcome> = {}): RunOutcome => ({
   commit: null,
   changedFiles: [],
   snapshotSkipped: null,
+  conflict: null,
   ...over,
 })
 
@@ -251,29 +252,23 @@ test('a success clears the failure count and the stale error', async () => {
   s.stop()
 })
 
-test('a busy agent is recorded but does not count as a failure', async () => {
+test('蜂群 P5.4：并发时代不再有 busy 跳过——cron 回合与任何回合一样直接跑', async () => {
   const db = makeDb()
-  seedCron(db, { consecutiveFailures: 2 })
+  seedCron(db, { consecutiveFailures: 0 })
+  let called = 0
   const s = new Scheduler(
     deps(db, {
       runTurn: async () => {
-        throw new AgentBusy('personal', 'other-run')
+        called += 1
+        return outcome()
       },
     }),
   )
-  const result = await s.attempt('c1')
-
-  assert.equal(result.ran, false)
-  assert.equal(result.skipped, 'busy')
-  // One more counted failure would have disabled a schedule that has never
-  // actually failed -- contention is not a defect.
-  assert.equal(cronRow(db, 'c1').consecutiveFailures, 2)
-  assert.equal(cronRow(db, 'c1').enabled, 1)
-  // But it must still be visible, since a cron reports to nobody.
-  const rows = runsFor(db, 'c1')
-  assert.equal(rows.length, 1)
-  assert.equal(rows[0]?.state, 'missed')
-  assert.match(String(rows[0]?.error), /already running other-run/)
+  // 同一时刻两次 attempt（两个并发回合）：两次都真正执行，一次都不被跳过。
+  const [a, b] = await Promise.all([s.attempt('c1'), s.attempt('c1')])
+  assert.equal(a.ran, true)
+  assert.equal(b.ran, true)
+  assert.equal(called, 2)
   s.stop()
 })
 

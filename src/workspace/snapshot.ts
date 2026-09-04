@@ -48,8 +48,7 @@ const subjectFrom = (text: string): string => {
 }
 
 /** Everything git considers changed, including untracked files. */
-const changedPaths = async (git: SimpleGit): Promise<string[]> => {
-  const status = await git.status()
+const changedPaths = async (git: SimpleGit): Promise<string[]> => {  const status = await git.status()
   const all = [
     ...status.not_added,
     ...status.modified,
@@ -106,6 +105,21 @@ const commitAll = async (workspacePath: string, subject: string, body: string[])
 export interface RunLabel {
   runId: string
   agentName: string
+}
+
+/**
+ * 蜂群 P5.4：工作区当前 HEAD，用于并发冲突检测——run 结束时若 HEAD 已经
+ * 不在它开始时的位置，说明期间有另一个回合提交过。非 git 仓返回 null。
+ */
+export const currentHead = async (workspacePath: string): Promise<string | null> => {
+  try {
+    const git = simpleGit(workspacePath)
+    if (!(await git.checkIsRepo())) return null
+    const head = await git.revparse(['HEAD'])
+    return head === '' ? null : head
+  } catch {
+    return null
+  }
 }
 
 /**

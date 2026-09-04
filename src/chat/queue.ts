@@ -1,13 +1,13 @@
 /**
  * Per-agent chat send queue (scheme C).
  *
- * When an agent is busy, a chat message is queued instead of refused: FIFO per
- * agent, arrival order across chats. In-memory only — a manager restart drops
- * queued turns, which is no worse than today's refusal (the sender re-sends).
+ * 蜂群 P5.4：busy 触发已退役——同 agent 多会话直接并发，上限由 gateway
+ * 名额约束。本模块与「取消排队」端点、前端的 turn_queued dock 一并保留，
+ * 作为将来「gateway 满员时降级为排队」的缓冲机制接线点（触发条件待接入，
+ * 目前没有生产者，队列恒为空）。
  *
- * Drain is only ever triggered AFTER a runAgent() has fully returned (its lock
- * is released inside that call), so the next turn cannot hit AgentBusy from
- * the queue's own timing.
+ * In-memory only — a manager restart drops queued turns, which is no worse
+ * than today's refusal (the sender re-sends).
  */
 
 export interface QueuedTurn {

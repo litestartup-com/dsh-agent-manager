@@ -9,7 +9,7 @@ import type { ResolvedAgent } from './config.js'
 import { openDb, schema, type Db } from './db/index.js'
 import { GatewayClient } from './gateway/client.js'
 import { startFakeGateway, type FakeGateway, type FakeScript } from './gateway/fake.js'
-import { AgentBusy, runAgent, runningRunId } from './runner.js'
+import { activeRunCount, runAgent, runningRunId } from './runner.js'
 
 const API_KEY = 'test-key'
 
@@ -389,32 +389,25 @@ test('a failure to create the session fails the run cleanly', async () => {
   assert.equal(runningRunId('personal'), null)
 })
 
-test('a second concurrent run is refused while the first is live', async () => {
+test('two concurrent runs on the same agent both complete (蜂群 P5.4)', async () => {
   const db = makeDb()
   const gw = await boot({ ...SUCCESS, gapMs: 60 })
   const agent = agentFor(mkdtempSync(join(tmpdir(), 'ws-')))
   const client = clientFor(gw)
 
-  const first = runAgent({ db }, { agent, client, prompt: 'first', trigger: 'manual' })
-  // Let the first run take the lock before the second attempt.
-  await new Promise((r) => setTimeout(r, 40))
+  const [a, b] = await Promise.all([
+    runAgent({ db }, { agent, client, prompt: 'first', trigger: 'manual' }),
+    runAgent({ db }, { agent, client, prompt: 'second', trigger: 'manual' }),
+  ])
 
-  await assert.rejects(
-    () => runAgent({ db }, { agent, client, prompt: 'second', trigger: 'manual' }),
-    (error: unknown) => {
-      assert.ok(error instanceof AgentBusy)
-      assert.equal(error.agentId, 'personal')
-      return true
-    },
-  )
+  assert.equal(a.state, 'done')
+  assert.equal(b.state, 'done')
+  assert.equal(activeRunCount('personal'), 0, 'both runs left the active set')
+  assert.equal(runningRunId('personal'), null)
 
-  const outcome = await first
-  assert.equal(outcome.state, 'done')
-  assert.equal(runningRunId('personal'), null, 'the lock is released after the run')
-
-  // The refused attempt must not have left a row behind.
+  // 两个并发 run 都留下了自己的行——不再有「一活 run」约束。
   const rows = db.select().from(schema.run).all()
-  assert.equal(rows.length, 1)
+  assert.equal(rows.length, 2)
 })
 
 test('the lock is released so a later run can start', async () => {

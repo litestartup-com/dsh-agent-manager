@@ -8,7 +8,7 @@ import type { ResolvedAgent } from './config.js'
 import { GatewayError, isAdoptDisabled, type GatewayClient } from './gateway/client.js'
 import { normalizeUsage, streamFrames, sumUsage, type GatewayFrame, type TokenUsage } from './gateway/stream.js'
 import { computeCost, DEFAULT_PRICING, type PricingTable } from './pricing.js'
-import { snapshotAfter, snapshotBefore } from './workspace/snapshot.js'
+import { currentHead, snapshotAfter, snapshotBefore } from './workspace/snapshot.js'
 import type { UpstreamClient } from './upstream/client.js'
 import { UpstreamError } from './upstream/rpc.js'
 
@@ -36,9 +36,9 @@ import { UpstreamError } from './upstream/rpc.js'
  * would put the entire turn on the wrong side of the clock.
  *
  * The workspace is committed after every turn, including a failed one -- see
- * workspace/snapshot.ts. That commit happens while the agent lock is still held,
- * because the lock is the only thing stopping the next turn from writing files
- * that would then be committed under this run's message.
+ * workspace/snapshot.ts. 蜂群 P5.4 起回合并行：git 快照/提交由每 agent 的
+ * 提交锁串行执行（落盘是唯一的排队点），运行期间被并发回合提交过的工作区
+ * 会在 run 行上记 conflict——冲突显性化，绝不静默覆盖。
  *
  * The gateway session is handed back when the turn is done, unless the caller
  * asked to keep it (`keepSession`, which is what a conversation does). Sessions
@@ -92,16 +92,6 @@ export const sameDirectory = (a: string, b: string): boolean => {
 
 export type RunTrigger = 'manual' | 'cron' | 'api' | 'capture' | 'brain'
 export type RunState = 'pending' | 'running' | 'done' | 'failed' | 'missed'
-
-export class AgentBusy extends Error {
-  constructor(
-    readonly agentId: string,
-    readonly runningRunId: string,
-  ) {
-    super(`agent ${agentId} is already running ${runningRunId}`)
-    this.name = 'AgentBusy'
-  }
-}
 
 export interface RunInput {
   agent: ResolvedAgent
@@ -181,6 +171,11 @@ export interface RunOutcome {
    * its changes are simply not committed.
    */
   snapshotSkipped: string | null
+  /**
+   * 蜂群 P5.4：并发写冲突说明。运行期间工作区被另一个回合提交过时为非空
+   * ——本回合基于旧状态工作，文件可能被并发修改。NULL = 无冲突。
+   */
+  conflict: string | null
 }
 
 export interface RunnerDeps {
@@ -192,16 +187,44 @@ export interface RunnerDeps {
 }
 
 /**
- * In-process lock, held for the duration of a run.
- *
- * The `run` table also carries a partial unique index on the agent while a run
- * is live, which is the authority: this map only avoids the wasted round trip
- * and gives a clear error. Both exist because the map is lost on restart while
- * the index is not.
+ * 蜂群 P5.4：每个 agent 的活跃 run 集合（并发）。上限是 gateway 的
+ * maxSessions——DSH 自身的会话名额，manager 不再人为串行。这个 map 只
+ * 服务于 UI 与路由的「正在进行」展示，不再是拒绝的理由。
  */
-const locks = new Map<string, string>()
+const activeRuns = new Map<string, Set<string>>()
 
-export const runningRunId = (agentId: string): string | null => locks.get(agentId) ?? null
+/** 任一活跃 run 的 id（UI 的忙点只需要「有没有」）。 */
+export const runningRunId = (agentId: string): string | null => {
+  const set = activeRuns.get(agentId)
+  if (set === undefined || set.size === 0) return null
+  return [...set][0] ?? null
+}
+
+/** 活跃 run 数（并发度展示）。 */
+export const activeRunCount = (agentId: string): number => activeRuns.get(agentId)?.size ?? 0
+
+/**
+ * 蜂群 P5.4：每 agent 一把提交锁。回合并行，但 git 快照/提交排队执行——
+ * 两个回合同时 git add/commit 会在 index.lock 上互相踩踏。落盘是排队点，
+ * 其余全程并行。
+ */
+const commitTails = new Map<string, Promise<void>>()
+
+const withCommitLock = async <T>(agentId: string, fn: () => Promise<T>): Promise<T> => {
+  const prev = commitTails.get(agentId) ?? Promise.resolve()
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  commitTails.set(agentId, gate)
+  await prev
+  try {
+    return await fn()
+  } finally {
+    release()
+    if (commitTails.get(agentId) === gate) commitTails.delete(agentId)
+  }
+}
 
 const SUMMARY_LIMIT = 4_000
 
@@ -254,11 +277,10 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
   const silenceMs = input.silenceMs ?? DEFAULT_SILENCE_MS
   const startedAt = now()
 
-  const existing = locks.get(agent.id)
-  if (existing !== undefined) throw new AgentBusy(agent.id, existing)
-
   const runId = randomUUID()
-  locks.set(agent.id, runId)
+  const set = activeRuns.get(agent.id) ?? new Set<string>()
+  set.add(runId)
+  activeRuns.set(agent.id, set)
 
   // Recorded before any network call, so a crashed run still leaves a trace.
   try {
@@ -279,13 +301,13 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
         startedAt,
         endedAt: null,
         error: null,
+        conflict: null,
       })
       .run()
   } catch (error) {
-    locks.delete(agent.id)
-    // The partial unique index rejected it, which means another run is live even
-    // though this process's lock was free -- typically after a restart.
-    throw new AgentBusy(agent.id, `unknown (rejected by database: ${(error as Error).message})`)
+    set.delete(runId)
+    if (set.size === 0) activeRuns.delete(agent.id)
+    throw new Error(`could not record run ${runId}: ${(error as Error).message}`)
   }
 
   const controller = new AbortController()
@@ -436,6 +458,7 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
       commit: null,
       changedFiles: [],
       snapshotSkipped: null,
+      conflict: null,
     }
   }
 
@@ -694,9 +717,10 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
   const turn = (input.driver ?? 'gateway') === 'apiproxy' ? turnApiproxy : turnGateway
 
   try {
-    // Anything already uncommitted is committed on its own first, so this run's
-    // commit contains only what the agent changed and can be reverted alone.
-    const pre = await snapshotBefore(agent.workspacePath, { runId, agentName: agent.name })
+    // 蜂群 P5.4：git 层三件套之一——提交串行化。快照（含 git add/commit）
+    // 必须排队执行：两个回合同时动 index 会在 .lock 上互相踩踏。回合本身
+    // 全程并行，这里只是落盘排队的入口。
+    const pre = await withCommitLock(agent.id, () => snapshotBefore(agent.workspacePath, { runId, agentName: agent.name }))
     if (pre.commit !== null) {
       log?.warn(
         `run ${runId}: committed ${pre.files.length} pre-existing change(s) in ${agent.name}'s workspace as ${pre.commit.slice(0, 8)} before starting`,
@@ -704,17 +728,27 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
     }
     if (pre.skipped !== null) log?.warn(`run ${runId}: ${pre.skipped}`)
 
+    // 冲突检测的基线 = 本回合开始落盘时的工作区 HEAD。
+    const baseline = pre.commit ?? (await currentHead(agent.workspacePath))
+
     const outcome = await turn()
 
-    // Taken for a failed turn too: an agent that wrote files and then timed out
-    // has still changed the workspace, and uncommitted changes are how that work
-    // gets quietly lost.
-    const post = await snapshotAfter(agent.workspacePath, {
-      runId,
-      agentName: agent.name,
-      prompt,
-      trigger: input.trigger,
-      state: outcome.state,
+    // 蜂群 P5.4：git 层三件套之二——冲突显性化。结束提交前看 HEAD 是否已
+    // 被并发回合推走：是则本回合基于旧状态工作，冲突写进 run 行，绝不静默。
+    const post = await withCommitLock(agent.id, async () => {
+      const headNow = await currentHead(agent.workspacePath)
+      if (baseline !== null && headNow !== null && baseline !== headNow) {
+        const conflict = `并发修改：运行期间工作区被另一个回合提交（HEAD ${baseline.slice(0, 8)} → ${headNow.slice(0, 8)}），本回合基于旧状态工作`
+        deps.db.update(schema.run).set({ conflict }).where(eq(schema.run.id, runId)).run()
+        log?.warn(`run ${runId}: ${conflict}`)
+      }
+      return snapshotAfter(agent.workspacePath, {
+        runId,
+        agentName: agent.name,
+        prompt,
+        trigger: input.trigger,
+        state: outcome.state,
+      })
     })
     if (post.skipped !== null) log?.warn(`run ${runId}: ${post.skipped}`)
     else if (post.commit === null) log?.info(`run ${runId}: changed no files, so there is nothing to commit`)
@@ -726,7 +760,14 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
       deps.db.update(schema.run).set({ commitHash: post.commit }).where(eq(schema.run.id, runId)).run()
     }
 
-    return { ...outcome, commit: post.commit, changedFiles: post.files, snapshotSkipped: post.skipped }
+    const conflictRow = deps.db.select({ conflict: schema.run.conflict }).from(schema.run).where(eq(schema.run.id, runId)).all()
+    return {
+      ...outcome,
+      commit: post.commit,
+      changedFiles: post.files,
+      snapshotSkipped: post.skipped,
+      conflict: conflictRow[0]?.conflict ?? null,
+    }
   } finally {
     // Handed back before the lock is dropped, so the next run cannot be refused
     // by `maxSessions` over a session this run has finished with.
@@ -749,8 +790,11 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
       }
     }
 
-    // Only now: the snapshot above had to run while no other turn could write to
-    // this workspace.
-    locks.delete(agent.id)
+    // 蜂群 P5.4：会话名额在任何提交/释放之前归还；活跃集合只登记展示。
+    const set = activeRuns.get(agent.id)
+    if (set !== undefined) {
+      set.delete(runId)
+      if (set.size === 0) activeRuns.delete(agent.id)
+    }
   }
 }

@@ -33,6 +33,10 @@ const runRow = (r) => {
   const label = RUN_STATE_LABEL[r.state] ?? r.state
   const trigger = TRIGGER_LABEL[r.trigger] ?? r.trigger
   const summary = r.summary ?? r.error ?? ''
+  const conflict =
+    typeof r.conflict === 'string' && r.conflict !== ''
+      ? `<span class="pill-mini warn" title="${esc(r.conflict)}">冲突</span>`
+      : ''
   const whenText = r.state === 'running' ? '进行中' : esc(ago(r.startedAt))
   const link =
     r.sourceChatId !== null && r.sourceChatId !== undefined
@@ -41,7 +45,7 @@ const runRow = (r) => {
   return `<div class="node-row">
     <div class="node-main">
       <div class="node-title">
-        <span class="dot ${dot}"></span>${esc(r.agentName)} <span class="muted">· ${esc(label)} · ${esc(trigger)} · ${whenText}</span>
+        <span class="dot ${dot}"></span>${esc(r.agentName)} <span class="muted">· ${esc(label)} · ${esc(trigger)} · ${whenText}</span> ${conflict}
       </div>
       ${summary !== '' ? `<div class="node-detail">${esc(summary)}</div>` : ''}
     </div>

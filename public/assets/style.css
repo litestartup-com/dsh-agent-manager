@@ -1915,6 +1915,23 @@ button:disabled {
   text-decoration: underline;
 }
 
+/* 通用迷你 pill（run 行的「冲突」徽标等），与主脑卡的「忙」徽章同语言。 */
+.pill-mini {
+  display: inline-flex;
+  align-items: center;
+  height: 15px;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 500;
+}
+.pill-mini.warn {
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  color: var(--warn);
+}
+
 /* ---- docked, collapsed to a rail (>= 1024px) ---- */
 
 /* Scoped to the docked width on purpose. `nav-rail` is a remembered preference,
