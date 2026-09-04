@@ -54,11 +54,15 @@ const renderEndpointLines = (status) => {
 
 /**
  * 蜂群 P3：主脑入口。config 里有 brain agent 才渲染——没有主脑就没有这个
- * 按钮，界面不撒谎。
+ * 块，界面不撒谎。
  *
- * 主按钮 = 回到主脑最近一次会话（没有才新建），旁边的 "+" = 显式新会话。
- * 之前每次点击都开新会话，一天下来主脑会话列表被点出一排垃圾。
+ * 方案 A：主按钮 = 打开最近一次会话（没有才新建）；右侧 chevron = 展开/
+ * 收起主脑会话列表（折叠偏好与树同池）；「＋」= 显式新会话。列表行复用
+ * 树的会话行与 ⋯ 菜单（改名/归档）——主脑会话有列表、可选、可管控，
+ * 不再是没有入口的「二等公民」。主脑仍不进 AGENTS 树。
  */
+const BRAIN_CHATS_SHOWN = 8
+
 const renderBrain = (status) => {
   const box = $('side-brain')
   if (box === null) return
@@ -69,20 +73,50 @@ const renderBrain = (status) => {
     return
   }
   box.hidden = false
+  const chats = chatsByAgent.get('brain') ?? []
+  const busy = busyByAgent.get('brain') ?? null
+  const open = !collapsedSet().has('brain')
+  const unfolded = chatsMoreSet().has('brain')
+  const shown = open ? (unfolded ? chats : chats.slice(0, BRAIN_CHATS_SHOWN)) : []
+  const rest = chats.length - shown.length
+  const latest = chats[0]
+  const latestTitle =
+    latest === undefined || latest.title === null || latest.title === '' ? '新会话' : latest.title
+  const openTitle = latest === undefined ? '主脑 · 还没有会话，点击开始第一个' : `主脑 · 最近：${latestTitle}`
   setHtml(
     'side-brain',
     `<div class="side-brain-row">
-      <button class="side-brain-btn" type="button" data-brain-open title="主脑 · 最近一次会话">
+      <button class="side-brain-btn" type="button" data-brain-open title="${esc(openTitle)}">
         ${icon('chat', 15)}
         <span class="side-brain-main">
           <span class="side-brain-name">主脑</span>
           <span class="side-brain-sub">总控 · 可调度所有 agent</span>
         </span>
+        ${busy !== null ? '<span class="dot busy side-brain-busy" title="正在运行一个回合"></span>' : ''}
+      </button>
+      <button class="side-brain-chev" type="button" data-brain-toggle aria-expanded="${open}"
+              title="${open ? '收起' : '展开'}主脑会话列表" aria-label="${open ? '收起' : '展开'}主脑会话列表">
+        ${icon('chev', 12)}
       </button>
       <button class="side-brain-plus" type="button" data-brain-new title="主脑新会话" aria-label="主脑新会话">
         ${icon('add', 14)}
       </button>
-    </div>`,
+    </div>
+    ${
+      open
+        ? `<div class="brain-chats">
+          ${
+            chats.length === 0
+              ? '<p class="muted small brain-empty">还没有会话，点 ＋ 开始</p>'
+              : shown.map(chatRow).join('') +
+                (rest > 0 ? `<button class="tree-child more" type="button" data-chat-more="brain">Show ${rest} more sessions</button>` : '') +
+                (unfolded && chats.length > BRAIN_CHATS_SHOWN
+                  ? `<button class="tree-child more" type="button" data-chat-more="brain" data-less="1">Show less</button>`
+                  : '')
+          }
+        </div>`
+        : ''
+    }`,
   )
 }
 
@@ -112,7 +146,29 @@ const openBrainChat = async (fresh) => {
   }
 }
 
+// 主脑块内的行操作与树完全一致：⋯ 菜单（改名/归档）、Show more 折叠。
 $('side-brain')?.addEventListener('click', async (event) => {
+  const more = event.target.closest('.row-more')
+  if (more !== null) {
+    if (menuChatId === more.dataset.more) closeMenu()
+    else openMenu(more, more.dataset.more)
+    return
+  }
+
+  const chatMore = event.target.closest('[data-chat-more]')
+  if (chatMore !== null) {
+    setChatsMore(chatMore.dataset.chatMore, chatMore.dataset.less !== '1')
+    if (lastStatus !== null) renderBrain(lastStatus)
+    return
+  }
+
+  const toggle = event.target.closest('[data-brain-toggle]')
+  if (toggle !== null) {
+    setCollapsed('brain', toggle.getAttribute('aria-expanded') === 'true')
+    if (lastStatus !== null) renderBrain(lastStatus)
+    return
+  }
+
   if (event.target.closest('[data-brain-new]') !== null) {
     await openBrainChat(true)
     return

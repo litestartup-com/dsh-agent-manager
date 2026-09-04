@@ -2005,14 +2005,16 @@ button:disabled {
     margin-left: 0;
   }
 
-  /* 主脑钉顶不折叠，但 rail 里只剩一个居中的图标；"+" 一并收起。 */
+  /* 主脑钉顶不折叠，但 rail 里只剩一个居中的图标；chev、"+”、会话列表一并收起。 */
   body.nav-rail .side-brain-btn {
     justify-content: center;
     padding-left: 0;
     padding-right: 0;
   }
   body.nav-rail .side-brain-main,
-  body.nav-rail .side-brain-plus {
+  body.nav-rail .side-brain-plus,
+  body.nav-rail .side-brain-chev,
+  body.nav-rail .brain-chats {
     display: none;
   }
 }
@@ -2185,10 +2187,11 @@ button:disabled {
 .side-brain-name { font-weight: 600; font-size: 14px; line-height: 1.35; }
 .side-brain-sub { font-size: 11.5px; color: var(--muted); }
 
-/* 主脑入口 = 主按钮（最近会话）+ 右侧小 "+"（显式新会话） */
+/* 主脑入口 = 主按钮（最近会话）+ chevron（展开会话列表）+ 小 "+"（新会话） */
 .side-brain-row { display: flex; align-items: stretch; gap: 6px; }
 .side-brain-row .side-brain-btn { flex: 1 1 auto; min-width: 0; }
-.side-brain-plus {
+.side-brain-plus,
+.side-brain-chev {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2201,9 +2204,36 @@ button:disabled {
   cursor: pointer;
   transition: background 150ms ease, color 150ms ease;
 }
-.side-brain-plus:hover {
+.side-brain-chev { width: 30px; }
+.side-brain-plus:hover,
+.side-brain-chev:hover {
   background: var(--surface-hover, #f1f3f5);
   color: var(--text);
+}
+.side-brain-chev svg {
+  transition: transform 150ms ease;
+}
+.side-brain-chev[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+
+.side-brain-busy {
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+/* 主脑会话列表：结构与树的孩子区一致，仅少一层缩进（主脑块自身就是头）。 */
+.brain-chats {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0 8px 14px;
+  padding-left: 9px;
+  border-left: 1px solid var(--border);
+}
+
+.brain-empty {
+  padding: 6px 12px;
 }
 
 /* 节点区：汇总行与异常行都是去 /nodes 的链接 */
