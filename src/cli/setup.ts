@@ -306,7 +306,16 @@ const main = (): void => {
 
   // ---- 工作区（模板幂等，绝不覆盖已有文件） --------------------------------
   console.log('① 初始化工作区…')
-  initWorkspace({ workspacePath: options.personalWorkspace, preset: 'personal' })
+  // note-kaka 之类已有 RULE.md/CONTEXT.md 的笔记库是「只读权威」（TASKS 阶段二）：
+  // 不写入任何模板文件，只确认目录存在——否则 AGENTS.md 会与 RULE.md 打架、
+  // 模板文档会污染用户的笔记体系。
+  const personalRoot = resolve(options.personalWorkspace)
+  if (existsSync(join(personalRoot, 'RULE.md')) || existsSync(join(personalRoot, 'CONTEXT.md'))) {
+    mkdirSync(personalRoot, { recursive: true })
+    console.log(`   已接管现有笔记库 ${personalRoot}（检测到 RULE.md/CONTEXT.md，不写入模板文件）`)
+  } else {
+    initWorkspace({ workspacePath: options.personalWorkspace, preset: 'personal' })
+  }
   initWorkspace({ workspacePath: options.brainWorkspace, preset: 'brain' })
 
   // ---- 节点 profile（每节点一个独立 DSH_HOME） -----------------------------
