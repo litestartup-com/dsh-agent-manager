@@ -130,6 +130,22 @@ test('the brain gate fails closed: no token, wrong token, non-loopback, disabled
     remoteAddress: '203.0.113.9',
   })
   assert.equal(remote.statusCode, 403)
+
+  // 蜂群2计划 P6：容器形态主脑在 hive 内网（172.x）——私网来源 + 有效 token 放行
+  const hiveNode = await app.inject({
+    method: 'GET',
+    url: '/api/internal/agents',
+    headers: authed(),
+    remoteAddress: '172.20.0.2',
+  })
+  assert.equal(hiveNode.statusCode, 200)
+
+  const privateNoToken = await app.inject({
+    method: 'GET',
+    url: '/api/internal/agents',
+    remoteAddress: '172.20.0.2',
+  })
+  assert.equal(privateNoToken.statusCode, 401, '私网来源也必须带有效 token')
 })
 
 test('agents list: shape and busy flag', async () => {

@@ -7,12 +7,14 @@ description: manager 内部 REST API 执行手册——查各 agent 状态、派
 
 ## 前置
 
-- manager 地址：`http://127.0.0.1:8080`
+- manager 地址：用环境变量 `$MANAGER_URL`（bash）/ `$env:MANAGER_URL`（pwsh）。
+  裸机部署默认 `http://127.0.0.1:8080`；容器部署下节点进程里已预置为 `http://manager:8080`。
+  **不要自己猜地址，直接用变量。**
 - 每个请求都要带头部：bash 用 `X-Brain-Token: $BRAIN_TOKEN`，pwsh 用 `X-Brain-Token: $env:BRAIN_TOKEN`。
   `BRAIN_TOKEN` 在环境变量里——**直接用变量引用，绝不打印它的值、绝不把它写进文件**。
 - 错误码读法：
   - `401` = token 不对（检查头部拼写，不打印 token）
-  - `403` = 非本机调用（不应发生）
+  - `403` = 非私网来源（不应发生）
   - `409` = 派工被 manager 拒绝——**读 `detail` 原样转述给用户，不重试硬闯**。常见两类：
     - `brain_budget_exhausted` = 主脑今日派工预算已用完（明天自动恢复）；告诉用户「今日派工额度用完了，可以自己直接去对应 agent 手动操作」。
     - `not_managed`/其他 = 见 detail 原文。
@@ -27,7 +29,7 @@ bash（Linux / macOS / Git Bash）：
 cat > /tmp/req.json <<'EOF'
 {"agentId":"personal","prompt":"把这周开销汇总写进周报"}
 EOF
-curl -s -X POST http://127.0.0.1:8080/api/internal/dispatch \
+curl -s -X POST "$MANAGER_URL/api/internal/dispatch" \
   -H 'Content-Type: application/json' \
   -H "X-Brain-Token: $BRAIN_TOKEN" \
   --data @/tmp/req.json
@@ -38,7 +40,7 @@ pwsh（Windows）：
 ```powershell
 @{ agentId='personal'; prompt='把这周开销汇总写进周报' } |
   ConvertTo-Json | Set-Content "$env:TEMP\req.json" -Encoding utf8
-curl.exe -s -X POST http://127.0.0.1:8080/api/internal/dispatch `
+curl.exe -s -X POST "$env:MANAGER_URL/api/internal/dispatch" `
   -H 'Content-Type: application/json' `
   -H "X-Brain-Token: $env:BRAIN_TOKEN" `
   --data "@$env:TEMP\req.json"
