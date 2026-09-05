@@ -12,7 +12,6 @@ import type { DockerRunner } from './docker-runner.js'
 import type { AppConfig, ResolvedEndpoint } from '../config.js'
 import type { GatewayClient } from '../gateway/client.js'
 import type { UpstreamClient } from '../upstream/client.js'
-import { COMPAT_DSH_VERSION } from '../dsh-version.js'
 
 export interface NodeRegistryDeps {
   gateway: (id: string) => GatewayClient | undefined
@@ -29,18 +28,9 @@ export const makeSupervisor = (endpoint: ResolvedEndpoint, deps: NodeRegistryDep
       try {
         if (endpoint.driver === 'apiproxy') {
           const version = await deps.upstream(endpoint.id)?.hostVersion()
-          if (version === undefined || version === 'unknown') {
-            return { ok: false, detail: 'host.describe returned no version' }
-          }
-          // 蜂群2计划 P1：版本告警（照跑不装瞎——契约按 COMPAT 实测，不符必须可见）。
-          const compatible = version.replace(/^v/, '') === COMPAT_DSH_VERSION
-          if (!compatible) {
-            deps.log?.(`node ${endpoint.id}: DSH ${version} ≠ 验证版本 ${COMPAT_DSH_VERSION}（照跑，但契约未经此版本验证）`)
-          }
-          return {
-            ok: true,
-            detail: `host.describe ok (${version})${compatible ? '' : ` — ⚠ 与验证版本 ${COMPAT_DSH_VERSION} 不符`}`,
-          }
+          return version === undefined || version === 'unknown'
+            ? { ok: false, detail: 'host.describe returned no version' }
+            : { ok: true, detail: `host.describe ok (${version})` }
         }
         const health = await deps.gateway(endpoint.id)?.health()
         return health !== undefined && health.status === 'ok'

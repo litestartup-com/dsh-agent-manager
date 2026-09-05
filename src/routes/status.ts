@@ -7,7 +7,6 @@ import type { UpstreamClient } from '../upstream/client.js'
 import { listArchivedChats, listChats } from '../chat/store.js'
 import { activeRunCount, runningRunId } from '../runner.js'
 import { currentMonth, monthByAgent } from '../usage/store.js'
-import { COMPAT_DSH_VERSION } from '../dsh-version.js'
 
 export interface EndpointStatus {
   id: string
@@ -63,8 +62,9 @@ export const probeEndpoint = async (
       const version = await upstream.hostVersion()
       row.reachable = true
       if (version !== 'unknown') {
+        // 注意（DSH-FACTS §6）：host.describe 的 version 字段恒为协议号（0.0.1），
+        // 不是 DSH 版本——只作信息展示，绝不用于兼容性告警。
         row.dshVersion = version
-        row.dshCompatible = version.replace(/^v/, '') === COMPAT_DSH_VERSION
       }
       return row
     } catch (error) {
