@@ -148,5 +148,15 @@ export const initWorkspace = ({ workspacePath, preset, useGit = true }: InitOpti
     warnings.push(`工作区已生成，但 git 操作失败：${(error as Error).message.split('\n')[0]}`)
   }
 
+  // 2026-09-05 真实踩坑：工作区目录位于另一个 git 仓库内部时，isGitRepo
+  // 沿父目录找到外层仓库而「收养」之——agent 的每次运行都没有独立提交，
+  // 若文件还被外层 .gitignore 忽略，改动完全不可追溯（主脑工作区实测如此）。
+  if (!gitInitialised && isGitRepo(root) && !existsSync(join(root, '.git'))) {
+    warnings.push(
+      '该工作区没有自己的 git 仓库（被外层仓库收养）：agent 的每次运行不会留下独立提交审计。' +
+        '请把工作区挪到外层仓库之外后重新初始化，或用 git init 在目录内建独立仓库。',
+    )
+  }
+
   return { workspacePath: root, preset, created, skipped, gitInitialised, committed, warnings }
 }

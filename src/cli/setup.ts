@@ -274,13 +274,17 @@ export const adoptOldWorkspaces = (
 }
 
 const parseArgs = (argv: string[]): { options: SetupOptions; help: boolean; explicit: { personalWorkspace: boolean; brainWorkspace: boolean } } => {
+  const user = process.env.USERPROFILE ?? process.env.HOME ?? '.'
+  const nodesHome = `${user}/.dsh-ohdsh`
   const defaults: SetupOptions = {
-    personalWorkspace: './workspaces/personal',
-    brainWorkspace: './workspaces/brain',
+    // 2026-09-05：默认工作区放在仓库外（~/.dsh-ohdsh 下）——放在仓库里会被
+    // 外层 git 收养，agent 运行没有独立审计留痕（主脑工作区实测踩坑）。
+    personalWorkspace: `${nodesHome}/workspaces/personal`,
+    brainWorkspace: `${nodesHome}/brain-workspace`,
     personalPort: 3081,
     brainPort: 3082,
-    dshHome: process.env.DSH_HOME ?? `${process.env.USERPROFILE ?? process.env.HOME ?? '.'}/.dsh`,
-    nodesHome: `${process.env.USERPROFILE ?? process.env.HOME ?? '.'}/.dsh-ohdsh`,
+    dshHome: process.env.DSH_HOME ?? `${user}/.dsh`,
+    nodesHome,
     dshBin: null,
     installProfiles: true,
     gatewayLocal: null,

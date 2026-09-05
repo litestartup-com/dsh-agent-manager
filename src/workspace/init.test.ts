@@ -153,6 +153,24 @@ test('does not create a nested repository inside an existing one', () => {
   assert.ok(!existsSync(join(sub, '.git')))
 })
 
+test('2026-09-05: adopting an outer repo warns about the missing audit trail', () => {
+  // 主脑工作区曾寄居在外层仓库里：无独立 git、文件又被 .gitignore 忽略，
+  // agent 的每次运行都没有提交审计。现在收养外层仓库时必须显式警告。
+  const root = fresh()
+  execFileSync('git', ['init'], { cwd: root, stdio: 'ignore' })
+  execFileSync('git', ['config', 'user.email', 't@t'], { cwd: root, stdio: 'ignore' })
+  execFileSync('git', ['config', 'user.name', 't'], { cwd: root, stdio: 'ignore' })
+
+  const sub = join(root, 'notes')
+  mkdirSync(sub, { recursive: true })
+  const result = initWorkspace({ workspacePath: sub, preset: 'personal' })
+
+  assert.ok(
+    result.warnings.some((w) => w.includes('被外层仓库收养')),
+    `warnings should name the nesting problem, got: ${result.warnings.join(' | ')}`,
+  )
+})
+
 test('skips git entirely when asked', () => {
   const root = fresh()
   const result = initWorkspace({ workspacePath: root, preset: 'personal', useGit: false })
