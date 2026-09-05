@@ -13,6 +13,7 @@ import { buildUpstreamClients } from '../upstream/client.js'
 import type { NodeSupervisor } from '../nodes/supervisor.js'
 import { makeSupervisor } from '../nodes/registry.js'
 import { detectDshBin, ensureNodeCredentials, ensureNodeProfiles, mergeEnv, resolveGatewayKey } from '../cli/setup.js'
+import { ensureWorkspaceGit } from '../workspace/init.js'
 
 /**
  * 蜂群 P5.5：运行时新增 / 删除节点。
@@ -33,11 +34,15 @@ const provisionBody = z.object({
   port: z.number().int().positive().optional(),
   /** 测试与离线环境：跳过 pnpm install。 */
   install: z.boolean().optional(),
+  /**
+   * 向导总是带着 agent（节点 = agent 节点，创建即配工作区）；字段都可省，
+   * 缺省 = id/名称同节点名、路径 ~/.dsh-ohdsh/workspaces/<节点名>。
+   */
   agent: z
     .object({
-      id: nodeNameSchema,
-      name: z.string().min(1).max(80),
-      workspace: z.string().min(1),
+      id: nodeNameSchema.optional(),
+      name: z.string().min(1).max(80).optional(),
+      workspace: z.string().optional(),
       preset: z.string().optional(),
       sandboxMode: z.enum(['read-only', 'workspace-write']).optional(),
     })
@@ -105,8 +110,19 @@ export const registerProvisionRoutes = (
     if (config.endpoints[body.name] !== undefined) {
       return reply.code(409).send({ error: 'duplicate_node', detail: `节点 ${body.name} 已存在` })
     }
-    if (body.agent !== undefined && config.agents[body.agent.id] !== undefined) {
-      return reply.code(409).send({ error: 'duplicate_agent', detail: `agent "${body.agent.id}" 已存在` })
+    // 归一化工作区规格：缺省值全部由节点名推导。
+    const agentSpec =
+      body.agent === undefined
+        ? null
+        : {
+            id: body.agent.id ?? body.name,
+            name: body.agent.name ?? body.name,
+            workspace: resolve(body.agent.workspace ?? join(nodesHome(), 'workspaces', body.name)),
+            preset: body.agent.preset ?? null,
+            sandboxMode: body.agent.sandboxMode ?? null,
+          }
+    if (agentSpec !== null && config.agents[agentSpec.id] !== undefined) {
+      return reply.code(409).send({ error: 'duplicate_agent', detail: `工作区 "${agentSpec.id}" 已存在` })
     }
     const port = body.port ?? suggestPort(config)
     if (usedPorts(config).has(port)) {
@@ -137,8 +153,13 @@ export const registerProvisionRoutes = (
         })
       }
 
-      // 3. 工作区目录（不写模板：新 agent 的模板向导是下一轮的事）
-      if (body.agent !== undefined) mkdirSync(resolve(body.agent.workspace), { recursive: true })
+      // 3. 工作区：目录 + git init + 通用 AGENTS.md（文件即真相，运行才有审计）
+      let workspaceWarning: string | null = null
+      if (agentSpec !== null) {
+        mkdirSync(agentSpec.workspace, { recursive: true })
+        const git = ensureWorkspaceGit(agentSpec.workspace, agentSpec.name)
+        workspaceWarning = git.warning
+      }
 
       // 4. 写回 manager.config.yaml（文件即真相；成功后才动内存）
       const yaml = parseYaml(readFileSync(resolve(CONFIG_PATH), 'utf8')) as Record<string, Record<string, unknown>>
@@ -159,19 +180,19 @@ export const registerProvisionRoutes = (
           env: { DSH_HOME: nodeHomePath },
         },
       }
-      if (body.agent !== undefined) {
-        agents[body.agent.id] = {
-          name: body.agent.name,
+      if (agentSpec !== null) {
+        agents[agentSpec.id] = {
+          name: agentSpec.name,
           endpoint: body.name,
-          workspace: body.agent.workspace,
+          workspace: agentSpec.workspace,
           public: false,
-          ...(body.agent.preset === undefined ? {} : { preset: body.agent.preset }),
-          ...(body.agent.sandboxMode === undefined ? {} : { sandbox_mode: body.agent.sandboxMode }),
+          ...(agentSpec.preset === null ? {} : { preset: agentSpec.preset }),
+          ...(agentSpec.sandboxMode === null ? {} : { sandbox_mode: agentSpec.sandboxMode }),
         }
       }
       writeFileSync(resolve(CONFIG_PATH), stringifyYaml(yaml), 'utf8')
 
-      // 5. 热加载：endpoint + agent 进内存配置，监督器入册并拉起
+      // 5. 热加载：endpoint + 工作区进内存配置，监督器入册并拉起
       const endpoint: ResolvedEndpoint = {
         id: body.name,
         url: `http://127.0.0.1:${port}`,
@@ -195,30 +216,28 @@ export const registerProvisionRoutes = (
       supervisors.set(body.name, supervisor)
       supervisor.start(endpoint.spawn!)
 
-      let agentId: string | null = null
-      if (body.agent !== undefined) {
-        agentId = body.agent.id
-        config.agents[body.agent.id] = {
-          id: body.agent.id,
-          name: body.agent.name,
+      if (agentSpec !== null) {
+        config.agents[agentSpec.id] = {
+          id: agentSpec.id,
+          name: agentSpec.name,
           endpoint: body.name,
-          workspacePath: resolve(body.agent.workspace),
+          workspacePath: agentSpec.workspace,
           public: false,
-          preset: body.agent.preset ?? null,
-          sandboxMode: body.agent.sandboxMode ?? null,
+          preset: agentSpec.preset,
+          sandboxMode: agentSpec.sandboxMode,
           gitRemote: null,
           provider: null,
           model: null,
         }
-        const row = db.select({ id: schema.agent.id }).from(schema.agent).all().find((a) => a.id === body.agent!.id)
+        const row = db.select({ id: schema.agent.id }).from(schema.agent).all().find((a) => a.id === agentSpec.id)
         if (row === undefined) {
           db.insert(schema.agent)
             .values({
-              id: body.agent.id,
-              name: body.agent.name,
-              workspacePath: resolve(body.agent.workspace),
+              id: agentSpec.id,
+              name: agentSpec.name,
+              workspacePath: agentSpec.workspace,
               endpoint: body.name,
-              preset: body.agent.preset ?? null,
+              preset: agentSpec.preset,
               gitRemote: null,
               public: 0,
               createdAt: Date.now(),
@@ -229,7 +248,8 @@ export const registerProvisionRoutes = (
 
       return reply.code(201).send({
         node: { id: body.name, port, home: nodeHomePath, state: supervisor.current.state },
-        agent: agentId,
+        workspace: agentSpec === null ? null : { id: agentSpec.id, path: agentSpec.workspace },
+        workspaceWarning,
       })
     } catch (error) {
       // 回滚：yaml 写在最后，此前任何失败都不会有配置残留；删掉半成品目录即可。
@@ -239,28 +259,34 @@ export const registerProvisionRoutes = (
     }
   })
 
+  /**
+   * 2026-09-05 定：删除节点 = 停进程 + 配置里删「节点 + 它绑定的工作区」两行
+   * + 磁盘目录全部保留。确认语义由前端确认框明示。
+   */
   app.delete<{ Params: { id: string } }>('/api/nodes/:id', { preHandler: requireUser }, async (request, reply) => {
     const endpoint = config.endpoints[request.params.id]
     if (endpoint === undefined) return reply.code(404).send({ error: 'unknown_node' })
-    const bound = Object.values(config.agents).filter((a) => a.endpoint === request.params.id)
-    if (bound.length > 0) {
-      return reply
-        .code(409)
-        .send({ error: 'agents_bound', detail: `节点上还有 agent（${bound.map((a) => a.name).join('、')}），先把它们迁走再删节点。` })
-    }
     if (endpoint.spawn === null || !supervisors.has(request.params.id)) {
       return reply.code(409).send({ error: 'not_managed', detail: `节点 ${request.params.id} 由外部管理，manager 无法删除它` })
     }
 
+    const bound = Object.values(config.agents).filter((a) => a.endpoint === request.params.id)
+
     supervisors.get(request.params.id)!.stop()
     supervisors.delete(request.params.id)
     delete config.endpoints[request.params.id]
+    for (const a of bound) delete config.agents[a.id]
 
     const yaml = parseYaml(readFileSync(resolve(CONFIG_PATH), 'utf8')) as Record<string, Record<string, unknown>>
     if (yaml.endpoints !== undefined) delete yaml.endpoints[request.params.id]
+    for (const a of bound) {
+      if (yaml.agents !== undefined) delete yaml.agents[a.id]
+    }
     writeFileSync(resolve(CONFIG_PATH), stringifyYaml(yaml), 'utf8')
 
-    app.log.info(`node ${request.params.id}: removed from management (files on disk kept)`)
-    return reply.send({ ok: true })
+    app.log.info(
+      `node ${request.params.id}: unmanaged (${bound.length} workspace binding(s) removed from config; files on disk kept)`,
+    )
+    return reply.send({ ok: true, removedWorkspaces: bound.map((a) => a.id) })
   })
 }

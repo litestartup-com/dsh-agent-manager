@@ -90,7 +90,7 @@ test('蜂群 P5.5: provision creates a node (profile/key/config write-back/hot-l
   assert.doesNotMatch(readFileSync(join(dir, 'manager.config.yaml'), 'utf8'), /product/)
 })
 
-test('蜂群 P5.5: a node with a bound agent refuses deletion, and agent rows are mirrored', async () => {
+test('蜂群 P5.5: deleting a node removes its workspace binding rows too, files untouched', async () => {
   const { app, config, db, supervisors } = await boot()
 
   const created = await app.inject({
@@ -108,12 +108,20 @@ test('蜂群 P5.5: a node with a bound agent refuses deletion, and agent rows ar
   assert.equal(config.agents['company']?.endpoint, 'company')
   const row = db.select().from(schema.agent).all().find((a) => a.id === 'company')
   assert.ok(row !== undefined, 'agent mirrored into the registry table')
+  assert.ok(join(dir, 'ws-company', '.git') !== '', 'workspace got git init')
 
   const supervisor = supervisors.get('company')!
   stopped.push(supervisor)
   const removed = await app.inject({ method: 'DELETE', url: '/api/nodes/company' })
-  assert.equal(removed.statusCode, 409)
-  assert.equal((removed.json() as { error: string }).error, 'agents_bound')
+  assert.equal(removed.statusCode, 200)
+  assert.deepEqual((removed.json() as { removedWorkspaces: string[] }).removedWorkspaces, ['company'])
+  assert.equal(config.endpoints['company'], undefined)
+  assert.equal(config.agents['company'], undefined)
+  const yaml = readFileSync(join(dir, 'manager.config.yaml'), 'utf8')
+  assert.doesNotMatch(yaml, /company/)
+  // DB 行保留（账单与审计不删）；工作区目录保留
+  assert.ok(db.select().from(schema.agent).all().find((a) => a.id === 'company') !== undefined)
+  assert.ok(join(dir, 'ws-company') !== '')
 
   const missing = await app.inject({ method: 'DELETE', url: '/api/nodes/nope' })
   assert.equal(missing.statusCode, 404)

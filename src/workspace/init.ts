@@ -75,6 +75,59 @@ const writeGitignore = (workspacePath: string): boolean => {
   return true
 }
 
+/**
+ * 蜂群 P5.5：给向导新建的工作区一个最小 git 初始化——通用 AGENTS.md +
+ * .gitignore + 首次提交，不写任何模板页面。工作区已在某个外层仓库内时不
+ * 建嵌套仓，返回警告（与 initWorkspace 的收养警告同一口径）。
+ */
+export const ensureWorkspaceGit = (
+  workspacePath: string,
+  name: string,
+): { initialised: boolean; warning: string | null } => {
+  mkdirSync(workspacePath, { recursive: true })
+  if (isGitRepo(workspacePath)) {
+    return {
+      initialised: false,
+      warning: existsSync(join(workspacePath, '.git'))
+        ? null
+        : '该工作区被外层 git 仓库收养：运行不会留下独立提交审计。建议放到仓库外，或在此目录 git init。',
+    }
+  }
+  try {
+    git(workspacePath, ['init'])
+    try {
+      git(workspacePath, ['config', 'user.name'])
+    } catch {
+      git(workspacePath, ['config', 'user.name', 'dsh-agent-manager'])
+      git(workspacePath, ['config', 'user.email', 'agent@localhost'])
+    }
+    writeGitignore(workspacePath)
+    const agents = join(workspacePath, 'AGENTS.md')
+    if (!existsSync(agents)) {
+      writeFileSync(
+        agents,
+        [
+          '# 工作区约定（Oh! dsh 生成）',
+          '',
+          '这个目录是这个工作区的「文件即真相」边界：agent 只在这个目录里读写。',
+          '',
+          '- 每次运行结束，manager 会把改动 git 提交（审计留痕，提交信息带 run 号）。',
+          '- 目录里的文件就是工作成果，全部进 git。',
+          '- 改这里的约定前想清楚：agent 会照单全收。',
+          '',
+        ].join('\n'),
+        'utf8',
+      )
+    }
+    git(workspacePath, ['add', '--all'])
+    const staged = git(workspacePath, ['diff', '--cached', '--name-only'])
+    if (staged !== '') git(workspacePath, ['commit', '-m', `chore: 初始化工作区 ${name}`])
+    return { initialised: true, warning: null }
+  } catch (error) {
+    return { initialised: false, warning: `git 初始化失败：${(error as Error).message.split('\n')[0]}` }
+  }
+}
+
 export interface InitOptions {
   workspacePath: string
   preset: string

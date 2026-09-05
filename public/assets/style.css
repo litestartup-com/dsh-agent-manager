@@ -2083,6 +2083,27 @@ button:disabled {
   cursor: pointer;
 }
 
+/* 向导的高级设置（折叠，默认收起） */
+.node-advanced {
+  margin: 8px 0 14px;
+}
+.node-advanced summary {
+  cursor: pointer;
+  color: var(--text-2);
+  font-size: 13.5px;
+  padding: 4px 0;
+  user-select: none;
+}
+.node-advanced summary:hover {
+  color: var(--text);
+}
+.node-advanced-body {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 /* ---- docked, collapsed to a rail (>= 1024px) ---- */
 
 /* Scoped to the docked width on purpose. `nav-rail` is a remembered preference,

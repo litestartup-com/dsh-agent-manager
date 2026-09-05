@@ -20,8 +20,6 @@ const nodeRow = (n) => {
     .join(' · ')
   const err = typeof n.lastError === 'string' && n.lastError !== '' ? ` — ${n.lastError}` : ''
   const starting = n.state === 'starting'
-  // 蜂群 P5.1：托管节点可起/停/重启；外管节点按钮不撒谎，直接说明。
-  const hasAgents = Array.isArray(n.agents) && n.agents.length > 0
   const controls = n.managed
     ? `<div class="node-actions">
         ${
@@ -31,8 +29,7 @@ const nodeRow = (n) => {
                <button type="button" class="btn-quiet btn-sm" data-node-restart="${esc(n.id)}" ${starting ? 'disabled' : ''}>重启</button>`
         }
         <button type="button" class="btn-quiet btn-sm" data-node-logs="${esc(n.id)}">日志</button>
-        <button type="button" class="btn-quiet btn-sm" data-node-rm="${esc(n.id)}"
-                ${hasAgents ? 'disabled title="节点上还有 agent，先迁移再删除"' : 'title="解除托管（磁盘目录保留）"'}>删除</button>
+        <button type="button" class="btn-quiet btn-sm" data-node-rm="${esc(n.id)}" title="解除托管（磁盘目录保留）">删除</button>
       </div>`
     : '<span class="muted small">外管 · 手动维护</span>'
   return `<div class="node-row" data-node-row="${esc(n.id)}">
@@ -134,7 +131,7 @@ $('node-logs-close').addEventListener('click', closeLogs)
 // ---- 蜂群 P5.5：新增节点向导 + 删除 ----
 
 const removeNode = async (id) => {
-  if (!window.confirm(`解除节点「${id}」的托管？\n\n进程会停止、配置会移除；磁盘上的目录保留。`)) return
+  if (!window.confirm(`解除节点「${id}」的托管？\n\n- 进程会停止\n- 配置里会删掉「节点 + 它绑定的工作区」两行\n- 磁盘上的目录全部保留`)) return
   try {
     const response = await fetch(`/api/nodes/${encodeURIComponent(id)}`, { method: 'DELETE' })
     const body = await response.json().catch(() => ({}))
@@ -157,35 +154,23 @@ $('f-cancel').addEventListener('click', () => {
   $('node-editor').hidden = true
 })
 
-$('f-with-agent').addEventListener('change', (event) => {
-  $('f-agent-fields').hidden = !event.target.checked
-})
-
 $('node-form').addEventListener('submit', async (event) => {
   event.preventDefault()
   const name = $('f-node-name').value.trim()
   const portRaw = $('f-node-port').value.trim()
-  const withAgent = $('f-with-agent').checked
   if (name === '') return
 
+  // 工作区总是创建；高级设置里的字段留空 = 后端按节点名自动生成。
   const payload = {
     name,
     ...(portRaw === '' ? {} : { port: Number(portRaw) }),
-    ...(withAgent
-      ? {
-          agent: {
-            id: $('f-agent-id').value.trim() || name,
-            name: $('f-agent-name').value.trim() || name,
-            workspace: $('f-agent-workspace').value.trim(),
-            ...($('f-agent-preset').value.trim() === '' ? {} : { preset: $('f-agent-preset').value.trim() }),
-            sandboxMode: $('f-agent-sandbox').value,
-          },
-        }
-      : {}),
-  }
-  if (withAgent && payload.agent.workspace === '') {
-    $('f-warn').textContent = '勾选了创建 agent，工作区路径不能为空'
-    return
+    agent: {
+      ...($('f-agent-id').value.trim() === '' ? {} : { id: $('f-agent-id').value.trim() }),
+      ...($('f-agent-name').value.trim() === '' ? {} : { name: $('f-agent-name').value.trim() }),
+      ...($('f-agent-workspace').value.trim() === '' ? {} : { workspace: $('f-agent-workspace').value.trim() }),
+      ...($('f-agent-preset').value.trim() === '' ? {} : { preset: $('f-agent-preset').value.trim() }),
+      sandboxMode: $('f-agent-sandbox').value,
+    },
   }
 
   const save = $('f-save')
@@ -202,10 +187,12 @@ $('node-form').addEventListener('submit', async (event) => {
       $('f-warn').textContent = body.detail ?? `创建失败（${response.status}）`
       return
     }
-    $('f-warn').textContent = ''
+    $('f-warn').textContent =
+      body.workspaceWarning === null || body.workspaceWarning === undefined
+        ? ''
+        : `已创建，但有个提醒：${body.workspaceWarning}`
     $('node-editor').hidden = true
     $('node-form').reset()
-    $('f-agent-fields').hidden = true
     await load()
   } catch (error) {
     $('f-warn').textContent = `创建失败：${error.message}`
