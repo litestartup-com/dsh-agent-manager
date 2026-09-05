@@ -151,11 +151,16 @@ if [ -n "$APP_DOMAIN" ]; then
         -e "s|__SSL_KEY_PATH__|$SSL_KEY_PATH|g" \
         "deploy/nginx/$SRC" > deploy/nginx/default.conf
     log "nginx config written ($SRC)"
+    NGINX_CONFIG_WRITTEN=1
   fi
 fi
 
 # ---- up ----
 run docker compose up -d --build
+# 重跑场景：default.conf 是 bind mount，文件变了 nginx 不会自己 reload
+if [ "${NGINX_CONFIG_WRITTEN:-0}" = "1" ] && [ "$DRY_RUN" != "1" ]; then
+  run docker compose restart nginx
+fi
 
 cat <<EOF
 
