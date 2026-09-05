@@ -646,6 +646,16 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
           // All mux frames are live (no hello replay), safe to relay.
           input.onFrame?.(frame)
 
+          // 审计留痕：主脑/agent 问人、要授权的帧到达即记一行，方便事后追溯
+          // 「卡没出现」类问题的断点定位（第一次踩坑 2026-09-05）。
+          if (frame.kind === 'question_asked' || frame.kind === 'approval_pending') {
+            const qs = (frame as { questions?: unknown[] }).questions
+            const ap = (frame as { approvalId?: string }).approvalId
+            log?.info(
+              `run ${runId}: ${frame.kind} (${frame.kind === 'question_asked' ? String(qs?.length ?? '?') + ' questions' : String(ap ?? '')})`,
+            )
+          }
+
           if (isLiveMessage(frame)) {
             const frameUsage = normalizeUsage(frame.usage)
             usage = sumUsage(usage, frameUsage)
