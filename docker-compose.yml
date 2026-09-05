@@ -60,6 +60,8 @@ services:
       GW_KEY: ${GW_KEY_B}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       BRAIN_TOKEN: ${BRAIN_TOKEN}
+      # 主脑技能手册调 manager 内部 API 用（容器里 127.0.0.1 是节点自己）
+      MANAGER_URL: "http://manager:8080"
     volumes:
       - ohdsh-brain:/data
       # 挂在与 manager 视角相同的绝对路径：manager 给节点的 workspace cwd 就是这个路径，

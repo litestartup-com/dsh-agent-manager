@@ -22,7 +22,8 @@ import { scheduleProblem, type Scheduler } from '../cron/schedule.js'
  * 主脑（DSH 里的 skill + curl）吃这一面；第三方走北向 /api/v1。两道门缺一
  * 不可，全不过则这一面不存在（fail closed）：
  *
- * 1. 仅接受回环来源（主脑与 manager 同机；token 即使外带，公网也打不进来）；
+ * 1. 仅接受私网来源（裸机=回环；容器形态=主脑在 hive 内网，来源 172.x/10.x——
+ *    token 即使外带，公网也打不进来）；
  * 2. `X-Brain-Token` 常量时间比较，值来自 `.env` 的 `BRAIN_TOKEN`。
  *
  * 语义对齐 BRAINSTORM §3.2 三组：看（只读）与做（manager 侧裁决）；红线
@@ -38,11 +39,20 @@ const tokenOk = (candidate: string | null): boolean => {
   return timingSafeEqual(a, b)
 }
 
-const isLoopback = (ip: string): boolean => ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1'
+/** 回环 + RFC1918 私网（docker 内网来源；公网永远不过）。 */
+const isPrivateSource = (ip: string): boolean => {
+  const raw = ip.replace(/^::ffff:/, '')
+  if (raw === '127.0.0.1' || raw === '::1') return true
+  const parts = raw.split('.').map(Number)
+  if (parts.length !== 4 || !parts.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)) return false
+  const a = parts[0]
+  const b = parts[1]
+  return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254)
+}
 
 const brainGate: preHandlerHookHandler = async (request, reply) => {
-  if (!isLoopback(request.ip)) {
-    await reply.code(403).send({ error: 'loopback_only', hint: 'the brain API accepts loopback connections only' })
+  if (!isPrivateSource(request.ip)) {
+    await reply.code(403).send({ error: 'private_network_only', hint: 'the brain API accepts private-network connections only' })
     return
   }
   if ((process.env.BRAIN_TOKEN ?? '') === '') {
