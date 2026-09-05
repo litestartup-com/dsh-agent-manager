@@ -95,9 +95,8 @@ export class UpstreamClient {
     if (this.sandboxBase === null) {
       throw new UpstreamError('sandbox_unconfigured', `endpoint ${this.id}: no sandbox_base configured`)
     }
-    const response = await fetch(
-      `${this.sandboxBase}/sessions/${encodeURIComponent(sessionId)}/sandbox-mode`,
-      {
+    const call = async (): Promise<Response> =>
+      fetch(`${this.sandboxBase}/sessions/${encodeURIComponent(sessionId)}/sandbox-mode`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -105,8 +104,21 @@ export class UpstreamClient {
         },
         body: JSON.stringify({ mode }),
         signal: AbortSignal.timeout(10_000),
-      },
-    )
+      })
+    let response = await call()
+    // 蜂群2计划 P6（DSH-FACTS §7）：网关 settings 命名空间异步加载的竞态——
+    // 节点刚启动时第一次沙箱调用可能 401「provisions a key (first call only)」，
+    // 数秒后 settings 就位即恢复。只对这一种 hint 重试一次，把竞态变确定性；
+    // 其它 401（真钥匙错）照旧抛出。
+    if (response.status === 401) {
+      const firstText = await response.text()
+      if (firstText.includes('provisions a key')) {
+        await new Promise((resolveWait) => setTimeout(resolveWait, 2_000))
+        response = await call()
+      } else {
+        throw new UpstreamError('sandbox_mode_failed', `endpoint ${this.id}: sandbox-mode 401: ${firstText.slice(0, 300)}`)
+      }
+    }
     if (!response.ok) {
       const text = await response.text()
       throw new UpstreamError(
