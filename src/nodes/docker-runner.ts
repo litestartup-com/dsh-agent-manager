@@ -63,8 +63,10 @@ export class DockerRunner {
     const container = await this.docker.createContainer({
       name,
       Image: d.image,
-      // 端口参数由 entrypoint 透传给 web app；容器内网访问，不发布到宿主机
-      Cmd: ['--port', String(d.port)],
+      // 端口参数由 entrypoint 透传给 web app；容器内网访问，不发布到宿主机。
+      // --trusted-host：/api 浏览器信任栅栏——manager 以 node-<id>:port 的 Host 访问，
+      // 不在默认回环信任名单会 403 forbidden（容器实测）。
+      Cmd: ['--port', String(d.port), '--trusted-host', `node-${nodeId}`, `node-${nodeId}:${String(d.port)}`],
       Env: Object.entries(env).map(([key, value]) => `${key}=${value}`),
       Labels: { [MANAGED_LABEL]: 'true', [NODE_LABEL]: nodeId },
       WorkingDir: '/workspace',
