@@ -19,8 +19,15 @@ Oh! dsh 在 DeepSeek Harness 之上提供控制面：认证、聊天中继、主
 ### Linux 服务器（容器，推荐）
 
 ```bash
-curl -fsSL https://get.ohdsh.com/install.sh -o install.sh && bash install.sh
+mkdir -p /app && cd /app          # 装进你想要的目录：当前目录 = 安装目录
+curl -fsSL https://get.ohdsh.com/install.sh -o install.sh
+bash install.sh                    # 交互式：API key → 密码 → 域名 → TLS 模式
 ```
+
+- 直接 `bash install.sh` 交互式逐个问（API key / 初始密码 / 域名留空 = 纯 HTTP / TLS 模式）；
+  全自动部署时用环境变量预置：`DEEPSEEK_API_KEY=... APP_DOMAIN=... TLS_MODE=origin-ca bash install.sh`；
+- 脚本会**跳过已装好的组件**（Docker / git / unzip），重跑不覆盖任何配置与数据；
+- 家目录本身会被拒绝安装（提示先建专用目录）；想看脚本要做什么：`DRY_RUN=1` 预演。
 
 ### Windows（本机直跑）
 
@@ -34,18 +41,11 @@ irm https://get.ohdsh.com/install.ps1 -OutFile install.ps1; powershell -Executio
 
 ### 域名 + HTTPS（可选进阶，origin-ca 模式）
 
-1. 把 Cloudflare Origin CA 的两份证书放进安装目录的 `ssl/`：
-   ```bash
-   mkdir -p ~/ohdsh/ssl
-   # 放入 cert.pem 与 key.pem（容器内路径 /etc/ssl/ohdsh/*，与旧配置一致）
-   ```
-2. 带域名重跑（幂等，证书缺失会明确报错）：
-   ```bash
-   APP_DOMAIN=app.ohdsh.com TLS_MODE=origin-ca DEEPSEEK_API_KEY=sk-xxx bash install.sh
-   ```
-   80 自动 301 到 443，manager 自动开启 secure cookie（`.env` 写入
-   `NODE_ENV=production`）。letsencrypt 模式：先 `TLS_MODE=letsencrypt` 跑通 80，
-   再在主机执行 `certbot --nginx -d app.ohdsh.com`。
+交互式安装时直接回答域名与 TLS 模式即可 —— 证书**自动复制**（优先取主机
+`/etc/ssl/ohdsh/` 下的 cert.pem/key.pem，或 `SSL_CERT_SRC`/`SSL_KEY_SRC` 指定，
+或提前放进安装目录 `ssl/`）。80 自动 301 到 443，manager 自动开启 secure cookie
+（`.env` 写入 `NODE_ENV=production`）。letsencrypt 模式：先 `TLS_MODE=letsencrypt`
+跑通 80，再在主机执行 `certbot --nginx -d 你的域名`。
 
 ### 安装后
 
