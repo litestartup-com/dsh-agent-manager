@@ -14,8 +14,9 @@ const MILLION = { inputTokens: 1_000_000, outputTokens: 1_000_000 }
 const at = (iso: string): number => Date.parse(iso)
 
 // DeepSeek peak is 01:00-04:00 and 06:00-10:00 UTC.
-const OFF_PEAK = at('2026-08-30T12:00:00Z')
-const PEAK = at('2026-08-30T02:00:00Z')
+// 2026-08-28 is a Friday (weekday); 2026-08-29/30 are the weekend.
+const OFF_PEAK = at('2026-08-28T12:00:00Z')
+const PEAK = at('2026-08-28T02:00:00Z')
 
 test('a million in and a million out is priced at the off-peak card outside peak hours', () => {
   const cost = computeCost(MILLION, 'deepseek-official', 'deepseek-v4-pro', OFF_PEAK)
@@ -95,4 +96,25 @@ test('a malformed peak window is rejected at load rather than mispricing silentl
   assert.throws(() => parseUtcTime('01:60'), /invalid UTC time/)
   assert.equal(parseUtcTime('00:00'), 0)
   assert.equal(parseUtcTime('23:59'), 23 * 60 + 59)
+})
+
+test('2026-09-05 rule: weekends bill off-peak all day, even inside peak windows', () => {
+  // 周六/周日 09:00 北京（= 01:00 UTC，落在峰值窗口内）→ 低谷价
+  const sat = computeCost(MILLION, 'deepseek-official', 'deepseek-v4-pro', at('2026-08-29T01:00:00Z'))
+  assert.deepEqual(sat, { microUsd: 2_640_000, peak: false })
+  const sun = computeCost(MILLION, 'deepseek-official', 'deepseek-v4-pro', at('2026-08-30T02:00:00Z'))
+  assert.equal(sun?.peak, false)
+  // 周一 09:00 北京（= 01:00 UTC）→ 峰值恢复
+  const mon = computeCost(MILLION, 'deepseek-official', 'deepseek-v4-pro', at('2026-08-31T01:00:00Z'))
+  assert.equal(mon?.peak, true)
+  assert.equal(mon?.microUsd, 5_280_000)
+})
+
+test('a custom table without the weekend flag keeps billing peak on weekends', () => {
+  const legacy: PricingTable = {
+    rates: DEFAULT_PRICING.rates,
+    peakWindows: DEFAULT_PRICING.peakWindows,
+  }
+  const sat = computeCost(MILLION, 'deepseek-official', 'deepseek-v4-pro', at('2026-08-29T01:00:00Z'), legacy)
+  assert.equal(sat?.peak, true)
 })

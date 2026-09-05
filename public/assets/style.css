@@ -1973,6 +1973,29 @@ button:disabled {
   border: 1px solid var(--warn-border);
   color: var(--warn);
 }
+.pill-mini.muted {
+  background: var(--surface-sunken);
+  color: var(--muted);
+}
+
+/* 技能页（P5.2）：agent 分组 + 版本徽章 */
+.skills-agent {
+  margin-bottom: 16px;
+}
+.skills-agent-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 4px 8px;
+}
+.skills-agent-head .pill-mini {
+  margin-left: auto;
+}
+#repo-note {
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  font-size: 13px;
+}
 
 /* ---- docked, collapsed to a rail (>= 1024px) ---- */
 

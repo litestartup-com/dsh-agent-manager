@@ -23,6 +23,7 @@ import { registerUsageRoutes } from './routes/usage.js'
 import { registerCronRoutes } from './routes/cron.js'
 import { registerInternalRoutes } from './routes/internal.js'
 import { registerNodesRoutes } from './routes/nodes.js'
+import { registerSkillsRoutes } from './routes/skills.js'
 import { Scheduler } from './cron/schedule.js'
 import { assetCacheHeaders, buildPages } from './pages.js'
 
@@ -179,6 +180,7 @@ const main = async (): Promise<void> => {
   app.get('/spend', { preHandler: requirePage }, page('spend'))
   app.get('/crons', { preHandler: requirePage }, page('crons'))
   app.get('/nodes', { preHandler: requirePage }, page('nodes'))
+  app.get('/skills', { preHandler: requirePage }, page('skills'))
 
   registerAuthRoutes(app, db, secureCookies)
   registerStatusRoutes(app, config, db, clients, requireUser, upstreamClients)
@@ -204,6 +206,7 @@ const main = async (): Promise<void> => {
   registerInternalRoutes(app, config, db, clients, upstreamClients, scheduler)
   // 蜂群 P3：节点（fleet）视图。
   registerNodesRoutes(app, config, nodeSupervisors, clients, upstreamClients, requireUser)
+  registerSkillsRoutes(app, config, requireUser)
 
   const close = async (signal: string): Promise<void> => {
     app.log.info(`${signal} received, shutting down`)

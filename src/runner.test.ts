@@ -472,8 +472,9 @@ const TWO_RESPONSES: FakeScript = {
   ],
 }
 
-const OFF_PEAK = Date.parse('2026-08-30T12:00:00Z')
-const PEAK = Date.parse('2026-08-30T02:00:00Z')
+// 2026-08-28 是周五（工作日）——周末全天低谷的规则见 pricing.test。
+const OFF_PEAK = Date.parse('2026-08-28T12:00:00Z')
+const PEAK = Date.parse('2026-08-28T02:00:00Z')
 /** One million in plus one million out on deepseek-v4-pro. */
 const OFF_PEAK_MICRO = 2_640_000
 const PEAK_MICRO = 5_280_000

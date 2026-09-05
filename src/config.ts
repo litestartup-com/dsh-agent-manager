@@ -79,6 +79,10 @@ const pricingSchema = z.object({
   peak_windows_utc: z
     .array(z.object({ start: z.string(), end: z.string() }))
     .default([]),
+  // 2026-09-05：周六周日全天低谷计价（DeepSeek V4 规则），默认开。
+  weekends_off_peak: z.boolean().default(true),
+  // 判定「周末」的时区（星期几属于人的日历，峰值窗口是 UTC 的）。
+  timezone: z.string().default('Asia/Shanghai'),
   models: z
     .record(
       z.object({
@@ -362,7 +366,12 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
       startMinuteUtc: parseUtcTime(w.start),
       endMinuteUtc: parseUtcTime(w.end),
     }))
-    pricing = { rates, peakWindows }
+    pricing = {
+      rates,
+      peakWindows,
+      weekendsOffPeak: file.pricing.weekends_off_peak,
+      pricingTimeZone: file.pricing.timezone,
+    }
   }
 
   const password = process.env.MANAGER_INITIAL_PASSWORD ?? ''

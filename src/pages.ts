@@ -88,6 +88,14 @@ export const PAGES: Record<string, PageDef> = {
     script: 'nodes.js',
     contentClass: 'wide',
   },
+  // 蜂群 P5.2：技能清单（v1 只读——文件即真相 + 版本对照）。
+  skills: {
+    file: 'skills.html',
+    title: '技能 · Oh! dsh',
+    css: [],
+    script: 'skills.js',
+    contentClass: 'wide',
+  },
 }
 
 const PLACEHOLDERS = ['{{TITLE}}', '{{HEAD}}', '{{CONTENT_CLASS}}', '{{CONTENT}}', '{{SCRIPT}}'] as const
