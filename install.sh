@@ -15,7 +15,8 @@
 # would garble non-ASCII text (the one sanctioned exception to 默认中文).
 set -euo pipefail
 
-APP_DIR="${APP_DIR:-./ohdsh}"
+# 安装目录 = 执行本脚本时所在的目录（cd 到哪装到哪；APP_DIR 环境变量可覆盖）。
+APP_DIR="${APP_DIR:-.}"
 OHDSH_VERSION="${OHDSH_VERSION:-v1.0.1}"
 RELEASE_BASE="https://github.com/litestartup-com/dsh-agent-manager/releases/download/${OHDSH_VERSION}"
 MANAGER_PORT="${MANAGER_PORT:-8080}"
@@ -40,7 +41,16 @@ confirm() {
 
 # ---- plan first (计划先行) ----
 log "plan: Docker (skip if present) → download release ${OHDSH_VERSION} → .env (never overwrite) → compose up"
+log "install dir: $(pwd)"
 confirm "Continue?" || { log "aborted."; exit 0; }
+
+# 家目录本身拒绝默认安装：避免把 docker-compose.yml/.env/workspaces 摊一屋子
+if [ "$APP_DIR" = "." ] && [ "$(pwd)" = "$HOME" ]; then
+  echo "[install] 检测到你在家目录（$HOME）里执行——请先建一个专用目录再跑："
+  echo "           mkdir -p ~/appx && cd ~/appx && bash ~/install.sh"
+  echo "          （确要装进家目录本身：设 APP_DIR=\$HOME 重跑。）"
+  exit 1
+fi
 
 # ---- docker ----
 if command -v docker >/dev/null 2>&1; then
@@ -79,10 +89,13 @@ else
     rm -f /tmp/ohdsh-compose.zip
     log "bundle unpacked."
   else
-    # 发布包尚不存在（tag 未打）或下载失败：回退到源码克隆，compose 自带 build 段
+    # 发布包尚不存在（tag 未打）或下载失败：回退到源码克隆。
+    # 绝不 rm -rf 安装目录（APP_DIR=. 时会删掉用户当前目录本身）——克隆进临时目录再搬入。
     log "release bundle unavailable — falling back to git clone (master)"
-    rm -rf "$APP_DIR"
-    git clone --depth 1 https://github.com/litestartup-com/dsh-agent-manager.git "$APP_DIR"
+    TMP_CLONE="$(mktemp -d)"
+    run git clone --depth 1 https://github.com/litestartup-com/dsh-agent-manager.git "$TMP_CLONE"
+    run cp -a "$TMP_CLONE"/. "$APP_DIR"/
+    run rm -rf "$TMP_CLONE"
   fi
 fi
 
@@ -197,11 +210,11 @@ cat <<EOF
 
 ============================================================
 Installed. (first boot pulls images — a few minutes on a fresh box)
-  watch:   cd $APP_DIR && docker compose logs -f manager
-  manager: http://127.0.0.1:$MANAGER_PORT  (nginx on :80 when configured)
+  dir:     $APP_DIR_ABS
+  watch:   cd "$APP_DIR_ABS" && docker compose logs -f manager
+  manager: http://127.0.0.1:$MANAGER_PORT  (nginx on :80/:443 when domain set)
   login:   user \$(grep '^MANAGER_USERNAME=' .env | cut -d= -f2)
            password \$(grep '^MANAGER_INITIAL_PASSWORD=' .env | cut -d= -f2)
            (first login forces a password change)
-  backup:  docker compose exec manager node dist/../ — see docs/USER-GUIDE.md
 ============================================================
 EOF
