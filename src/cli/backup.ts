@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import net from 'node:net'
+import { createInterface } from 'node:readline/promises'
 import { backupNow, listSnapshots, restoreSnapshot } from '../backup.js'
 import { loadConfig } from '../config.js'
 import { collectNodeHomes, lastNodeHomeArchive, packNodeHomes, restoreNodeHome } from '../nodebackup.js'
@@ -62,8 +63,23 @@ const main = async (): Promise<void> => {
     }
     console.log(result.detail)
 
-    // 蜂群2计划 P4：节点 home 一并恢复（各节点取最新归档）
+    // 蜂群2计划 P4：节点 home 一并恢复（各节点取最新归档）。
+    // 评审 B4：目录形态恢复会清空目标——先列出将清空的目录，要求确认。
     const { entries, runner, key } = nodeContext()
+    const dirTargets = entries.filter((e) => e.kind === 'dir').map((e) => e.home)
+    if (dirTargets.length > 0) {
+      console.log('将清空并还原以下节点 home 目录：')
+      for (const target of dirTargets) console.log(`  - ${target}`)
+      if (process.env.OHDSH_RESTORE_YES !== '1') {
+        const rl = createInterface({ input: process.stdin, output: process.stdout })
+        const answer = await rl.question('确认继续？输入 yes 执行，其它任意键取消：')
+        rl.close()
+        if (answer !== 'yes') {
+          console.log('已取消。')
+          process.exit(1)
+        }
+      }
+    }
     for (const entry of entries) {
       const last = lastNodeHomeArchive(dir, entry.nodeId)
       if (last === null) {

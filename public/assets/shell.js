@@ -476,13 +476,27 @@ export const loadShell = async () => {
       apiFetch('/api/nodes').then((r) => (r.ok ? r.json() : null)).catch(() => null),
       apiFetch('/api/notifications').then((r) => (r.ok ? r.json() : null)).catch(() => null),
     ])
-    if (me === null || status === null) {
+    if (me === null) {
       window.location.href = '/login'
       return
     }
-    // 蜂群2计划 P3：首登强制改密 —— 除改密页外一律弹过去
-    if (me.mustChangePassword === true && window.location.pathname !== '/password') {
-      window.location.href = '/password'
+    // 蜂群2计划 P3：首登强制改密 —— 除改密页外一律弹过去。
+    // 顺序关键：改密期间业务 API（status 等）被 403 门挡住，status 必为 null，
+    // 若先判 status 会把改密页弹回 /login 造成死循环（发布前评审 B1）。
+    const onPasswordPage = window.location.pathname === '/password'
+    if (me.mustChangePassword === true) {
+      if (!onPasswordPage) {
+        window.location.href = '/password'
+        return
+      }
+      // 改密页：业务 API 不可用，只画壳 + 用户名，其余渲染直接跳过
+      $('who').textContent = me.username
+      const avatar = $('avatar')
+      if (avatar !== null) avatar.textContent = [...me.username][0] ?? '?'
+      return
+    }
+    if (status === null) {
+      window.location.href = '/login'
       return
     }
 

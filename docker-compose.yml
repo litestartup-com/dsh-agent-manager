@@ -16,6 +16,8 @@ services:
       - "80:80"
     volumes:
       - ./deploy/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      # TLS 证书（origin-ca/letsencrypt 模式由 install.sh 生成配置；目录自动创建）
+      - ./ssl:/etc/ssl/ohdsh:ro
     depends_on:
       - manager
     networks: [hive]

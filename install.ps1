@@ -37,7 +37,15 @@ if (-not $DryRun) { Confirm-Step '按计划继续？' }
 # ---- Node ----
 if (-not (Have 'node')) {
   Step '安装 Node LTS（winget）…'
-  if (-not $DryRun) { winget install -e --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements }
+  if (-not $DryRun) {
+    winget install -e --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements
+    # winget 新装的 Node 不在当前会话 PATH 里——刷新机器级/用户级 PATH（评审中危）
+    $env:Path = [System.Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path', 'User')
+  }
+  if (-not (Have 'npm')) {
+    Step 'Node 已安装但当前终端 PATH 未刷新——重开终端后重跑本脚本（幂等，已装项自动跳过）。'
+    exit 1
+  }
 } else {
   $NodeV = (node --version) 2>$null
   Step "Node 已装（$NodeV），跳过。"

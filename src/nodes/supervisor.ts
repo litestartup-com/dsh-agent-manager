@@ -78,6 +78,8 @@ export class NodeSupervisor {
   private containerId: string | null = null
   /** 最近一次 start/restart 的规格：stop/restart 的 docker 分支要用。 */
   private lastSpec: ResolvedSpawnSpec | null = null
+  /** 启动代号：每次 start/stop/adopt 递增，过期异步链直接弃用（发布前评审 B3）。 */
+  private launchGen = 0
   private readyTimer: NodeJS.Timeout | null = null
   private restartTimer: NodeJS.Timeout | null = null
   private manualStop = false
@@ -124,6 +126,7 @@ export class NodeSupervisor {
   /** Stop the node; settles to cold when the process is actually gone. */
   stop(): void {
     this.manualStop = true
+    this.launchGen += 1 // 蜂群2计划 P6 评审 B3：作废所有在途启动链
     if (this.restartTimer !== null) {
       clearTimeout(this.restartTimer)
       this.restartTimer = null
@@ -202,6 +205,7 @@ export class NodeSupervisor {
     this.lastSpec = spec
     this.containerId = containerId
     this.manualStop = false
+    this.launchGen += 1 // 作废在途启动链（评审 B3）
     this.status = { ...this.status, state: 'starting', lastError: null, stateSince: Date.now() }
     this.deps.log?.(`node ${this.id}: adopting container ${containerId}`)
     this.armReadyProbe(spec)
@@ -272,7 +276,17 @@ export class NodeSupervisor {
         if (Date.now() >= deadline) {
           this.lastError = `not ready within ${spec.readyTimeoutMs}ms: ${result.detail}`
           this.deps.log?.(`node ${this.id}: ${this.lastError}`)
-          this.killTree()
+          if (spec.runner === 'docker') {
+            // 评审 B3：docker 模式没有子进程可杀——停容器后走失败决策链
+            const cid = this.containerId
+            this.containerId = null
+            if (cid !== null && this.deps.docker !== undefined) {
+              void this.deps.docker.stop(cid).catch(() => undefined)
+            }
+            this.afterDockerFailure(spec)
+          } else {
+            this.killTree()
+          }
           return
         }
         this.readyTimer = setTimeout(poll, PROBE_POLL_MS)
@@ -291,12 +305,13 @@ export class NodeSupervisor {
     }
     this.status = { ...this.status, state: 'starting', lastError: null, stateSince: Date.now() }
     const env = { ...(this.deps.dockerEnv?.() ?? {}), ...spec.env }
+    const gen = ++this.launchGen // 蜂群2计划 P6 评审 B3：过期链弃用
     void runner
       .ensureImage(spec.docker.image)
       .then(() => runner.start(spec, this.id, env))
       .then((containerId) => {
-        if (this.status.state !== 'starting') {
-          // 等待期间被 stop：刚拉起的容器成为孤儿，补刀清掉
+        if (gen !== this.launchGen || this.status.state !== 'starting') {
+          // 等待期间被 stop/重启/认领：刚拉起的容器成为孤儿，补刀清掉
           void runner.stop(containerId).catch(() => undefined)
           return
         }
@@ -305,6 +320,7 @@ export class NodeSupervisor {
         this.armReadyProbe(spec)
       })
       .catch((error: unknown) => {
+        if (gen !== this.launchGen) return // 过期链的失败不是失败
         this.lastError = error instanceof Error ? error.message : String(error)
         this.deps.log?.(`node ${this.id}: docker 启动失败: ${this.lastError}`)
         if (this.status.state !== 'starting') return

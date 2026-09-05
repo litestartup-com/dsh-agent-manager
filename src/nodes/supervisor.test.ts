@@ -200,3 +200,57 @@ test('P2b: dockerLogs 无容器返回 null；认领后走 runner.logs', async ()
   assert.equal(await node.dockerLogs(), 'docker-logs\n')
   assert.equal(calls.logs, 1)
 })
+
+test('P6 评审 B3: 启动等待期间 stop——在途链作废、孤儿容器被补刀清理、不采纳容器', async () => {
+  let releaseGate: () => void = () => undefined
+  const gate = new Promise<void>((resolveGate) => {
+    releaseGate = resolveGate
+  })
+  const calls = { ensureImage: 0, start: 0, stop: 0 }
+  const runner = {
+    ensureImage: async () => {
+      calls.ensureImage += 1
+      await gate
+    },
+    start: async () => {
+      calls.start += 1
+      return 'cid-late'
+    },
+    stop: async () => {
+      calls.stop += 1
+    },
+    logs: async () => 'late',
+    listManaged: async () => [],
+  } as unknown as DockerRunner
+  const node = new NodeSupervisor('E', { probe: okProbe, docker: runner })
+  node.start(dockerSpec())
+  await waitFor(() => calls.ensureImage === 1, 2_000, 'ensureImage entered')
+  node.stop()
+  assert.equal(node.current.state, 'cold')
+  releaseGate()
+  await new Promise((resolveWait) => setTimeout(resolveWait, 100))
+  assert.equal(node.current.state, 'cold', '过期链不得改变状态')
+  assert.equal(calls.stop, 1, '过期链拉起的孤儿容器被补刀清理')
+  assert.equal(await node.dockerLogs(), null, '过期链不得采纳 containerId')
+})
+
+test('P6 评审 B3: docker 就绪超时——停容器并走失败决策链（不卡 starting）', async () => {
+  const calls = { start: 0, stop: 0 }
+  const runner = {
+    ensureImage: async () => undefined,
+    start: async () => {
+      calls.start += 1
+      return 'cid-x'
+    },
+    stop: async () => {
+      calls.stop += 1
+    },
+    logs: async () => '',
+    listManaged: async () => [],
+  } as unknown as DockerRunner
+  const node = new NodeSupervisor('E', { probe: badProbe, docker: runner })
+  node.start(dockerSpec()) // readyTimeoutMs 2s，maxAttempts 2，退避 10/20ms
+  await waitFor(() => node.current.state === 'offline', 15_000, 'offline after probe timeouts')
+  assert.equal(node.current.attempts, 2)
+  assert.ok(calls.stop >= 2, '每次就绪超时都停容器')
+})

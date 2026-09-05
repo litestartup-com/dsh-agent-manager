@@ -106,3 +106,26 @@ test('蜂群2计划 P4: 密钥错误时解密抛错（备份不可解 = 诚实�
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test('P6 评审 B4: 恢复目标守卫——非绝对/根/家目录/备份目录内一律拒绝', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'nodebackup-guard-'))
+  const backupDir = join(root, 'backups')
+  mkdirSync(backupDir, { recursive: true })
+  writeFileSync(join(backupDir, 'dummy.tar.gz.enc'), 'x', 'utf8')
+  const cases: Array<{ home: string; match: RegExp }> = [
+    { home: 'relative/home', match: /不是绝对路径/ },
+    { home: process.env.USERPROFILE ?? process.env.HOME ?? '/', match: /根\/当前\/家目录/ },
+    { home: backupDir, match: /备份目录内/ },
+  ]
+  try {
+    for (const c of cases) {
+      await assert.rejects(
+        () => restoreNodeHome({ nodeId: 'x', kind: 'dir', home: c.home }, 'dummy.tar.gz.enc', backupDir, KEY, undefined),
+        c.match,
+        `应拒绝 ${c.home}`,
+      )
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
