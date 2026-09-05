@@ -5,11 +5,13 @@
  * 主脑的派工判据读它而不是背死名单。文件是生成物：内容变了就覆盖，
  * 用户永远不手改它（改拓扑 = 改 manager.config.yaml / 用向导）。
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { homedir } from 'node:os'
 import type { AppConfig } from '../config.js'
 
 export const FLEET_FILE = 'fleet.md'
+/** 主脑令牌文件（节点用户 HOME 下；0600；不进工作区/git）。 */
 export const BRAIN_TOKEN_FILE = '.brain-auth'
 
 export const renderFleetDoc = (config: AppConfig): string => {
@@ -66,41 +68,35 @@ export const syncFleetDocs = (config: AppConfig, log?: (line: string) => void): 
     } catch (error) {
       log?.(`fleet.md ${agent.id}: sync failed: ${(error as Error).message.split('\n')[0]}`)
     }
-    // 蜂群2计划 P6：主脑的 X-Brain-Token 经文件下发——DSH 工具沙箱会洗掉
-    // 一切 KEY/TOKEN/SECRET 字样环境变量（dsh-subprocess SENSITIVE_ENV_PATTERN，
-    // 实测），env 通路走不通；0600 文件 + gitignore 是唯一版本无关的通路。
-    if (agent.id === 'brain') provisionBrainTokenFile(agent.workspacePath, log)
   }
   return updated
 }
 
-const TOKEN_FILE = BRAIN_TOKEN_FILE
-
-/** 主脑令牌文件：内容与 .env 的 BRAIN_TOKEN 一致；0600 + 进工作区 .gitignore。 */
-export const provisionBrainTokenFile = (workspacePath: string, log?: (line: string) => void): void => {
+/**
+ * 主脑令牌文件（2026-09-06 拍板：落点 = 节点用户 HOME，不进工作区/git）。
+ * DSH 工具沙箱会洗掉 TOKEN/KEY 字样环境变量（DSH-FACTS §2），env 通路走不通；
+ * HOME 不在清洗名单，技能手册读 `$HOME/.brain-auth`。
+ * 容器形态由节点 entrypoint 从环境变量派生写入；裸机由 manager 启动时调本函数。
+ */
+export const provisionBrainToken = (homeDir: string = homedir(), log?: (line: string) => void): boolean => {
   const token = process.env.BRAIN_TOKEN ?? ''
   if (token === '') {
-    log?.(`brain token file: skipped（BRAIN_TOKEN 未设置）`)
-    return
+    log?.('brain token: skipped（BRAIN_TOKEN 未设置）')
+    return false
   }
-  const path = join(workspacePath, TOKEN_FILE)
+  const path = join(homeDir, BRAIN_TOKEN_FILE)
   try {
-    mkdirSync(workspacePath, { recursive: true })
+    mkdirSync(homeDir, { recursive: true })
     let current = ''
     try {
       current = readFileSync(path, 'utf8')
     } catch {
       // 文件不存在 → 首次写入
     }
-    if (current !== token) {
-      writeFileSync(path, token, { encoding: 'utf8', mode: 0o600 })
-    }
-    const gitignore = join(workspacePath, '.gitignore')
-    const lines = existsSync(gitignore) ? readFileSync(gitignore, 'utf8').split(/\r?\n/) : []
-    if (!lines.includes(TOKEN_FILE)) {
-      writeFileSync(gitignore, [...lines, TOKEN_FILE, ''].join('\n'), 'utf8')
-    }
+    if (current !== token) writeFileSync(path, token, { encoding: 'utf8', mode: 0o600 })
+    return true
   } catch (error) {
-    log?.(`brain token file: failed: ${(error as Error).message.split('\n')[0]}`)
+    log?.(`brain token: failed: ${(error as Error).message.split('\n')[0]}`)
+    return false
   }
 }

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { renderFleetDoc, syncFleetDocs, FLEET_FILE, provisionBrainTokenFile } from './fleet-doc.js'
+import { renderFleetDoc, syncFleetDocs, FLEET_FILE, provisionBrainToken, BRAIN_TOKEN_FILE } from './fleet-doc.js'
 import { DEFAULT_PRICING } from '../pricing.js'
 import type { AppConfig } from '../config.js'
 
@@ -62,21 +62,22 @@ test('蜂群2计划 P6: fleet.md 派生自配置——节点清单/形态/边界
   assert.doesNotMatch(doc, /127\.0\.0\.1|172\.\d+/)
 })
 
-test('蜂群2计划 P6: 主脑令牌经文件下发（DSH 沙箱洗 TOKEN 字样的 env 通路）+ gitignore 防泄漏', () => {
+test('蜂群2计划 P6: 主脑令牌写入节点用户 HOME（不进工作区/git），幂等，未设置则跳过', () => {
   const saved = process.env.BRAIN_TOKEN
-  const root = mkdtempSync(join(tmpdir(), 'brain-token-'))
+  const home = mkdtempSync(join(tmpdir(), 'brain-token-'))
   try {
     process.env.BRAIN_TOKEN = 'test-brain-token-123'
-    provisionBrainTokenFile(root)
-    assert.equal(readFileSync(join(root, '.brain-auth'), 'utf8'), 'test-brain-token-123')
-    assert.match(readFileSync(join(root, '.gitignore'), 'utf8'), /\.brain-auth/, '令牌文件必须被 gitignore')
+    assert.equal(provisionBrainToken(home), true)
+    assert.equal(readFileSync(join(home, BRAIN_TOKEN_FILE), 'utf8'), 'test-brain-token-123')
 
-    // 幂等：内容一致不重写；token 未设置则跳过不写空文件
-    provisionBrainTokenFile(root)
+    // 幂等：内容一致不报错不重写
+    assert.equal(provisionBrainToken(home), true)
+
+    // token 未设置 → 跳过，不写空文件
     delete process.env.BRAIN_TOKEN
     const empty = mkdtempSync(join(tmpdir(), 'brain-token-empty-'))
-    provisionBrainTokenFile(empty)
-    assert.equal(existsSync(join(empty, '.brain-auth')), false)
+    assert.equal(provisionBrainToken(empty), false)
+    assert.equal(existsSync(join(empty, BRAIN_TOKEN_FILE)), false)
   } finally {
     if (saved === undefined) delete process.env.BRAIN_TOKEN
     else process.env.BRAIN_TOKEN = saved
