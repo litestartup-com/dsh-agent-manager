@@ -7,30 +7,50 @@ import { DEFAULT_PRICING, parseUtcTime, type ModelPricing, type PricingTable } f
 
 dotenv.config()
 
-const spawnSchema = z.object({
-  // 蜂群 P1：manager 托管该节点的进程生命周期。false（默认）= 节点由外部拉起，
-  // manager 只探活不管理（与现状一致，用户手动起的 DSH 不会被 manager 抢管）。
-  managed: z.boolean().default(false),
-  command: z.string().min(1),
-  args: z.array(z.string()).default([]),
-  cwd: z.string().optional(),
-  ready_timeout_ms: z.number().int().positive().default(30_000),
-  // detached: true = 节点独立于拉起者存活（CLI `nodes up` 场景），必须配
-  // log_file（stdout/stderr 落文件，pidfile 落 <log_file>.pid 供跨进程 down）。
-  // manager 常驻启动用默认 false（节点随 manager 同生共死）。
-  detached: z.boolean().default(false),
-  log_file: z.string().optional(),
-  // 蜂群 v1.1：节点的额外环境变量（典型：DSH_HOME 指向该节点自己的目录，
-  // 会话/settings/附件与其它节点完全隔离）。
-  env: z.record(z.string(), z.string()).optional(),
-  restart: z
-    .object({
-      max_attempts: z.number().int().positive().default(3),
-      base_delay_ms: z.number().int().nonnegative().default(1_000),
-      max_delay_ms: z.number().int().nonnegative().default(30_000),
-    })
-    .default({ max_attempts: 3, base_delay_ms: 1_000, max_delay_ms: 30_000 }),
+/** 蜂群2计划 P2：docker runner 专属段（runner: docker 时必填）。 */
+const dockerSpawnSchema = z.object({
+  image: z.string().min(1),
+  container_name: z.string().min(1).optional(),
+  network: z.string().default('hive'),
+  port: z.number().int().positive(),
+  /** 宿主机路径 → 容器路径（典型：工作区）。docker.sock 按宿主机语义解析。 */
+  host_volumes: z.record(z.string(), z.string()).default({}),
+  /** 命名卷名 → 容器路径（典型：节点 home /data）。 */
+  named_volumes: z.record(z.string(), z.string()).default({}),
 })
+
+const spawnSchema = z
+  .object({
+    // 蜂群 P1：manager 托管该节点的进程生命周期。false（默认）= 节点由外部拉起，
+    // manager 只探活不管理（与现状一致，用户手动起的 DSH 不会被 manager 抢管）。
+    managed: z.boolean().default(false),
+    command: z.string().min(1).optional(),
+    args: z.array(z.string()).default([]),
+    cwd: z.string().optional(),
+    ready_timeout_ms: z.number().int().positive().default(30_000),
+    // detached: true = 节点独立于拉起者存活（CLI `nodes up` 场景），必须配
+    // log_file（stdout/stderr 落文件，pidfile 落 <log_file>.pid 供跨进程 down）。
+    // manager 常驻启动用默认 false（节点随 manager 同生共死）。
+    detached: z.boolean().default(false),
+    log_file: z.string().optional(),
+    // 蜂群 v1.1：节点的额外环境变量（典型：DSH_HOME 指向该节点自己的目录，
+    // 会话/settings/附件与其它节点完全隔离）。
+    env: z.record(z.string(), z.string()).optional(),
+    restart: z
+      .object({
+        max_attempts: z.number().int().positive().default(3),
+        base_delay_ms: z.number().int().nonnegative().default(1_000),
+        max_delay_ms: z.number().int().nonnegative().default(30_000),
+      })
+      .default({ max_attempts: 3, base_delay_ms: 1_000, max_delay_ms: 30_000 }),
+    // 蜂群2计划 P2：运行方式。process（默认）= 本机直接拉起（现状，裸机路径）；
+    // docker = 经 docker.sock 以容器形态管理（compose 脊柱场景的工蜂）。
+    runner: z.enum(['process', 'docker']).default('process'),
+    docker: dockerSpawnSchema.optional(),
+  })
+  .refine((v) => (v.runner === 'docker' ? v.docker !== undefined : v.command !== undefined), {
+    message: 'spawn: runner=docker 需要 docker 段；runner=process 需要 command',
+  })
 
 const endpointSchema = z.object({
   url: z.string().url(),
@@ -140,6 +160,17 @@ export interface ResolvedSpawnSpec {
   /** Extra env vars layered over the manager's own (典型：DSH_HOME 节点专属目录). */
   env: Record<string, string>
   restart: { maxAttempts: number; baseDelayMs: number; maxDelayMs: number }
+  /** 蜂群2计划 P2：运行方式（process=本机拉起 / docker=容器管理）。 */
+  runner: 'process' | 'docker'
+  /** docker runner 专属段；process runner 为 null。 */
+  docker: {
+    image: string
+    containerName: string | null
+    network: string
+    port: number
+    hostVolumes: Record<string, string>
+    namedVolumes: Record<string, string>
+  } | null
 }
 
 export interface ResolvedEndpoint {
@@ -239,7 +270,7 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
         ? null
         : {
             managed: spawnRaw.managed,
-            command: spawnRaw.command,
+            command: spawnRaw.command ?? '',
             args: spawnRaw.args,
             cwd: spawnRaw.cwd === undefined ? null : resolve(spawnRaw.cwd),
             readyTimeoutMs: spawnRaw.ready_timeout_ms,
@@ -251,6 +282,18 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
               baseDelayMs: spawnRaw.restart.base_delay_ms,
               maxDelayMs: spawnRaw.restart.max_delay_ms,
             },
+            runner: spawnRaw.runner,
+            docker:
+              spawnRaw.docker === undefined
+                ? null
+                : {
+                    image: spawnRaw.docker.image,
+                    containerName: spawnRaw.docker.container_name ?? null,
+                    network: spawnRaw.docker.network,
+                    port: spawnRaw.docker.port,
+                    hostVolumes: spawnRaw.docker.host_volumes,
+                    namedVolumes: spawnRaw.docker.named_volumes,
+                  },
           }
     endpoints[id] = {
       id,

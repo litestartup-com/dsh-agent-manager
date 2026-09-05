@@ -146,3 +146,60 @@ test('蜂群 P5.1: brain daily budget defaults off and parses when set', () => {
 test('no spawn block resolves to null (externally managed node)', () => {  const cfg = loadFrom(baseConfig())
   assert.equal(cfg.endpoints['A']?.spawn, null)
 })
+
+test('蜂群2计划 P2: spawn.runner defaults to process; docker runner resolves its spec', () => {
+  const cfg = loadFrom(baseConfig({
+    endpoints: {
+      A: {
+        url: 'http://127.0.0.1:3080',
+        driver: 'apiproxy',
+        spawn: {
+          managed: true,
+          runner: 'docker',
+          docker: {
+            image: 'ohdsh/dsh-node:0.1.1-rc.2',
+            network: 'hive',
+            port: 3081,
+            host_volumes: { '/opt/ohdsh/workspaces/personal': '/workspace' },
+            named_volumes: { 'ohdsh-personal': '/data' },
+          },
+        },
+      },
+    },
+  }))
+  const spawn = cfg.endpoints['A']?.spawn
+  assert.ok(spawn !== null && spawn !== undefined)
+  assert.equal(spawn.runner, 'docker')
+  assert.equal(spawn.command, '', 'docker runner 不需要 command')
+  assert.equal(spawn.docker?.image, 'ohdsh/dsh-node:0.1.1-rc.2')
+  assert.equal(spawn.docker?.containerName, null)
+  assert.equal(spawn.docker?.network, 'hive')
+  assert.equal(spawn.docker?.port, 3081)
+  assert.deepEqual(spawn.docker?.hostVolumes, { '/opt/ohdsh/workspaces/personal': '/workspace' })
+  assert.deepEqual(spawn.docker?.namedVolumes, { 'ohdsh-personal': '/data' })
+})
+
+test('蜂群2计划 P2: runner=docker without docker block fails loud', () => {
+  assert.throws(
+    () => loadFrom(baseConfig({
+      endpoints: {
+        A: {
+          url: 'http://127.0.0.1:3080',
+          driver: 'apiproxy',
+          spawn: { managed: true, runner: 'docker' },
+        },
+      },
+    })),
+    /runner=docker 需要 docker 段/,
+  )
+})
+
+test('蜂群2计划 P2: process spawn keeps resolving with runner=process and docker=null', () => {
+  const cfg = loadFrom(baseConfig({
+    endpoints: {
+      A: { url: 'http://127.0.0.1:3080', driver: 'apiproxy', spawn: { managed: true, command: 'node' } },
+    },
+  }))
+  assert.equal(cfg.endpoints['A']?.spawn?.runner, 'process')
+  assert.equal(cfg.endpoints['A']?.spawn?.docker, null)
+})
