@@ -66,4 +66,7 @@ volumes:
   ohdsh-brain:
 
 networks:
+  # 显式命名：manager 的 docker runner 在宿主机 dockerd 侧创建工蜂容器时按此名
+  # 挂网（compose 默认会加项目名前缀 ohdsh_hive，配置里写 hive 会 404 no such network）
   hive:
+    name: ohdsh-hive

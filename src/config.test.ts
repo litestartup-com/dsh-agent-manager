@@ -215,7 +215,7 @@ test('蜂群2计划 P5: 随仓发布的容器示例配置必须始终通过 sche
     assert.equal(brain.spawn, null, '主脑由 compose 声明（脊柱，非托管）')
     assert.equal(personal.spawn?.runner, 'docker')
     assert.equal(personal.spawn?.docker?.image, 'ohdsh/dsh-node:0.1.1-rc.2')
-    assert.equal(personal.spawn?.docker?.network, 'hive')
+    assert.equal(personal.spawn?.docker?.network, 'ohdsh-hive', '与 compose 显式网络名一致')
     assert.deepEqual(cfg.backupDockerVolumes, ['ohdsh-brain'], '脊柱主脑卷进备份声明')
     assert.equal(cfg.agents['brain']?.sandboxMode, 'workspace-write')
   })
