@@ -6,6 +6,7 @@ mkdir -p "$DSH_HOME"
 
 # 1) 首次：把镜像里预装好（依赖已冻结）的 profile 复制进卷 —— 本地复制，零网络
 if [ ! -d "$DSH_HOME/profiles/ohdsh-node" ]; then
+  mkdir -p "$DSH_HOME/profiles"
   cp -a /opt/ohdsh-profile "$DSH_HOME/profiles/ohdsh-node"
   echo "[entrypoint] profile seeded into $DSH_HOME/profiles/ohdsh-node"
 fi
