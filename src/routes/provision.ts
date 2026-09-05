@@ -110,7 +110,7 @@ export const registerProvisionRoutes = (
     if (config.endpoints[body.name] !== undefined) {
       return reply.code(409).send({ error: 'duplicate_node', detail: `节点 ${body.name} 已存在` })
     }
-    // 归一化工作区规格：缺省值全部由节点名推导。
+    // 归一化工作区规格：缺省值全部由节点名推导（与向导展示的默认一致）。
     const agentSpec =
       body.agent === undefined
         ? null
@@ -118,8 +118,8 @@ export const registerProvisionRoutes = (
             id: body.agent.id ?? body.name,
             name: body.agent.name ?? body.name,
             workspace: resolve(body.agent.workspace ?? join(nodesHome(), 'workspaces', body.name)),
-            preset: body.agent.preset ?? null,
-            sandboxMode: body.agent.sandboxMode ?? null,
+            preset: body.agent.preset ?? 'standard',
+            sandboxMode: body.agent.sandboxMode ?? 'workspace-write',
           }
     if (agentSpec !== null && config.agents[agentSpec.id] !== undefined) {
       return reply.code(409).send({ error: 'duplicate_agent', detail: `工作区 "${agentSpec.id}" 已存在` })
@@ -186,8 +186,8 @@ export const registerProvisionRoutes = (
           endpoint: body.name,
           workspace: agentSpec.workspace,
           public: false,
-          ...(agentSpec.preset === null ? {} : { preset: agentSpec.preset }),
-          ...(agentSpec.sandboxMode === null ? {} : { sandbox_mode: agentSpec.sandboxMode }),
+          preset: agentSpec.preset,
+          sandbox_mode: agentSpec.sandboxMode,
         }
       }
       writeFileSync(resolve(CONFIG_PATH), stringifyYaml(yaml), 'utf8')

@@ -154,20 +154,43 @@ $('f-cancel').addEventListener('click', () => {
   $('node-editor').hidden = true
 })
 
+// 高级设置随节点名实时联动：没被手改过的字段跟着节点名走；手改过（dirty）
+// 的字段保持不动，清空才重新跟随。提交时 clean 字段省略，后端按同一规则
+// 自动生成——展示与落盘永远一致。
+const advancedFields = ['f-agent-id', 'f-agent-name', 'f-agent-workspace']
+const advancedDirty = new Set()
+
+for (const id of advancedFields) {
+  const el = $(id)
+  el.addEventListener('input', () => {
+    if (el.value.trim() === '') advancedDirty.delete(id)
+    else advancedDirty.add(id)
+  })
+}
+
+$('f-node-name').addEventListener('input', () => {
+  const name = $('f-node-name').value.trim()
+  if (!advancedDirty.has('f-agent-id')) $('f-agent-id').value = name
+  if (!advancedDirty.has('f-agent-name')) $('f-agent-name').value = name
+  if (!advancedDirty.has('f-agent-workspace')) {
+    $('f-agent-workspace').value = name === '' ? '' : `~/.dsh-ohdsh/workspaces/${name}`
+  }
+})
+
 $('node-form').addEventListener('submit', async (event) => {
   event.preventDefault()
   const name = $('f-node-name').value.trim()
   const portRaw = $('f-node-port').value.trim()
   if (name === '') return
 
-  // 工作区总是创建；高级设置里的字段留空 = 后端按节点名自动生成。
+  // 工作区总是创建；clean 的字段省略（后端按节点名生成同款默认）。
   const payload = {
     name,
     ...(portRaw === '' ? {} : { port: Number(portRaw) }),
     agent: {
-      ...($('f-agent-id').value.trim() === '' ? {} : { id: $('f-agent-id').value.trim() }),
-      ...($('f-agent-name').value.trim() === '' ? {} : { name: $('f-agent-name').value.trim() }),
-      ...($('f-agent-workspace').value.trim() === '' ? {} : { workspace: $('f-agent-workspace').value.trim() }),
+      ...(advancedDirty.has('f-agent-id') ? { id: $('f-agent-id').value.trim() } : {}),
+      ...(advancedDirty.has('f-agent-name') ? { name: $('f-agent-name').value.trim() } : {}),
+      ...(advancedDirty.has('f-agent-workspace') ? { workspace: $('f-agent-workspace').value.trim() } : {}),
       ...($('f-agent-preset').value.trim() === '' ? {} : { preset: $('f-agent-preset').value.trim() }),
       sandboxMode: $('f-agent-sandbox').value,
     },
@@ -193,6 +216,7 @@ $('node-form').addEventListener('submit', async (event) => {
         : `已创建，但有个提醒：${body.workspaceWarning}`
     $('node-editor').hidden = true
     $('node-form').reset()
+    advancedDirty.clear()
     await load()
   } catch (error) {
     $('f-warn').textContent = `创建失败：${error.message}`

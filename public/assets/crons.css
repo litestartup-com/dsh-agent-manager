@@ -109,59 +109,8 @@
   gap: 12px;
 }
 
-.field-row {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.field-row .field {
-  flex: 1 1 220px;
-  min-width: 0;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.field-label {
-  font-size: 12px;
-  color: var(--text-2);
-}
-
-.field-hint {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-
-.text-input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 9px 11px;
-  border: 1px solid var(--border);
-  border-radius: var(--r);
-  background: var(--surface);
-  color: var(--text-1);
-  font: inherit;
-  font-size: 13px;
-  transition:
-    border-color var(--motion),
-    box-shadow var(--motion);
-}
-.text-input:focus-visible {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
-}
-.text-input.mono {
-  font-family: var(--mono);
-}
-textarea.text-input {
-  resize: vertical;
-}
+/* 共享表单样式（field/text-input/form-actions）已迁往 style.css——
+   节点向导等其它页面要用同一套表单。 */
 
 /* Preset patterns, all deliberately off-peak. */
 .chip {
@@ -177,13 +126,4 @@ textarea.text-input {
 .chip:hover {
   border-color: var(--accent);
   color: var(--accent);
-}
-
-.form-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.form-actions .muted {
-  margin-right: auto;
 }
