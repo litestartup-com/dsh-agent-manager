@@ -18,5 +18,6 @@ jobs:
       - run: npm test
       - run: npm run drill
       - run: npm run build
+      - run: node scripts/fresh-boot-smoke.mjs
       - run: npm audit --omit=dev --audit-level=high
       - run: node scripts/check-docs.mjs
