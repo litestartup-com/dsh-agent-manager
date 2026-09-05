@@ -146,6 +146,13 @@ const fileSchema = z.object({
     .object({ daily_budget_usd: z.number().positive().optional() })
     .default({}),
   pricing: pricingSchema.optional(),
+  // 蜂群2计划 P4：备份扩展——额外纳入备份的 docker 命名卷（compose 脊柱的
+  // 主脑卷等无 spawn 段的节点 home）。
+  backup: z
+    .object({
+      docker_volumes: z.array(z.string()).default([]),
+    })
+    .default({}),
 })
 
 export interface ResolvedSpawnSpec {
@@ -221,6 +228,8 @@ export interface AppConfig {
   brainDailyBudgetMicroUsd?: number | null
   /** Token rates and peak windows, from config or the built-in defaults. */
   pricing: PricingTable
+  /** 蜂群2计划 P4：额外纳入备份的 docker 命名卷（无 spawn 段的节点 home，如脊柱主脑卷）。 */
+  backupDockerVolumes?: string[]
   sessionSecret: string
   initialUser: { username: string; password: string | null }
   /**
@@ -436,6 +445,7 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
     brainDailyBudgetMicroUsd:
       file.brain.daily_budget_usd === undefined ? null : Math.round(file.brain.daily_budget_usd * 1e6),
     pricing,
+    backupDockerVolumes: file.backup.docker_volumes,
     sessionSecret,
     initialUser: {
       username: process.env.MANAGER_USERNAME ?? 'admin',

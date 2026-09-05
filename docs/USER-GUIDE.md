@@ -84,10 +84,15 @@ irm https://get.ohdsh.com/install.ps1 -OutFile install.ps1; powershell -Executio
 
 | 操作 | 命令 |
 | --- | --- |
-| 备份（另有 15 分钟自动快照） | `npm run backup [-- list]` |
-| 恢复（自动探测 manager 是否在跑） | `npm run restore -- latest` |
+| 备份（另有 15 分钟自动快照 + 节点 home 加密归档） | `npm run backup [-- list]` |
+| 恢复（自动探测 manager 是否在跑；DB + 节点 home 一起回） | `npm run restore -- latest` |
+| DR 演练（临时目录全链路：备份→删除→恢复→断言） | `npm run drill` |
 | 自更新（备份→拉新→构建→探活，失败自动回滚） | `npm run update` |
 | 开机自启 | `npm run service -- install \| uninstall \| status` |
+
+节点 home（会话/技能/settings）随自动备份一起打包**加密**归档（密钥派生自
+SESSION_SECRET，`.env` 丢失 = 备份不可解）；归档保留策略与 DB 快照一致
+（24h 全留 → 每日 30 天 → 每周 12 周）。
 
 ## 9. 常见问题
 
