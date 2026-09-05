@@ -168,3 +168,25 @@ test('蜂群 P5.1: unmanaged nodes get a friendly 409, unknown nodes a 404', asy
   const missing = await app.inject({ method: 'POST', url: '/api/nodes/nope/down' })
   assert.equal(missing.statusCode, 404)
 })
+
+test('蜂群2计划 P2b: docker runner 节点的日志走 docker logs', async () => {
+  const gw = await startFakeGateway({ frames: [] }, API_KEY)
+  gateways.push(gw)
+  const config = configFor(gw)
+  const dockerSpawn = {
+    ...managedSpawn,
+    runner: 'docker' as const,
+    docker: { image: 'ohdsh/dsh-node:0.1.1-rc.2', containerName: null, network: 'hive', port: 3081, hostVolumes: {}, namedVolumes: {} },
+  }
+  config.endpoints['A']!.spawn = dockerSpawn as never
+  const calls = { start: 0, stop: 0, restart: 0 }
+  const supervisor = stubSupervisor(calls) as unknown as NodeSupervisor & { dockerLogs: () => Promise<string | null> }
+  supervisor.dockerLogs = async () => 'container-log\n'
+  const app = Fastify()
+  registerNodesRoutes(app, config, new Map([['A', supervisor]]), new Map(), new Map(), async () => {})
+
+  const logs = await app.inject({ method: 'GET', url: '/api/nodes/A/logs' })
+  assert.equal(logs.statusCode, 200)
+  assert.equal((logs.json() as { logs: string; source: string }).logs, 'container-log\n')
+  assert.equal((logs.json() as { source: string }).source, 'docker')
+})
