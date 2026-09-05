@@ -22,6 +22,8 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/package.json ./package.json
 COPY public ./public
+# 工作区模板：容器路径没有 setup 步骤，manager 启动时对空工作区自动播种
+COPY templates ./templates
 RUN mkdir -p /app/data
 EXPOSE 8080
 CMD ["node", "dist/index.js"]

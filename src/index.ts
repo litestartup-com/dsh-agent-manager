@@ -20,6 +20,7 @@ import { CSRF_COOKIE } from './routes/auth.js'
 import { registerAuditRoutes } from './routes/audit.js'
 import { collectNodeHomes, packNodeHomes } from './nodebackup.js'
 import { deriveBackupKey } from './crypt.js'
+import { seedEmptyWorkspaces } from './workspace/seed.js'
 import { registerAuthRoutes } from './routes/auth.js'
 import { registerStatusRoutes } from './routes/status.js'
 import { registerWorkspaceRoutes } from './routes/workspace.js'
@@ -123,6 +124,14 @@ const main = async (): Promise<void> => {
     log: (line) => app.log.info(line),
     docker: dockerRunner ?? undefined,
   })
+  // 蜂群2计划 P6：容器路径没有 setup 步骤——空工作区启动即播种模板
+  // （主脑的 AGENTS.md/技能手册、个人的模板页），任何已有文件的工作区绝不触碰。
+  const seededWorkspaces = seedEmptyWorkspaces(
+    Object.values(config.agents).map((a) => ({ id: a.id, workspacePath: a.workspacePath })),
+    (line) => app.log.info(line),
+  )
+  if (seededWorkspaces.length > 0) app.log.info(`workspaces seeded: ${seededWorkspaces.join(', ')}`)
+
   // 蜂群 P1：被托管的节点随 manager 一起拉起。不托管（spawn 缺省/关闭）的节点
   // 由外部管理，manager 只探活——用户手动起的 DSH 不会被抢管。
   // 蜂群2计划 P2b：docker runner 走对账——认领在跑容器、补拉缺失；process 照旧。
