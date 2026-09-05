@@ -4,11 +4,15 @@ set -euo pipefail
 
 mkdir -p "$DSH_HOME"
 
-# 1) 首次：把镜像里预装好（依赖已冻结）的 profile 复制进卷 —— 本地复制，零网络
-if [ ! -d "$DSH_HOME/profiles/ohdsh-node" ]; then
+# 1) 播种/升级 profile：卷里没有，或播种版本与镜像不一致 → 重新复制（本地，零网络）
+SEED_CUR=""
+SEED_NEW="$(cat /opt/ohdsh-profile/.seed-version 2>/dev/null || echo unknown)"
+[ -f "$DSH_HOME/profiles/ohdsh-node/.seed-version" ] && SEED_CUR="$(cat "$DSH_HOME/profiles/ohdsh-node/.seed-version")"
+if [ ! -d "$DSH_HOME/profiles/ohdsh-node" ] || [ "$SEED_CUR" != "$SEED_NEW" ]; then
+  rm -rf "$DSH_HOME/profiles/ohdsh-node"
   mkdir -p "$DSH_HOME/profiles"
   cp -a /opt/ohdsh-profile "$DSH_HOME/profiles/ohdsh-node"
-  echo "[entrypoint] profile seeded into $DSH_HOME/profiles/ohdsh-node"
+  echo "[entrypoint] profile seeded into $DSH_HOME/profiles/ohdsh-node (seed ${SEED_NEW:0:8})"
 fi
 
 # 2) gateway 静态密钥（环境注入；已有 settings 不覆盖）
