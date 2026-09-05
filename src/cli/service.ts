@@ -125,4 +125,8 @@ const main = (): void => {
   else console.log(installLinux(root, node).detail)
 }
 
-main()
+// 只在被直接执行时运行：被测试/其它模块 import 时绝不能有副作用
+// （2026-09-05 实测踩坑——测试导入直接把真实计划任务装到了机器上）。
+if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main()
+}
