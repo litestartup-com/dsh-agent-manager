@@ -26,6 +26,7 @@
 import { spawn, spawnSync, type ChildProcess, type StdioOptions } from 'node:child_process'
 import { openSync, rmSync, writeFileSync } from 'node:fs'
 import type { ResolvedSpawnSpec } from '../config.js'
+import type { DockerRunner } from './docker-runner.js'
 
 export type NodeState = 'cold' | 'starting' | 'live' | 'restarting' | 'offline'
 
@@ -49,6 +50,10 @@ export interface SupervisorDeps {
   /** Endpoint health probe; must resolve quickly and never throw. */
   probe: (id: string) => Promise<NodeProbeResult>
   log?: (line: string) => void
+  /** 蜂群2计划 P2b：docker runner（runner=docker 的节点用）；缺 = 该模式不可用。 */
+  docker?: DockerRunner
+  /** docker 容器的附加环境（GW_KEY / DEEPSEEK_API_KEY 等，由 wiring 层按 endpoint 提供）。 */
+  dockerEnv?: () => Record<string, string>
 }
 
 /** Exponential backoff, capped: attempt 1 → base, 2 → 2×base, … never above max. */
@@ -69,6 +74,10 @@ export class NodeSupervisor {
   readonly id: string
   private readonly deps: SupervisorDeps
   private child: ChildProcess | null = null
+  /** 蜂群2计划 P2b：docker runner 模式下当前容器 id（process 模式恒为 null）。 */
+  private containerId: string | null = null
+  /** 最近一次 start/restart 的规格：stop/restart 的 docker 分支要用。 */
+  private lastSpec: ResolvedSpawnSpec | null = null
   private readyTimer: NodeJS.Timeout | null = null
   private restartTimer: NodeJS.Timeout | null = null
   private manualStop = false
@@ -100,6 +109,13 @@ export class NodeSupervisor {
 
   /** Start the node (no-op unless cold/offline-restart). */
   start(spec: ResolvedSpawnSpec): void {
+    this.lastSpec = spec
+    if (spec.runner === 'docker') {
+      if (this.containerId !== null || this.restartTimer !== null || this.status.state === 'starting') return
+      this.manualStop = false
+      this.startDocker(spec)
+      return
+    }
     if (this.child !== null || this.restartTimer !== null || this.status.state === 'starting') return
     this.manualStop = false
     this.spawnOnce(spec)
@@ -116,6 +132,35 @@ export class NodeSupervisor {
       clearTimeout(this.readyTimer)
       this.readyTimer = null
     }
+    // 蜂群2计划 P2b：docker 模式 —— 停容器即停节点（状态都在卷里）
+    const spec = this.lastSpec
+    if (spec !== null && spec.runner === 'docker') {
+      const cid = this.containerId
+      this.containerId = null
+      const runner = this.deps.docker
+      if (cid === null || runner === undefined) {
+        this.status = { ...this.status, state: 'cold', pid: null, stateSince: Date.now() }
+        return
+      }
+      void runner
+        .stop(cid)
+        .then(() => {
+          if (this.restartRequested) {
+            this.restartRequested = false
+            this.manualStop = false
+            this.status = { ...this.status, state: 'cold', pid: null, attempts: 0, stateSince: Date.now() }
+            this.deps.log?.(`node ${this.id}: restarting (docker)`)
+            this.startDocker(spec)
+            return
+          }
+          this.status = { ...this.status, state: 'cold', pid: null, stateSince: Date.now() }
+          this.deps.log?.(`node ${this.id}: stopped (docker)`)
+        })
+        .catch((error: unknown) => {
+          this.deps.log?.(`node ${this.id}: docker stop 失败: ${error instanceof Error ? error.message : String(error)}`)
+        })
+      return
+    }
     if (this.child === null) {
       this.clearPidFile()
       this.status = { ...this.status, state: 'cold', pid: null, stateSince: Date.now() }
@@ -126,8 +171,9 @@ export class NodeSupervisor {
 
   /** 蜂群 P5.1：主动重启。stop 之后进程消失时自动重新拉起，清零重试计数。 */
   restart(spec: ResolvedSpawnSpec): void {
+    this.lastSpec = spec
     // 没有进程在跑 = 直接启动；否则等进程消失后再拉起，避免残留标记。
-    if (this.child === null && this.restartTimer === null) {
+    if (this.child === null && this.containerId === null && this.restartTimer === null) {
       this.start(spec)
       return
     }
@@ -138,6 +184,27 @@ export class NodeSupervisor {
   /** Buffered stdout/stderr of the current (or last) child, as text. */
   logs(): string {
     return this.logLines.join('')
+  }
+
+  /** 蜂群2计划 P2b：docker 模式的日志走 docker logs；不可用返回 null（调用方回退缓冲）。 */
+  async dockerLogs(): Promise<string | null> {
+    if (this.deps.docker === undefined || this.containerId === null) return null
+    try {
+      return await this.deps.docker.logs(this.containerId, 500)
+    } catch (error) {
+      this.deps.log?.(`node ${this.id}: docker logs 失败: ${error instanceof Error ? error.message : String(error)}`)
+      return null
+    }
+  }
+
+  /** 蜂群2计划 P2b：启动对账——认领已在跑的托管容器（不重复拉起）。 */
+  adopt(spec: ResolvedSpawnSpec, containerId: string): void {
+    this.lastSpec = spec
+    this.containerId = containerId
+    this.manualStop = false
+    this.status = { ...this.status, state: 'starting', lastError: null, stateSince: Date.now() }
+    this.deps.log?.(`node ${this.id}: adopting container ${containerId}`)
+    this.armReadyProbe(spec)
   }
 
   private spawnOnce(spec: ResolvedSpawnSpec): void {
@@ -212,6 +279,67 @@ export class NodeSupervisor {
       })
     }
     poll()
+  }
+
+  private startDocker(spec: ResolvedSpawnSpec): void {
+    const runner = this.deps.docker
+    if (runner === undefined || spec.docker === null) {
+      this.lastError = 'docker runner 未接线（manager 未挂载 docker.sock？）'
+      this.deps.log?.(`node ${this.id}: ${this.lastError}`)
+      this.status = { ...this.status, state: 'offline', lastError: this.lastError, stateSince: Date.now() }
+      return
+    }
+    this.status = { ...this.status, state: 'starting', lastError: null, stateSince: Date.now() }
+    const env = { ...(this.deps.dockerEnv?.() ?? {}), ...spec.env }
+    void runner
+      .ensureImage(spec.docker.image)
+      .then(() => runner.start(spec, this.id, env))
+      .then((containerId) => {
+        if (this.status.state !== 'starting') {
+          // 等待期间被 stop：刚拉起的容器成为孤儿，补刀清掉
+          void runner.stop(containerId).catch(() => undefined)
+          return
+        }
+        this.containerId = containerId
+        this.deps.log?.(`node ${this.id}: container ${containerId} (${spec.docker?.image ?? '?'})`)
+        this.armReadyProbe(spec)
+      })
+      .catch((error: unknown) => {
+        this.lastError = error instanceof Error ? error.message : String(error)
+        this.deps.log?.(`node ${this.id}: docker 启动失败: ${this.lastError}`)
+        if (this.status.state !== 'starting') return
+        this.afterDockerFailure(spec)
+      })
+  }
+
+  /** docker 启动失败后的重试/停用决策（复用 process 模式的同一策略函数）。 */
+  private afterDockerFailure(spec: ResolvedSpawnSpec): void {
+    if (this.manualStop) {
+      this.status = { ...this.status, state: 'cold', pid: null, stateSince: Date.now() }
+      return
+    }
+    const attempts = this.status.attempts + 1
+    const decision = decideAfterExit(attempts, spec.restart.maxAttempts, false)
+    this.status = {
+      ...this.status,
+      pid: null,
+      attempts,
+      lastError: this.lastError ?? 'docker 启动失败',
+      startedAt: null,
+      stateSince: Date.now(),
+    }
+    if (decision === 'offline') {
+      this.status = { ...this.status, state: 'offline' }
+      this.deps.log?.(`node ${this.id}: offline after ${attempts} consecutive failures`)
+      return
+    }
+    const delay = backoffDelayMs(attempts, spec.restart.baseDelayMs, spec.restart.maxDelayMs)
+    this.status = { ...this.status, state: 'restarting' }
+    this.deps.log?.(`node ${this.id}: restart in ${delay}ms (attempt ${attempts})`)
+    this.restartTimer = setTimeout(() => {
+      this.restartTimer = null
+      this.startDocker(spec)
+    }, delay)
   }
 
   private onExit(spec: ResolvedSpawnSpec, code: number | null, signal: NodeJS.Signals | null): void {

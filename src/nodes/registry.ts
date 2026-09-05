@@ -8,6 +8,7 @@
  */
 
 import { NodeSupervisor, type NodeProbeResult } from './supervisor.js'
+import type { DockerRunner } from './docker-runner.js'
 import type { AppConfig, ResolvedEndpoint } from '../config.js'
 import type { GatewayClient } from '../gateway/client.js'
 import type { UpstreamClient } from '../upstream/client.js'
@@ -17,6 +18,8 @@ export interface NodeRegistryDeps {
   gateway: (id: string) => GatewayClient | undefined
   upstream: (id: string) => UpstreamClient | undefined
   log?: (line: string) => void
+  /** 蜂群2计划 P2b：docker runner（有 runner=docker 的 endpoint 才需要）。 */
+  docker?: DockerRunner
 }
 
 /** 蜂群 P5.5：单节点监督器构造（boot 全量构建与运行时热加载共用）。 */
@@ -48,11 +51,22 @@ export const makeSupervisor = (endpoint: ResolvedEndpoint, deps: NodeRegistryDep
       }
     },
     log: deps.log,
+    docker: deps.docker,
+    // 蜂群2计划 P2b：节点容器的环境 —— GW_KEY 走 gateway 沙箱密钥（与 settings
+    // 注入一致），模型 key 走继承环境（DSH 凭据分层里优先级最高）。
+    dockerEnv: () => ({
+      DSH_HOME: '/data',
+      GW_KEY: endpoint.sandboxKey,
+      ...(process.env.DEEPSEEK_API_KEY !== undefined && process.env.DEEPSEEK_API_KEY !== ''
+        ? { DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY }
+        : {}),
+    }),
   })
 
 export const buildNodeSupervisors = (config: AppConfig, deps: NodeRegistryDeps): Map<string, NodeSupervisor> => {
   const map = new Map<string, NodeSupervisor>()
   for (const endpoint of Object.values(config.endpoints)) {
+    // 蜂群2计划 P2b：docker runner 的节点也是托管节点（manager 经 socket 拉容器）
     if (endpoint.spawn === null || !endpoint.spawn.managed) continue
     map.set(endpoint.id, makeSupervisor(endpoint, deps))
   }

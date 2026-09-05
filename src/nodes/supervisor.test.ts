@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { NodeSupervisor, backoffDelayMs, decideAfterExit } from './supervisor.js'
+import type { DockerRunner } from './docker-runner.js'
 import type { ResolvedSpawnSpec } from '../config.js'
 
 const spec = (over: Partial<ResolvedSpawnSpec> = {}): ResolvedSpawnSpec => ({
@@ -20,6 +21,39 @@ const spec = (over: Partial<ResolvedSpawnSpec> = {}): ResolvedSpawnSpec => ({
   docker: null,
   ...over,
 })
+
+/** 蜂群2计划 P2b：docker runner 节点规格（快速退避，测试友好）。 */
+const dockerSpec = (): ResolvedSpawnSpec =>
+  spec({
+    command: '',
+    runner: 'docker',
+    readyTimeoutMs: 2_000,
+    restart: { maxAttempts: 2, baseDelayMs: 10, maxDelayMs: 20 },
+    docker: { image: 'ohdsh/dsh-node:0.1.1-rc.2', containerName: null, network: 'hive', port: 3081, hostVolumes: {}, namedVolumes: {} },
+  })
+
+const stubDocker = (startFails = false): { runner: DockerRunner; calls: { ensureImage: number; start: number; stop: number; logs: number } } => {
+  const calls = { ensureImage: 0, start: 0, stop: 0, logs: 0 }
+  const runner = {
+    ensureImage: async () => {
+      calls.ensureImage += 1
+    },
+    start: async () => {
+      calls.start += 1
+      if (startFails) throw new Error('no docker')
+      return 'cid-1'
+    },
+    stop: async () => {
+      calls.stop += 1
+    },
+    logs: async () => {
+      calls.logs += 1
+      return 'docker-logs\n'
+    },
+    listManaged: async () => [],
+  } as unknown as DockerRunner
+  return { runner, calls }
+}
 
 const okProbe = async (): Promise<{ ok: true; detail: string }> => ({ ok: true, detail: '' })
 const badProbe = async (): Promise<{ ok: false; detail: string }> => ({ ok: false, detail: 'down' })
@@ -123,4 +157,46 @@ test('a detached node writes to its log file, leaves a pidfile, and cleans it on
   }
   assert.equal(existsSync(logFile + '.pid'), false, 'pidfile removed on stop')
   rmSync(dir, { recursive: true, force: true })
+})
+
+// ---- 蜂群2计划 P2b：docker runner 模式 ----
+
+test('P2b: docker 节点启动→探活→停止走 runner，不碰子进程', async () => {
+  const { runner, calls } = stubDocker()
+  const node = new NodeSupervisor('E', { probe: okProbe, docker: runner, dockerEnv: () => ({ DSH_HOME: '/data', GW_KEY: 'k' }) })
+  node.start(dockerSpec())
+  await waitFor(() => node.current.state === 'live', 5_000, 'docker live')
+  assert.equal(calls.ensureImage, 1)
+  assert.equal(calls.start, 1)
+  assert.equal(node.current.pid, null, 'docker 模式没有进程 pid')
+  node.stop()
+  await waitFor(() => node.current.state === 'cold', 5_000, 'docker cold')
+  assert.equal(calls.stop, 1)
+})
+
+test('P2b: adopt 认领在跑容器，探活通过即 live，绝不重复拉起', async () => {
+  const { runner, calls } = stubDocker()
+  const node = new NodeSupervisor('E', { probe: okProbe, docker: runner })
+  node.adopt(dockerSpec(), 'cid-adopted')
+  await waitFor(() => node.current.state === 'live', 5_000, 'adopted live')
+  assert.equal(calls.start, 0)
+  assert.equal(calls.ensureImage, 0)
+})
+
+test('P2b: docker 启动连续失败按退避重试，超过次数停用', async () => {
+  const { runner } = stubDocker(true)
+  const node = new NodeSupervisor('E', { probe: okProbe, docker: runner })
+  node.start(dockerSpec())
+  await waitFor(() => node.current.state === 'offline', 5_000, 'docker offline')
+  assert.equal(node.current.attempts, 2)
+  assert.match(node.current.lastError ?? '', /no docker/)
+})
+
+test('P2b: dockerLogs 无容器返回 null；认领后走 runner.logs', async () => {
+  const { runner, calls } = stubDocker()
+  const node = new NodeSupervisor('E', { probe: okProbe, docker: runner })
+  assert.equal(await node.dockerLogs(), null)
+  node.adopt(dockerSpec(), 'cid-1')
+  assert.equal(await node.dockerLogs(), 'docker-logs\n')
+  assert.equal(calls.logs, 1)
 })

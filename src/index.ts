@@ -14,6 +14,7 @@ import { makeRequirePage, makeRequireUser } from './auth/hooks.js'
 import { buildClients } from './gateway/client.js'
 import { buildUpstreamClients, closeAllMux } from './upstream/client.js'
 import { buildNodeSupervisors } from './nodes/registry.js'
+import { DockerRunner, NODE_LABEL } from './nodes/docker-runner.js'
 import { registerAuthRoutes } from './routes/auth.js'
 import { registerStatusRoutes } from './routes/status.js'
 import { registerWorkspaceRoutes } from './routes/workspace.js'
@@ -107,16 +108,41 @@ const main = async (): Promise<void> => {
 
   const clients = buildClients(config.endpoints)
   const upstreamClients = buildUpstreamClients(config.endpoints)
+  // 蜂群2计划 P2b：只有存在 runner=docker 的节点才连 docker.sock（裸机路径零依赖）
+  const needsDocker = Object.values(config.endpoints).some((e) => e.spawn?.runner === 'docker')
+  const dockerRunner = needsDocker ? new DockerRunner({}) : null
   const nodeSupervisors = buildNodeSupervisors(config, {
     gateway: (id) => clients.get(id),
     upstream: (id) => upstreamClients.get(id),
     log: (line) => app.log.info(line),
+    docker: dockerRunner ?? undefined,
   })
   // 蜂群 P1：被托管的节点随 manager 一起拉起。不托管（spawn 缺省/关闭）的节点
   // 由外部管理，manager 只探活——用户手动起的 DSH 不会被抢管。
+  // 蜂群2计划 P2b：docker runner 走对账——认领在跑容器、补拉缺失；process 照旧。
   for (const [id, supervisor] of nodeSupervisors) {
     const spec = config.endpoints[id]?.spawn
     if (spec === null || spec === undefined) continue
+    if (spec.runner === 'docker') {
+      if (dockerRunner === null) {
+        app.log.warn(`node ${id}: runner=docker 但 docker.sock 不可用，跳过拉起`)
+        continue
+      }
+      try {
+        const managed = await dockerRunner.listManaged()
+        const existing = managed.find((c) => c.labels[NODE_LABEL] === id && c.state === 'running')
+        if (existing !== undefined) {
+          app.log.info(`node ${id}: adopt container ${existing.name} (${existing.id.slice(0, 12)})`)
+          supervisor.adopt(spec, existing.id)
+        } else {
+          app.log.info(`node ${id}: managed (docker ${spec.docker?.image ?? '?'})`)
+          supervisor.start(spec)
+        }
+      } catch (error) {
+        app.log.warn(`node ${id}: docker 对账失败：${error instanceof Error ? error.message : String(error)}`)
+      }
+      continue
+    }
     app.log.info(`node ${id}: managed (${spec.command} ${spec.args.join(' ')})`)
     supervisor.start(spec)
   }

@@ -135,6 +135,11 @@ export const registerNodesRoutes = (
       if (supervisor === undefined) {
         return reply.code(409).send({ error: 'not_managed', detail: '外部管理的节点没有日志可供读取' })
       }
+      // 蜂群2计划 P2b：docker runner 的节点日志走 docker logs（缓冲里没有进程输出）
+      if (ep.spawn?.runner === 'docker') {
+        const dockerLogs = await supervisor.dockerLogs()
+        if (dockerLogs !== null) return reply.send({ logs: tail(dockerLogs), source: 'docker' })
+      }
       return reply.send({ logs: tail(supervisor.logs()), source: 'buffer' })
     },
   )
