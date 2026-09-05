@@ -7,6 +7,7 @@ import Fastify, { type FastifyReply } from 'fastify'
 import { desc, eq, inArray, isNull } from 'drizzle-orm'
 import { loadConfig } from './config.js'
 import { openDb, schema } from './db/index.js'
+import { backupNow } from './backup.js'
 import { generatePassword, hashPassword } from './auth/password.js'
 import { pruneExpiredSessions } from './auth/session.js'
 import { makeRequirePage, makeRequireUser } from './auth/hooks.js'
@@ -236,6 +237,19 @@ const main = async (): Promise<void> => {
   app.log.info(
     `agents: ${Object.keys(config.agents).join(', ') || '(none)'} | endpoints: ${Object.keys(config.endpoints).join(', ')}`,
   )
+
+  // 蜂群 P6：15 分钟级数据库快照（RPO），保留策略在 backup.ts。备份失败只
+  // 打日志不退出——manager 的价值高于备份，但失败必须看得见。
+  const backupDir = join(dirname(config.databasePath), 'backups')
+  const autoBackup = async (): Promise<void> => {
+    try {
+      const result = await backupNow(config.databasePath, join(dirname(fileURLToPath(import.meta.url)), '..', 'manager.config.yaml'), join(dirname(fileURLToPath(import.meta.url)), '..', '.env'), backupDir)
+      app.log.info(`backup: ${result.snapshot.file} (${result.snapshot.bytes} bytes)${result.pruned.length > 0 ? `, pruned ${result.pruned.length}` : ''}`)
+    } catch (error) {
+      app.log.error(`backup failed: ${(error as Error).message}`)
+    }
+  }
+  setInterval(() => void autoBackup(), 15 * 60_000)
 }
 
 main().catch((error: unknown) => {
