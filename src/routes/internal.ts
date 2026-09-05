@@ -45,8 +45,8 @@ const isPrivateSource = (ip: string): boolean => {
   if (raw === '127.0.0.1' || raw === '::1') return true
   const parts = raw.split('.').map(Number)
   if (parts.length !== 4 || !parts.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)) return false
-  const a = parts[0]
-  const b = parts[1]
+  const a = parts[0] ?? -1
+  const b = parts[1] ?? -1
   return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254)
 }
 
