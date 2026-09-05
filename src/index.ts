@@ -13,6 +13,7 @@ import { pruneExpiredSessions } from './auth/session.js'
 import { makeRequirePage, makeRequireUser } from './auth/hooks.js'
 import { buildClients } from './gateway/client.js'
 import { buildUpstreamClients, closeAllMux } from './upstream/client.js'
+import { archiveOrphanChats } from './chat/store.js'
 import { buildNodeSupervisors } from './nodes/registry.js'
 import { DockerRunner, NODE_LABEL } from './nodes/docker-runner.js'
 import { recordAudit } from './audit.js'
@@ -113,6 +114,10 @@ const main = async (): Promise<void> => {
     .where(inArray(schema.run.state, ['pending', 'running']))
     .run()
   if (stale.changes > 0) app.log.warn(`marked ${stale.changes} interrupted run(s) as failed`)
+
+  // 蜂群2计划 P6：孤儿会话归档（agent 已从配置删除的会话永远 409 agent_gone）
+  const orphanCount = archiveOrphanChats(db, new Set(Object.keys(config.agents)))
+  if (orphanCount > 0) app.log.info(`archived ${orphanCount} orphan chat(s) whose agent left the config`)
 
   const clients = buildClients(config.endpoints)
   const upstreamClients = buildUpstreamClients(config.endpoints)

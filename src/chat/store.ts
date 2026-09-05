@@ -155,6 +155,26 @@ export const removeChat = (db: Db, chatId: string, now = Date.now()): void => {
   db.update(schema.chat).set({ removedAt: now }).where(eq(schema.chat.id, chatId)).run()
 }
 
+/**
+ * 蜂群2计划 P6：孤儿会话归档——agent 已从配置删除的未归档会话，任何 API 都
+ * 409 `agent_gone`（chat.ts resolve），UI 上永久发不出消息。boot 对账时统一
+ * 软归档（removed_at），与手动归档同语义，数据不丢。返回归档条数。
+ */
+export const archiveOrphanChats = (db: Db, knownAgentIds: Set<string>, now = Date.now()): number => {
+  const rows = db
+    .select({ id: schema.chat.id, agentId: schema.chat.agentId })
+    .from(schema.chat)
+    .where(isNull(schema.chat.removedAt))
+    .all()
+  let archived = 0
+  for (const row of rows) {
+    if (knownAgentIds.has(row.agentId)) continue
+    db.update(schema.chat).set({ removedAt: now }).where(eq(schema.chat.id, row.id)).run()
+    archived += 1
+  }
+  return archived
+}
+
 export interface ArchivedChat extends ChatRow {
   turns: number
 }
