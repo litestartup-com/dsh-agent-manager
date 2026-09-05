@@ -14,6 +14,8 @@ services:
     image: nginx:alpine
     ports:
       - "80:80"
+      # TLS 模式（origin-ca/letsencrypt）用；HTTP 直连时不占用也无妨
+      - "443:443"
     volumes:
       - ./deploy/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
       # TLS 证书（origin-ca/letsencrypt 模式由 install.sh 生成配置；目录自动创建）

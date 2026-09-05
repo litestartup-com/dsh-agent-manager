@@ -128,6 +128,18 @@ if [ -n "$APP_DOMAIN" ]; then
     fi
   fi
   log "nginx: domain=$APP_DOMAIN tls=$TLS_MODE"
+  if [ "$TLS_MODE" = "origin-ca" ]; then
+    # 证书放在 $APP_DIR/ssl/（compose 挂进容器 /etc/ssl/ohdsh，路径与旧配置一致）
+    if [ "$DRY_RUN" != "1" ]; then
+      mkdir -p "$APP_DIR/ssl"
+      if [ ! -f "$APP_DIR/ssl/cert.pem" ] || [ ! -f "$APP_DIR/ssl/key.pem" ]; then
+        echo "[install] TLS_MODE=origin-ca 需要证书：把 cert.pem 与 key.pem 放进 $APP_DIR/ssl/ 后重跑本脚本（幂等）。"
+        exit 1
+      fi
+      # 反代上 HTTPS 后 manager 必须开 secure cookie
+      grep -q '^NODE_ENV=' .env 2>/dev/null || echo 'NODE_ENV=production' >> .env
+    fi
+  fi
   if [ "$DRY_RUN" != "1" ]; then
     case "$TLS_MODE" in
       origin-ca) SRC=tls-origin-ca.conf ;;
@@ -138,6 +150,7 @@ if [ -n "$APP_DOMAIN" ]; then
         -e "s|__SSL_CERT_PATH__|$SSL_CERT_PATH|g" \
         -e "s|__SSL_KEY_PATH__|$SSL_KEY_PATH|g" \
         "deploy/nginx/$SRC" > deploy/nginx/default.conf
+    log "nginx config written ($SRC)"
   fi
 fi
 
