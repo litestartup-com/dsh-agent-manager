@@ -86,7 +86,13 @@ export const provisionBrainTokenFile = (workspacePath: string, log?: (line: stri
   const path = join(workspacePath, TOKEN_FILE)
   try {
     mkdirSync(workspacePath, { recursive: true })
-    if (readFileSync(path, 'utf8') !== token) {
+    let current = ''
+    try {
+      current = readFileSync(path, 'utf8')
+    } catch {
+      // 文件不存在 → 首次写入
+    }
+    if (current !== token) {
       writeFileSync(path, token, { encoding: 'utf8', mode: 0o600 })
     }
     const gitignore = join(workspacePath, '.gitignore')
