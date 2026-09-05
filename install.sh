@@ -129,11 +129,11 @@ if [ -n "$APP_DOMAIN" ]; then
   fi
   log "nginx: domain=$APP_DOMAIN tls=$TLS_MODE"
   if [ "$TLS_MODE" = "origin-ca" ]; then
-    # 证书放在 $APP_DIR/ssl/（compose 挂进容器 /etc/ssl/ohdsh，路径与旧配置一致）
+    # 证书放在 $APP_DIR_ABS/ssl/（compose 挂进容器 /etc/ssl/ohdsh，路径与旧配置一致）
     if [ "$DRY_RUN" != "1" ]; then
-      mkdir -p "$APP_DIR/ssl"
-      if [ ! -f "$APP_DIR/ssl/cert.pem" ] || [ ! -f "$APP_DIR/ssl/key.pem" ]; then
-        echo "[install] TLS_MODE=origin-ca 需要证书：把 cert.pem 与 key.pem 放进 $APP_DIR/ssl/ 后重跑本脚本（幂等）。"
+      mkdir -p "$APP_DIR_ABS/ssl"
+      if [ ! -f "$APP_DIR_ABS/ssl/cert.pem" ] || [ ! -f "$APP_DIR_ABS/ssl/key.pem" ]; then
+        echo "[install] TLS_MODE=origin-ca 需要证书：把 cert.pem 与 key.pem 放进 $APP_DIR_ABS/ssl/ 后重跑本脚本（幂等）。"
         exit 1
       fi
       # 反代上 HTTPS 后 manager 必须开 secure cookie
