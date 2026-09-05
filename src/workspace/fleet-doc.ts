@@ -77,13 +77,13 @@ export const syncFleetDocs = (config: AppConfig, log?: (line: string) => void): 
       }
     }
     // 蜂群2计划 P6：fleet.md 是 manager 生成物——同步即提交，工作区保持 clean
-    commitFleetDoc(agent.workspacePath, log)
+    commitFleetDoc(agent.workspacePath)
   }
   return updated
 }
 
 /** 只提交 fleet.md（manager 生成物）；无 git 仓或提交失败不阻断。 */
-const commitFleetDoc = (workspacePath: string, log?: (line: string) => void): void => {
+const commitFleetDoc = (workspacePath: string): void => {
   try {
     execFileSync('git', ['add', '--', FLEET_FILE], { cwd: workspacePath, stdio: 'ignore' })
     const staged = execFileSync('git', ['diff', '--cached', '--name-only'], {
