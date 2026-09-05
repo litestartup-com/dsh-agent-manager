@@ -97,7 +97,7 @@ test('蜂群2计划 P2b: start 创建容器（名称/标签/命令/环境/挂载
   assert.ok(created !== undefined)
   assert.equal(created.name, 'ohdsh-node-personal')
   assert.equal(created.Image, 'ohdsh/dsh-node:0.1.1-rc.2')
-  assert.deepEqual(created.Cmd, ['--port', '3081'])
+  assert.deepEqual(created.Cmd, ['--port', '3081', '--trusted-host', 'node-personal', 'node-personal:3081'])
   assert.deepEqual(created.Labels, { 'com.ohdsh.managed': 'true', 'com.ohdsh.node': 'personal' })
   assert.deepEqual(created.Env, ['DSH_HOME=/data', 'GW_KEY=apigw-x'])
   const host = created.HostConfig as { NetworkMode: string; Binds: string[]; RestartPolicy: { Name: string } }

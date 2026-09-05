@@ -50,7 +50,9 @@ services:
       dockerfile: Dockerfile
     image: ${DSH_NODE_IMAGE:-ohdsh/dsh-node:0.1.1-rc.2}
     user: "1000:1000"
-    command: ["--port", "3082"]
+    # --trusted-host：/api 浏览器信任栅栏——manager 经 hive 内网以 node-brain:3082 访问，
+    # 不在默认回环信任名单里会 403 forbidden（容器实测）
+    command: ["--port", "3082", "--trusted-host", "node-brain", "node-brain:3082"]
     environment:
       DSH_HOME: /data
       GW_KEY: ${GW_KEY_B}
