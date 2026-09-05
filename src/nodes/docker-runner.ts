@@ -117,6 +117,28 @@ export class DockerRunner {
     }))
   }
 
+  /** 容器运行时事实（env 与镜像），用于对账时判断「在跑容器」是否还匹配当前配置。 */
+  async runtimeFacts(containerId: string): Promise<{ env: string[]; image: string } | null> {
+    try {
+      const info = await this.docker.getContainer(containerId).inspect()
+      return { env: info.Config.Env ?? [], image: info.Config.Image }
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * 工蜂容器与当前期望是否一致（蜂群2计划 P6 实测根因：重装后旧容器带旧 GW_KEY
+   * 被对账认领，manager 手里的 key 与网关 settings 里的永久错配 → sandbox 401）。
+   * 比对两件事：GW_KEY 环境值、镜像。任一不符 → 必须重建而非认领。
+   */
+  static matchesSpec(facts: { env: string[]; image: string }, sandboxKey: string, image: string): boolean {
+    if (facts.image !== image) return false
+    const gwEntry = facts.env.find((e) => e.startsWith('GW_KEY='))
+    if (sandboxKey === '') return gwEntry === undefined || gwEntry === 'GW_KEY='
+    return gwEntry === `GW_KEY=${sandboxKey}`
+  }
+
   /**
    * 蜂群2计划 P4：跑一个一次性工具容器（节点 home 卷的备份/恢复用），
    * 退出即自删；退出码非 0 抛错。
