@@ -20,7 +20,8 @@
     "backfill-cost": "tsx src/cli/backfill-cost.ts",
     "test": "tsx --test \"src/**/*.test.ts\"",
     "smoke": "node scripts/smoke.mjs",
-    "service": "tsx src/cli/service.ts"
+    "service": "tsx src/cli/service.ts",
+    "update": "tsx src/cli/update.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

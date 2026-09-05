@@ -1,117 +1,88 @@
 # Oh! dsh
 
-> Personal / small-team AI agent middle platform on top of DeepSeek Harness.
-> Manage agents, chat from any device, schedule work, and track every token you spend.
+> 蜂群计划 v1 —— 单主机多节点的本地多 agent 管理器，建在 DeepSeek Harness 之上。
+> 默认安装 = manager（总办）+ 主脑（总控）+ 个人（工作区），一条命令、5 分钟用起来。
 
-## Features
+## 是什么
 
-- **Chat UI** — multi-turn conversations with streaming output, tool-call cards, and
-  interactive questions & permission prompts answered right in the browser
-- **Multiple agents** from one declarative config, with personal / company / product templates
-- **Schedules** — cron automation with a daily budget cap and peak / off-peak pricing awareness
-- **Dashboards** — finance / health / work boards rendered from structured data files
-- **Spend tracking** — per-run token usage and cost, monthly summaries
-- **Safe writes** — an optional writer layer validates content *before* it hits disk;
-  every run snapshots the agent workspace as a git commit
-- **DSH native transport** — talks to the harness through its /api (apiproxy) surface on
-  loopback, or through `dsh-api-gateway` (>= 0.2.0) for cross-machine and multi-host setups
+DeepSeek Harness 提供 agent 运行时（会话 / 工具 / 沙箱 / 文件系统）；Oh! dsh 提供控制面：
+认证、聊天中继、主脑派工、定时任务、大盘、记账、节点生命周期、备份恢复。
 
-## How it fits together
+概念层级（详见 `docs/MILESTONES.md`）：
 
 ```
-browser ── Oh! dsh (Fastify + SQLite) ── DSH node(s)
-               │   auth · chat relay · runs · schedules · boards · billing
-               ├─ scheme A: loopback   http://127.0.0.1:3080/api
-               └─ scheme B: cross-host http://<host>:3080/api-gw/v1/proxy (key auth)
+服务器 ──► 节点（= 一个 DSH agent 进程 + 门房）──► 工作区（身份+目录+preset+沙箱）──► 会话
 ```
 
-DeepSeek Harness provides the agent runtime (sessions, tools, sandbox, filesystem);
-Oh! dsh provides the control plane (auth, relay, scheduling, dashboards, cost).
-The wire contract with DSH /api lives in `src/upstream/` and is verified against
-DSH 0.1.1-rc.2.
+- **主脑** = manager 级总控：跨域规划、派工单、查 fleet；对工作区只读，执行永远委托。
+- **工作区** = 文件即真相的边界：每个工作区一个 git 仓，每次运行落一次提交（审计留痕）。
 
-## Requirements
+## 功能
 
-- Node.js >= 20 (22 recommended)
-- [DeepSeek Harness](https://github.com/deepseek-ai/DeepSeek-Harness) 0.1.1-rc.2+ with its /api surface enabled
-- [dsh-api-gateway](https://github.com/litestartup-com/dsh-api-gateway) >= 0.2.0 — only for cross-machine / multi-host setups
+- **聊天 UI**：多轮对话、流式输出、工具调用卡片、互动提问/授权卡片直接作答
+- **主脑派工**：对话式编排 + delegation 帧（点击跳回被派会话）+ 会话复用（同类续接）
+- **多节点**：`/nodes` 页全 UI 管控（起/停/重启/日志）+ 向导新增节点（自动配工作区）+ 侧栏 `N/N` 就绪计数
+- **多会话并发**：会话内串行、会话间并行（DSH 原生语义 + git 提交锁 + 冲突显性化）
+- **定时任务**：cron 自动化、连续失败自动停用、主脑日预算熔断（只拦派工，人工不拦）
+- **技能清单**：`/skills` 页按工作区列技能 + 版本对照（= 工作区 git HEAD）
+- **站内通知**：铃铛——cron 成败 / 预算熔断 / 主脑任务完成
+- **记账**：峰谷计价（**周六周日全天谷价**）、每 run 花费、月度汇总、按工作区分账
+- **备份恢复**：15 分钟自动 DB 快照 + 保留策略（24h 全留 → 每日 30 天 → 每周 12 周）+ 一键恢复
+- **服务化**：开机自启（Windows 任务计划 / Linux systemd user unit，零额外二进制）
+- **自更新**：`npm run update` = 备份 → 拉新 → 构建 → 探活，失败自动回滚
 
-## Quick start
+## 快速开始（Windows / 单机）
+
+前置：Node ≥ 20（推荐 22）、pnpm、git，本机已装 DeepSeek Harness 并配好模型凭证。
 
 ```powershell
 git clone <repo-url>
 cd dsh-agent-manager
 npm install
-Copy-Item .env.example .env   # fill in secrets and key references
-npm run dev                   # serves http://127.0.0.1:8080
+npm run setup          # 初始化个人+主脑工作区、两个节点（独立 DSH_HOME/端口/密钥）、生成配置
+npm start              # 启动 manager，自动拉起两个节点
 ```
 
-Open http://127.0.0.1:8080 and log in with the initial user (created on first boot;
-see `.env.example` for the full variable list).
+打开 http://127.0.0.1:8080，用 `.env` 里 `MANAGER_USERNAME` / `MANAGER_INITIAL_PASSWORD` 登录。
+`npm run setup -- --help` 看全部选项（工作区路径 / 端口 / 本地 gateway 等）。
 
-### One-command install (Ubuntu 24, node + manager together)
+## CLI 一览
 
-```bash
-git clone https://github.com/litestartup-com/dsh-agent-manager.git
-cd dsh-agent-manager
-sudo ./install.sh     # node container + manager systemd service + smoke scripts
-```
-
-See `install.sh` (idempotent, `DRY_RUN=1` for a plan-only pass) and `docker/README.md`
-for the manual path.
-
-### Operating it (after install.sh)
-
-| Task | Command |
+| 命令 | 用途 |
 | --- | --- |
-| Manager status | `systemctl status ohdsh-manager` |
-| Manager logs | `journalctl -u ohdsh-manager -f` |
-| Restart / stop manager | `sudo systemctl restart ohdsh-manager` / `sudo systemctl stop ohdsh-manager` |
-| Node container status | `docker compose -f docker/docker-compose.yml ps` |
-| Node container logs | `docker compose -f docker/docker-compose.yml logs -f` |
-| Restart / stop node | `docker compose -f docker/docker-compose.yml restart` / `... down` |
-| Upgrade the code | `git pull && sudo ./install.sh`（idempotent，configs 不被覆盖） |
-| Rebuild node image | `docker compose -f docker/docker-compose.yml up -d --build` |
+| `npm run setup [--force]` | 初始化/重装（`--force` 保留已定制的工作区） |
+| `npm start` | 启动 manager（自动拉起托管节点） |
+| `npm run nodes -- up/down/list/logs <名>` | 节点生命周期（CLI 面；UI 在 /nodes 页） |
+| `npm run backup [-- list]` / `npm run restore -- latest` | 数据库快照 / 恢复（恢复前自动探测 manager 是否在跑） |
+| `npm run service -- install/uninstall/status` | 开机自启服务 |
+| `npm run update` | 自更新（备份 → 拉新 → 构建 → 探活，失败回滚） |
+| `npm test` / `npm run typecheck` | 测试 / 类型检查 |
 
-Data locations:
+## 配置
 
-- manager SQLite: `./data`（gitignored）
-- node sessions/settings: Docker volume `dsh-data`
-- agent workspace: `WORKSPACE_PATH`（default `../workspace` next to the repo）
+`manager.config.yaml` 是唯一真相源：`endpoints`（每个 DSH 进程的入口 + spawn 生命周期）、
+`agents`（工作区绑定）、`runner`（超时/静默/预算）、`pricing`（峰谷窗口 + 周末规则）、
+`brain.daily_budget_usd`（主脑派工熔断）。密钥只进 `.env`（`GW_KEY_*` / `BRAIN_TOKEN`），永不入库。
 
-### Public domain + TLS (Cloudflare etc.)
+## Linux 服务器部署（可选，早期路径）
 
-`install.sh` supports `DEPLOY_ENV=prod`: installs nginx, writes the reverse-proxy config
-(SSE unbuffered, long timeouts), configures one of three TLS modes via `TLS_MODE`, and
-switches the manager to `NODE_ENV=production` (Secure cookies):
+`install.sh`（幂等，`DRY_RUN=1` 先看计划）提供 node + manager systemd 服务 + 反代/TLS
+（`DEPLOY_ENV=prod` 支持 Cloudflare 三种 TLS 模式）。v2 跨机形态（node-agent + 容器）见路线图。
 
-| TLS_MODE | For |
+## 文档
+
+| 文档 | 内容 |
 | --- | --- |
-| `origin-ca` (default) | Cloudflare proxied + Full (strict): generate the Origin CA files in the CF panel, place them in `/etc/ssl/ohdsh/` |
-| `letsencrypt` | certbot auto-issue (domain resolving to the origin, or CF proxied) |
-| `none` | Cloudflare Flexible: TLS terminates at the edge, origin stays http |
+| `docs/BRAINSTORM-MULTIAGENT.md` | 概念对齐 + 决策台账 |
+| `docs/MILESTONES.md` | **路线图唯一真相源**（M0–M6 + 发布门槛） |
+| `docs/REPORT-FLEET-ROADMAP.md` | 节点/服务器/FinOps 调研 |
+| `docs/PLAN-MULTIAGENT.md` | P0–P4 实施计划（已交付，历史） |
+| `docs/TASKS.md` | 实施进度日志 |
 
-```bash
-DEPLOY_ENV=prod APP_DOMAIN=app.ohdsh.com TLS_MODE=origin-ca sudo ./install.sh
-# or interactively: sudo ./install.sh (choose prod, enter domain and TLS mode)
-```
-
-Manual reference: `deploy/nginx-manager.conf.example`.
-
-## Configuration
-
-`manager.config.yaml` is the single source of truth:
-
-- `endpoints` — one entry per DSH host (`driver: apiproxy` for the native /api,
-  or `driver: gateway` for a legacy dsh-api-gateway instance)
-- `agents` — one workspace per agent, with templates under `templates/`
-- `runner` — turn timeouts, silence backstop, cron failure budget
-- `pricing` — per-model token rates (peak / off-peak windows)
-
-## Testing
+## 测试
 
 ```powershell
-npm test   # 284 tests, node:test + tsx
+npm test   # 334 tests（node:test + tsx，全绿）
 ```
 
 ## License
