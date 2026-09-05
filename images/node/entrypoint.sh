@@ -25,7 +25,18 @@ EOF
   echo "[entrypoint] wrote $DSH_HOME/settings.yaml"
 fi
 
-# 3) 模型凭据：DEEPSEEK_API_KEY 环境变量在 DSH 凭据分层里优先级最高，无需写文件
+# 3) 主脑令牌文件（$HOME/.brain-auth，0600）：DSH 工具沙箱洗掉 TOKEN 字样
+#    环境变量（DSH-FACTS §2），技能手册读文件走鉴权。幂等：内容变了才重写。
+if [[ -n "${BRAIN_TOKEN:-}" && -n "${HOME:-}" ]]; then
+  mkdir -p "$HOME"
+  if [ ! -f "$HOME/.brain-auth" ] || [ "$(cat "$HOME/.brain-auth" 2>/dev/null)" != "$BRAIN_TOKEN" ]; then
+    printf '%s' "$BRAIN_TOKEN" > "$HOME/.brain-auth"
+    chmod 600 "$HOME/.brain-auth"
+    echo "[entrypoint] wrote $HOME/.brain-auth"
+  fi
+fi
 
-# 4) 启动：端口等参数透传给 web app（manager 侧 docker run 命令带 --port N）
+# 4) 模型凭据：DEEPSEEK_API_KEY 环境变量在 DSH 凭据分层里优先级最高，无需写文件
+
+# 5) 启动：端口等参数透传给 web app（manager 侧 docker run 命令带 --port N）
 exec dsh --profile ohdsh-node --no-open "$@"
