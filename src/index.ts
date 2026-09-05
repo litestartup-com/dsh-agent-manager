@@ -21,6 +21,7 @@ import { registerAuditRoutes } from './routes/audit.js'
 import { collectNodeHomes, packNodeHomes } from './nodebackup.js'
 import { deriveBackupKey } from './crypt.js'
 import { seedEmptyWorkspaces } from './workspace/seed.js'
+import { syncFleetDocs } from './workspace/fleet-doc.js'
 import { registerAuthRoutes } from './routes/auth.js'
 import { registerStatusRoutes } from './routes/status.js'
 import { registerWorkspaceRoutes } from './routes/workspace.js'
@@ -131,6 +132,9 @@ const main = async (): Promise<void> => {
     (line) => app.log.info(line),
   )
   if (seededWorkspaces.length > 0) app.log.info(`workspaces seeded: ${seededWorkspaces.join(', ')}`)
+  // 蜂群2计划 P6：fleet.md 拓扑共享文档——每个工作区一份，随 config 自动同步
+  const syncedFleet = syncFleetDocs(config, (line) => app.log.info(line))
+  if (syncedFleet.length > 0) app.log.info(`fleet.md synced: ${syncedFleet.join(', ')}`)
 
   // 蜂群 P1：被托管的节点随 manager 一起拉起。不托管（spawn 缺省/关闭）的节点
   // 由外部管理，manager 只探活——用户手动起的 DSH 不会被抢管。
