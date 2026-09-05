@@ -135,6 +135,18 @@ export const run = sqliteTable('run', {
   commitHash: text('commit_hash'),
 })
 
+/** 蜂群 P5.3：站内通知（铃铛）。单用户阶段没有收件人维度。 */
+export const notification = sqliteTable('notification', {
+  id: text('id').primaryKey(),
+  kind: text('kind').notNull(),
+  title: text('title').notNull(),
+  body: text('body').notNull(),
+  /** 点击跳转的站内路径（/chat/xxx、/crons…），null = 纯告知。 */
+  link: text('link'),
+  at: integer('at').notNull(),
+  read: integer('read').notNull().default(0),
+})
+
 /**
  * Written from the provider's reported usage on the gateway SSE stream, never
  * from dsh-token-meter (that one is a context-pressure heuristic, not billing).

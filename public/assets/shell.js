@@ -469,15 +469,21 @@ export const loadShell = async () => {
     // Chats come from the same poll as the status: the sidebar draws both in one
     // tree, and two independent refreshes would let the rows disagree about
     // which agent is busy for a second at a time.
-    const [me, status, threads, nodesData] = await Promise.all([
+    const [me, status, threads, nodesData, notifications] = await Promise.all([
       fetch('/api/me').then((r) => (r.ok ? r.json() : null)),
       fetch('/api/status').then((r) => (r.ok ? r.json() : null)),
       fetch('/api/chats').then((r) => (r.ok ? r.json() : null)),
       fetch('/api/nodes').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      fetch('/api/notifications').then((r) => (r.ok ? r.json() : null)).catch(() => null),
     ])
     if (me === null || status === null) {
       window.location.href = '/login'
       return
+    }
+
+    if (notifications !== null) {
+      setNotifyBadge(notifications.unread)
+      if (!notifyPanel.hidden) renderNotifyPanel(notifications.items)
     }
 
     if (threads !== null) {
@@ -1058,6 +1064,97 @@ $('agent-nav').addEventListener('click', async (event) => {
 $('logout').addEventListener('click', async () => {
   await fetch('/api/logout', { method: 'POST' })
   window.location.href = '/login'
+})
+
+// ---------------------------------------------------------------------------
+// 蜂群 P5.3：站内通知（铃铛 + 面板）
+// ---------------------------------------------------------------------------
+
+const notifyBadge = $('notify-badge')
+const notifyPanel = document.createElement('div')
+notifyPanel.className = 'notify-panel'
+notifyPanel.hidden = true
+document.body.appendChild(notifyPanel)
+
+const setNotifyBadge = (unread) => {
+  if (notifyBadge === null) return
+  if (unread === 0) notifyBadge.hidden = true
+  else {
+    notifyBadge.hidden = false
+    notifyBadge.textContent = unread > 99 ? '99+' : String(unread)
+  }
+}
+
+const renderNotifyPanel = (items) => {
+  const list =
+    items.length === 0
+      ? '<p class="notify-empty muted small">还没有通知。cron 成败、预算熔断、主脑派工完成都会到这里。</p>'
+      : items
+          .map(
+            (n) =>
+              `<a class="notify-item${n.read ? '' : ' unread'}" href="${n.link === null ? '#' : esc(n.link)}" data-nid="${esc(n.id)}">
+                <div class="notify-title">${esc(n.title)}</div>
+                <div class="notify-body">${esc(n.body)}</div>
+                <div class="notify-time">${esc(ago(n.at))}</div>
+              </a>`,
+          )
+          .join('')
+  notifyPanel.innerHTML = `<div class="notify-head">
+      <strong>通知</strong>
+      <button type="button" class="btn-quiet btn-sm" data-notify-read-all>全部已读</button>
+    </div>
+    <div class="notify-list">${list}</div>`
+}
+
+const closeNotifyPanel = () => {
+  notifyPanel.hidden = true
+}
+
+$('notify-bell')?.addEventListener('click', async (event) => {
+  event.stopPropagation()
+  if (!notifyPanel.hidden) {
+    closeNotifyPanel()
+    return
+  }
+  try {
+    const response = await fetch('/api/notifications')
+    if (!response.ok) return
+    const body = await response.json()
+    const bell = $('notify-bell')
+    if (bell === null) return
+    const rect = bell.getBoundingClientRect()
+    notifyPanel.style.bottom = `${window.innerHeight - rect.top + 10}px`
+    notifyPanel.style.left = `${Math.min(rect.left, window.innerWidth - 340)}px`
+    renderNotifyPanel(body.items)
+    notifyPanel.hidden = false
+  } catch {
+    // 面板保持关闭
+  }
+})
+
+notifyPanel.addEventListener('click', async (event) => {
+  const readAll = event.target.closest('[data-notify-read-all]')
+  if (readAll !== null) {
+    await fetch('/api/notifications/read-all', { method: 'POST' })
+    setNotifyBadge(0)
+    closeNotifyPanel()
+    return
+  }
+  const item = event.target.closest('.notify-item')
+  if (item === null) return
+  await fetch(`/api/notifications/${encodeURIComponent(item.dataset.nid)}/read`, { method: 'POST' })
+  // 纯告知（无链接）点了不跳转，只标已读
+  if (item.getAttribute('href') === '#') event.preventDefault()
+})
+
+document.addEventListener('click', (event) => {
+  if (notifyPanel.hidden) return
+  if (event.target.closest('#notify-bell') !== null) return
+  if (!notifyPanel.contains(event.target)) closeNotifyPanel()
+})
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !notifyPanel.hidden) closeNotifyPanel()
 })
 
 markActive()

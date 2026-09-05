@@ -1,16 +1,17 @@
 import { randomUUID } from 'node:crypto'
 import { timingSafeEqual } from 'node:crypto'
 import type { FastifyInstance, preHandlerHookHandler } from 'fastify'
-import { and, desc, eq, gte } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray } from 'drizzle-orm'
 import { z } from 'zod'
 import type { AppConfig } from '../config.js'
 import type { Db } from '../db/index.js'
 import { schema } from '../db/index.js'
 import type { GatewayClient } from '../gateway/client.js'
 import type { UpstreamClient } from '../upstream/client.js'
-import { listChats, getChat } from '../chat/store.js'
+import { listChats, getChat, bindSession, touchChat } from '../chat/store.js'
 import { publish } from './chat.js'
 import { readBoard } from '../board/store.js'
+import { notify } from '../notify.js'
 import { activeRunCount, runAgent, runningRunId } from '../runner.js'
 import { monthTotals, monthByAgent, monthByModel, currentMonth } from '../usage/store.js'
 import { scheduleProblem, type Scheduler } from '../cron/schedule.js'
@@ -207,6 +208,87 @@ export const registerInternalRoutes = (
     return rows.reduce((sum, r) => sum + (r.cost ?? 0), 0)
   }
 
+  const promptBody = z.object({ text: z.string().min(1, 'a prompt is required').max(20_000) })
+
+  /**
+   * 蜂群 P5.3 会话复用：主脑往已有会话续一句（ask_worker）。
+   *
+   * 同步返回 outcome（技能直接读 JSON）；同会话已有回合在跑时 409——
+   * 「会话内串行」的服务端闸门；同样走主脑预算熔断。续接的帧实时推给该
+   * 会话页的 relay，用户在场时看得到主脑在续写。
+   */
+  app.post<{ Params: { id: string }; Body: unknown }>('/api/internal/chats/:id/prompt', gated, async (request, reply) => {
+    const parsed = promptBody.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'invalid_body', detail: parsed.error.issues.map((i) => i.message) })
+    }
+    const chat = getChat(db, request.params.id)
+    if (chat === null || chat.removedAt !== null) return reply.code(404).send({ error: 'unknown_chat' })
+    const agent = config.agents[chat.agentId]
+    if (agent === undefined) {
+      return reply
+        .code(409)
+        .send({ error: 'agent_gone', detail: `这个会话属于 agent "${chat.agentId}"，但配置里已经没有它了` })
+    }
+
+    const cap = config.brainDailyBudgetMicroUsd ?? null
+    if (cap !== null && brainSpendToday() >= cap) {
+      const detail = `主脑今日派工预算已用完（${(brainSpendToday() / 1e6).toFixed(2)} / ${(cap / 1e6).toFixed(2)} USD），请明天再试或人工直接操作。`
+      notify(db, { kind: 'brain_budget', title: '主脑今日派工预算用完', body: detail, link: '/spend' })
+      return reply.code(409).send({ error: 'brain_budget_exhausted', detail })
+    }
+
+    const live = db
+      .select({ id: schema.run.id })
+      .from(schema.run)
+      .where(and(eq(schema.run.chatId, chat.id), inArray(schema.run.state, ['pending', 'running'])))
+      .limit(1)
+      .all()
+    if (live.length > 0) {
+      return reply.code(409).send({ error: 'chat_busy', detail: '这个会话正在跑一个回合，等它完成后再续。' })
+    }
+
+    const driver = config.endpoints[agent.endpoint]?.driver ?? 'gateway'
+    const upstream = upstreamClients.get(agent.endpoint)
+    const client = clients.get(agent.endpoint)
+    if (driver === 'apiproxy' && upstream === undefined) return reply.code(500).send({ error: 'endpoint_not_configured' })
+    if (driver === 'gateway' && client === undefined) return reply.code(500).send({ error: 'endpoint_not_configured' })
+
+    try {
+      const outcome = await runAgent(
+        {
+          db,
+          pricing: config.pricing,
+          log: { info: (m) => app.log.info(m), warn: (m) => app.log.warn(m), error: (m) => app.log.error(m) },
+        },
+        {
+          agent,
+          client: client!,
+          upstream,
+          driver,
+          prompt: parsed.data.text,
+          trigger: 'brain',
+          chatId: chat.id,
+          sessionId: chat.dshSessionId,
+          keepSession: true,
+          timeoutMs: config.runner.timeoutMs,
+          silenceMs: config.runner.silenceMs,
+          onFrame: (frame) => {
+            if (frame.kind === 'user') return
+            publish(chat.id, frame)
+          },
+        },
+      )
+      if (outcome.sessionId !== null && chat.dshSessionId === null) bindSession(db, chat.id, outcome.sessionId)
+      else touchChat(db, chat.id)
+      publish(chat.id, { kind: 'turn_done', runId: outcome.runId, state: outcome.state, error: outcome.error })
+      return reply.code(200).send(outcome)
+    } catch (error) {
+      app.log.error(`internal prompt failed for ${chat.id}: ${(error as Error).message}`)
+      return reply.code(500).send({ error: 'prompt_failed', detail: (error as Error).message })
+    }
+  })
+
   app.post<{ Body: unknown }>('/api/internal/dispatch', gated, async (request, reply) => {
     const parsed = dispatchBody.safeParse(request.body)
     if (!parsed.success) {
@@ -220,9 +302,11 @@ export const registerInternalRoutes = (
     if (cap !== null) {
       const spent = brainSpendToday()
       if (spent >= cap) {
+        const detail = `主脑今日派工预算已用完（${(spent / 1e6).toFixed(2)} / ${(cap / 1e6).toFixed(2)} USD），请明天再试或人工直接操作。`
+        notify(db, { kind: 'brain_budget', title: '主脑今日派工预算用完', body: detail, link: '/spend' })
         return reply.code(409).send({
           error: 'brain_budget_exhausted',
-          detail: `主脑今日派工预算已用完（${(spent / 1e6).toFixed(2)} / ${(cap / 1e6).toFixed(2)} USD），请明天再试或人工直接操作。`,
+          detail,
         })
       }
     }
@@ -267,6 +351,12 @@ export const registerInternalRoutes = (
           state: outcome.state,
           summary: outcome.summary,
           error: outcome.error ?? null,
+        })
+        notify(db, {
+          kind: 'brain_done',
+          title: `主脑派工完成：${agent.name}`,
+          body: outcome.summary ?? '（没有输出文字）',
+          link: `/chat/${encodeURIComponent(body.sourceChatId)}`,
         })
       }
       return reply.code(200).send(outcome)

@@ -190,6 +190,19 @@ const MIGRATIONS: readonly string[][] = [
     `DROP INDEX IF EXISTS run_one_live_per_agent`,
     `ALTER TABLE run ADD COLUMN conflict TEXT`,
   ],
+  // 9 -- 蜂群 P5.3：站内通知（铃铛）
+  [
+    `CREATE TABLE IF NOT EXISTS notification (
+       id TEXT PRIMARY KEY,
+       kind TEXT NOT NULL,
+       title TEXT NOT NULL,
+       body TEXT NOT NULL,
+       link TEXT,
+       at INTEGER NOT NULL,
+       read INTEGER NOT NULL DEFAULT 0
+     )`,
+    `CREATE INDEX IF NOT EXISTS notification_at ON notification(at)`,
+  ],
 ]
 
 export interface OpenDbResult {

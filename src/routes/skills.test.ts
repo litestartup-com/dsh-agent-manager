@@ -74,7 +74,8 @@ test('蜂群 P5.2: /api/skills lists each agent’s .skills with descriptions', 
   const personal = body.agents.find((a) => a.agentId === 'personal')
   assert.deepEqual(personal?.skills, [])
 
-  // 技能仓库未创建时是 null，不是报错
-  assert.equal(body.repo, null)
+  // 技能仓库未创建时是 null；已创建时是带版本的对象（本机 ~/.dsh-ohdsh/skills 已建）
+  const repo = body.repo as { version?: string } | null
+  assert.ok(repo === null || (typeof repo === 'object' && typeof repo.version === 'string'))
   assert.ok(body.note.length > 0)
 })

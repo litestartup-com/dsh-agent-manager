@@ -95,6 +95,11 @@
         <g id="i-spark" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
           <path d="M8.6 1.9 4.9 9h2.1L6.4 14.1l4.7-7.1H9L10.6 1.9z" />
         </g>
+        <!-- 通知（铃铛）：站内信入口。 -->
+        <g id="i-bell" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M13 6.75a5 5 0 0 0-10 0c0 3.25 1.1 4.4 2 5.25h6c.9-.85 2-2 2-5.25z" />
+          <path d="M6.4 13.25a1.75 1.75 0 0 0 3.2 0" />
+        </g>
         <g id="i-alert" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
           <path d="M8 2.75 14.25 13.5H1.75z" stroke-linejoin="round" />
           <path d="M8 6.5v3.25M8 11.75v.5" />
@@ -268,6 +273,10 @@
         <div class="side-foot">
           <span id="avatar" class="side-avatar" aria-hidden="true"></span>
           <span id="who" class="grow"></span>
+          <button id="notify-bell" class="icon-btn" type="button" aria-label="通知" title="通知">
+            <svg width="15" height="15" aria-hidden="true"><use href="#i-bell" /></svg>
+            <span id="notify-badge" class="notify-badge" hidden></span>
+          </button>
           <button id="logout" class="icon-btn" type="button" aria-label="退出登录" title="退出登录">
             <svg width="15" height="15" aria-hidden="true"><use href="#i-logout" /></svg>
           </button>

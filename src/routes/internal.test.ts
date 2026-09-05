@@ -285,6 +285,74 @@ test('蜂群 P5.1: brain dispatch stops at the daily budget, and lifts when the 
   assert.equal(ok.statusCode, 200)
 })
 
+test('蜂群 P5.3: internal prompt continues an existing chat, serialised per session', async () => {
+  const { app, db } = await boot(SUCCESS)
+  db.insert(schema.chat)
+    .values({
+      id: 'c-reuse',
+      agentId: 'personal',
+      dshSessionId: null,
+      title: '周报',
+      createdAt: Date.now(),
+      lastActiveAt: Date.now(),
+      removedAt: null,
+    })
+    .run()
+
+  const ok = await app.inject({
+    method: 'POST',
+    url: '/api/internal/chats/c-reuse/prompt',
+    headers: authed(),
+    payload: { text: '续写周报' },
+  })
+  assert.equal(ok.statusCode, 200, JSON.stringify(ok.body))
+  const outcome = ok.json() as { state: string; runId: string }
+  assert.equal(outcome.state, 'done')
+  const runRow = db.select().from(schema.run).where(eq(schema.run.id, outcome.runId)).all()[0]
+  assert.equal(runRow?.trigger, 'brain')
+  assert.equal(runRow?.chatId, 'c-reuse')
+  const chatRow = db.select().from(schema.chat).where(eq(schema.chat.id, 'c-reuse')).all()[0]
+  assert.ok(chatRow?.dshSessionId !== null && chatRow?.dshSessionId !== undefined, 'first turn binds the session')
+
+  // 会话内串行：该会话有在跑的回合时 409
+  const now = Date.now()
+  db.insert(schema.run)
+    .values({
+      id: 'r-live',
+      agentId: 'personal',
+      chatId: 'c-reuse',
+      sourceChatId: null,
+      cronId: null,
+      apiKeyId: null,
+      dshSessionId: null,
+      trigger: 'manual',
+      idempotencyKey: null,
+      state: 'running',
+      resultSummary: null,
+      startedAt: now,
+      endedAt: null,
+      error: null,
+      commitHash: null,
+    })
+    .run()
+  const busy = await app.inject({
+    method: 'POST',
+    url: '/api/internal/chats/c-reuse/prompt',
+    headers: authed(),
+    payload: { text: '再续一句' },
+  })
+  assert.equal(busy.statusCode, 409)
+  assert.equal((busy.json() as { error: string }).error, 'chat_busy')
+
+  const missing = await app.inject({
+    method: 'POST',
+    url: '/api/internal/chats/nope/prompt',
+    headers: authed(),
+    payload: { text: 'x' },
+  })
+  assert.equal(missing.statusCode, 404)
+})
+
 test('crons: drafted disabled by default, duplicate name 409, bad schedule 400', async () => {  const { app, db } = await boot(SUCCESS)
   const ok = await app.inject({
     method: 'POST',

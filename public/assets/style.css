@@ -1997,6 +1997,79 @@ button:disabled {
   font-size: 13px;
 }
 
+/* 站内通知（P5.3）：铃铛角标 + 上弹面板 */
+.icon-btn {
+  position: relative;
+}
+.notify-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--danger, #e5484d);
+  color: #fff;
+  font-size: 9.5px;
+  line-height: 14px;
+  text-align: center;
+}
+.notify-panel {
+  position: fixed;
+  width: 320px;
+  max-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--sh-2);
+  z-index: 60;
+  overflow: hidden;
+}
+.notify-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.notify-list {
+  overflow-y: auto;
+}
+.notify-item {
+  display: block;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  text-decoration: none;
+}
+.notify-item:hover {
+  background: var(--side-hover);
+}
+.notify-item.unread {
+  background: var(--accent-soft);
+}
+.notify-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+.notify-body {
+  color: var(--text-2);
+  font-size: 12.5px;
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+.notify-time {
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 4px;
+}
+.notify-empty {
+  padding: 14px;
+}
+
 /* ---- docked, collapsed to a rail (>= 1024px) ---- */
 
 /* Scoped to the docked width on purpose. `nav-rail` is a remembered preference,

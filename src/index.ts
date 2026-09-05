@@ -24,6 +24,7 @@ import { registerCronRoutes } from './routes/cron.js'
 import { registerInternalRoutes } from './routes/internal.js'
 import { registerNodesRoutes } from './routes/nodes.js'
 import { registerSkillsRoutes } from './routes/skills.js'
+import { registerNotificationRoutes } from './routes/notifications.js'
 import { Scheduler } from './cron/schedule.js'
 import { assetCacheHeaders, buildPages } from './pages.js'
 
@@ -207,6 +208,7 @@ const main = async (): Promise<void> => {
   // 蜂群 P3：节点（fleet）视图。
   registerNodesRoutes(app, config, nodeSupervisors, clients, upstreamClients, requireUser)
   registerSkillsRoutes(app, config, requireUser)
+  registerNotificationRoutes(app, db, requireUser)
 
   const close = async (signal: string): Promise<void> => {
     app.log.info(`${signal} received, shutting down`)

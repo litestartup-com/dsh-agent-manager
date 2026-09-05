@@ -8,6 +8,7 @@ import type { GatewayClient } from '../gateway/client.js'
 import type { UpstreamClient } from '../upstream/client.js'
 import { runAgent, type RunInput, type RunOutcome, type RunnerDeps } from '../runner.js'
 import { currentDay, daySpend } from '../usage/store.js'
+import { notify } from '../notify.js'
 
 /**
  * Scheduled runs, which is the first thing in this system that spends money
@@ -299,6 +300,12 @@ export class Scheduler {
           .where(eq(schema.cron.id, row.id))
           .run()
         this.deps.log.info(`cron ${row.name}: done (${outcome.runId})`)
+        notify(this.deps.db, {
+          kind: 'cron_done',
+          title: `定时任务完成：${row.name}`,
+          body: outcome.summary ?? '（没有输出文字）',
+          link: '/crons',
+        })
         return { cronId, ran: true, skipped: null, runId: outcome.runId, state: 'done', message: null }
       }
       return this.countFailure(row, outcome.error ?? 'the run failed without a reason', outcome.runId)
@@ -320,6 +327,12 @@ export class Scheduler {
     const failures = row.consecutiveFailures + 1
     const ceiling = this.deps.config.runner.maxConsecutiveFailures
     const disable = failures >= ceiling
+    notify(this.deps.db, {
+      kind: 'cron_failed',
+      title: `定时任务失败：${row.name}${disable ? '（已自动停用）' : ''}`,
+      body: message,
+      link: '/crons',
+    })
     this.deps.db
       .update(schema.cron)
       .set({

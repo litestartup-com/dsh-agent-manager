@@ -66,9 +66,15 @@ GET 类请求直接 curl，不需要文件。
    - `state=done` → 用 `summary` 回报用户，引用 `runId`；
    - `state=failed` → 读 `error` 转述，不自动重试；
    - `409`（如 `brain_budget_exhausted`）→ 转述 `detail`，不硬闯。
-3. **起草定时任务**：`POST /api/internal/crons` → 成功后说「已起草，请在定时任务页确认启用」。schedule 是 5 段 cron 表达式（分 时 日 月 周），时区默认 `Asia/Shanghai`。
-4. **看大盘**：`GET /api/internal/agents/personal/board`，直接引用返回里的数字回答用户。
-5. **看花费**：`GET /api/internal/usage`，注意微美元换算（1e6 微美元 = $1）。
+3. **会话复用（续接 vs 新建）**：
+   - 先 `GET /api/internal/agents/:id/chats` 看该 agent 的会话列表（标题 + 回合数）。
+   - **同类任务**（标题命中，如都是「周报」）→ `POST /api/internal/chats/:chatId/prompt`，body `{text}`，续最近一条同名会话；
+   - **空会话**（turns=0）是免费槽位，优先复用；
+   - 用户明说「新任务」或没有合适会话 → 用 `dispatch` 新建。
+   - prompt 同步返回 `{runId, state, summary, error}`；`409 chat_busy` = 该会话正在跑，稍后再试。
+4. **起草定时任务**：`POST /api/internal/crons` → 成功后说「已起草，请在定时任务页确认启用」。schedule 是 5 段 cron 表达式（分 时 日 月 周），时区默认 `Asia/Shanghai`。
+5. **看大盘**：`GET /api/internal/agents/personal/board`，直接引用返回里的数字回答用户。
+6. **看花费**：`GET /api/internal/usage`，注意微美元换算（1e6 微美元 = $1）。
 
 ## 派工判据（与 AGENTS.md 一致）
 
