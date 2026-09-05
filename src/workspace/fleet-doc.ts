@@ -5,11 +5,12 @@
  * 主脑的派工判据读它而不是背死名单。文件是生成物：内容变了就覆盖，
  * 用户永远不手改它（改拓扑 = 改 manager.config.yaml / 用向导）。
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AppConfig } from '../config.js'
 
 export const FLEET_FILE = 'fleet.md'
+export const BRAIN_TOKEN_FILE = '.brain-auth'
 
 export const renderFleetDoc = (config: AppConfig): string => {
   const agents = Object.values(config.agents)
@@ -65,6 +66,35 @@ export const syncFleetDocs = (config: AppConfig, log?: (line: string) => void): 
     } catch (error) {
       log?.(`fleet.md ${agent.id}: sync failed: ${(error as Error).message.split('\n')[0]}`)
     }
+    // 蜂群2计划 P6：主脑的 X-Brain-Token 经文件下发——DSH 工具沙箱会洗掉
+    // 一切 KEY/TOKEN/SECRET 字样环境变量（dsh-subprocess SENSITIVE_ENV_PATTERN，
+    // 实测），env 通路走不通；0600 文件 + gitignore 是唯一版本无关的通路。
+    if (agent.id === 'brain') provisionBrainTokenFile(agent.workspacePath, log)
   }
   return updated
+}
+
+const TOKEN_FILE = BRAIN_TOKEN_FILE
+
+/** 主脑令牌文件：内容与 .env 的 BRAIN_TOKEN 一致；0600 + 进工作区 .gitignore。 */
+export const provisionBrainTokenFile = (workspacePath: string, log?: (line: string) => void): void => {
+  const token = process.env.BRAIN_TOKEN ?? ''
+  if (token === '') {
+    log?.(`brain token file: skipped（BRAIN_TOKEN 未设置）`)
+    return
+  }
+  const path = join(workspacePath, TOKEN_FILE)
+  try {
+    mkdirSync(workspacePath, { recursive: true })
+    if (readFileSync(path, 'utf8') !== token) {
+      writeFileSync(path, token, { encoding: 'utf8', mode: 0o600 })
+    }
+    const gitignore = join(workspacePath, '.gitignore')
+    const lines = existsSync(gitignore) ? readFileSync(gitignore, 'utf8').split(/\r?\n/) : []
+    if (!lines.includes(TOKEN_FILE)) {
+      writeFileSync(gitignore, [...lines, TOKEN_FILE, ''].join('\n'), 'utf8')
+    }
+  } catch (error) {
+    log?.(`brain token file: failed: ${(error as Error).message.split('\n')[0]}`)
+  }
 }
