@@ -41,11 +41,17 @@ irm https://get.ohdsh.com/install.ps1 -OutFile install.ps1; powershell -Executio
 
 ### 域名 + HTTPS（可选进阶，origin-ca 模式）
 
-交互式安装时直接回答域名与 TLS 模式即可 —— 证书**自动复制**（优先取主机
-`/etc/ssl/ohdsh/` 下的 cert.pem/key.pem，或 `SSL_CERT_SRC`/`SSL_KEY_SRC` 指定，
-或提前放进安装目录 `ssl/`）。80 自动 301 到 443，manager 自动开启 secure cookie
-（`.env` 写入 `NODE_ENV=production`）。letsencrypt 模式：先 `TLS_MODE=letsencrypt`
-跑通 80，再在主机执行 `certbot --nginx -d 你的域名`。
+交互式安装时回答域名、TLS 模式选 origin-ca，然后按提示给证书（三选一）：
+
+1. **提前放置（推荐）**：把证书放进安装目录的 `ssl/cert.pem` 与 `ssl/key.pem`，
+   安装时直接回车即可；
+2. **安装时输入路径**：提示时粘贴证书/私钥的完整路径；
+3. 无人值守：`SSL_CERT_SRC` / `SSL_KEY_SRC` 环境变量指定。
+
+证书来源（Cloudflare）：控制台 SSL/TLS → Origin Server → Create Certificate 下载，
+得到 `cert.pem` 与 `key.pem` 两份文件。80 自动 301 到 443，manager 自动开启
+secure cookie（`.env` 写入 `NODE_ENV=production`）。letsencrypt 模式：先
+`TLS_MODE=letsencrypt` 跑通 80，再在主机执行 `certbot --nginx -d 你的域名`。
 
 ### 安装后
 

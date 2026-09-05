@@ -152,28 +152,48 @@ if [ -n "$APP_DOMAIN" ]; then
   log "nginx: domain=$APP_DOMAIN tls=$TLS_MODE"
 
   if [ "$TLS_MODE" = "origin-ca" ]; then
-    # 证书获取顺序：$APP_DIR/ssl/ 已有 → SSL_CERT_SRC/SSL_KEY_SRC → 主机 /etc/ssl/ohdsh/*
-    # （旧安装的证书位置，自动复制）—— 都不存在才报错，报错给足两种放法。
+    # 证书约定位置 = <安装目录>/ssl/cert.pem 与 key.pem（文档明示，可提前放置）；
+    # 也支持交互输入现有证书路径，或 SSL_CERT_SRC/SSL_KEY_SRC 环境变量指定。
+    # 新用户从 Cloudflare 下载的证书（SSL/TLS → Origin Server）直接放进约定位置即可。
     if [ "$DRY_RUN" = "1" ]; then
-      log "DRY: ensure $APP_DIR_ABS/ssl/cert.pem + key.pem (auto-copy from /etc/ssl/ohdsh or SSL_CERT_SRC/SSL_KEY_SRC)"
+      log "DRY: ensure cert/key (canonical: $APP_DIR_ABS/ssl/{cert,key}.pem, or prompt for paths)"
     else
       mkdir -p "$APP_DIR_ABS/ssl"
       CERT="$APP_DIR_ABS/ssl/cert.pem"
       KEY="$APP_DIR_ABS/ssl/key.pem"
       if [ ! -f "$CERT" ]; then
-        for SRC in "${SSL_CERT_SRC:-}" /etc/ssl/ohdsh/cert.pem; do
-          if [ -n "$SRC" ] && [ -f "$SRC" ]; then cp "$SRC" "$CERT" && log "cert copied from $SRC" && break; fi
-        done
+        if [ -n "${SSL_CERT_SRC:-}" ]; then
+          if [ -f "$SSL_CERT_SRC" ]; then
+            cp "$SSL_CERT_SRC" "$CERT" && log "cert copied from $SSL_CERT_SRC"
+          else
+            echo "[install] SSL_CERT_SRC 指向的文件不存在：$SSL_CERT_SRC"; exit 1
+          fi
+        else
+          read -rp "证书文件路径 cert.pem（回车 = $APP_DIR_ABS/ssl/cert.pem）: " CERT_SRC || true
+          if [ -n "$CERT_SRC" ]; then
+            if [ -f "$CERT_SRC" ]; then cp "$CERT_SRC" "$CERT"; else echo "[install] 找不到证书文件：$CERT_SRC"; exit 1; fi
+          fi
+        fi
       fi
       if [ ! -f "$KEY" ]; then
-        for SRC in "${SSL_KEY_SRC:-}" /etc/ssl/ohdsh/key.pem; do
-          if [ -n "$SRC" ] && [ -f "$SRC" ]; then cp "$SRC" "$KEY" && log "key copied from $SRC" && break; fi
-        done
+        if [ -n "${SSL_KEY_SRC:-}" ]; then
+          if [ -f "$SSL_KEY_SRC" ]; then
+            cp "$SSL_KEY_SRC" "$KEY" && log "key copied from $SSL_KEY_SRC"
+          else
+            echo "[install] SSL_KEY_SRC 指向的文件不存在：$SSL_KEY_SRC"; exit 1
+          fi
+        else
+          read -rp "私钥文件路径 key.pem（回车 = $APP_DIR_ABS/ssl/key.pem）: " KEY_SRC || true
+          if [ -n "$KEY_SRC" ]; then
+            if [ -f "$KEY_SRC" ]; then cp "$KEY_SRC" "$KEY"; else echo "[install] 找不到私钥文件：$KEY_SRC"; exit 1; fi
+          fi
+        fi
       fi
       if [ ! -f "$CERT" ] || [ ! -f "$KEY" ]; then
-        echo "[install] TLS_MODE=origin-ca 需要证书，二选一："
-        echo "           1) 放进 $APP_DIR_ABS/ssl/ 的 cert.pem 与 key.pem；"
-        echo "           2) 设 SSL_CERT_SRC/SSL_KEY_SRC 指向现有证书路径后重跑（幂等）。"
+        echo "[install] 还缺证书/私钥（Cloudflare 用户：SSL/TLS → Origin Server → Create Certificate 下载）："
+        echo "           1) 放进 $APP_DIR_ABS/ssl/cert.pem 与 $APP_DIR_ABS/ssl/key.pem 后重跑（幂等）；"
+        echo "           2) 或重跑时直接输入两个文件路径；"
+        echo "           3) 或设 SSL_CERT_SRC/SSL_KEY_SRC 环境变量后重跑。"
         exit 1
       fi
       chmod 600 "$KEY"
