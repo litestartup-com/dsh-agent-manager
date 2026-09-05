@@ -19,6 +19,6 @@ logs/
 # 各 agent 的工作区由各自的 git 仓库管理，不进 manager 仓库
 workspaces/
 
-# 文档：内部工作文档（计划/设计/头脑风暴），不随仓库公开
-# 公开面只有 README.md / README.zh.md / LICENSE
-docs/
+# 文档：公开文档（路线图/用户手册）进仓库；内部工作文档（计划/设计/头脑风暴）
+# 在 notes/（不进 git）。公开面：README.md / docs/ / CHANGELOG.md / LICENSE
+notes/

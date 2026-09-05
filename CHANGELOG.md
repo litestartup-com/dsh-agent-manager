@@ -45,5 +45,5 @@
 
 ### 工程
 
-- SQLite 显式迁移 `schema_version`；334 测试全绿；前端零构建（hash 版本化资产）
-- 文档体系：BRAINSTORM / MILESTONES（路线图真相源）/ REPORT / PLAN / TASKS
+- SQLite 显式迁移 `schema_version`；测试套件全绿（数量由 CI 断言）；前端零构建（hash 版本化资产）
+- 文档体系：公开 `docs/`（用户手册 + 路线图）与内部 `notes/`（设计/计划/调研）分层
