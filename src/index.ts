@@ -18,6 +18,8 @@ import { DockerRunner, NODE_LABEL } from './nodes/docker-runner.js'
 import { recordAudit } from './audit.js'
 import { CSRF_COOKIE } from './routes/auth.js'
 import { registerAuditRoutes } from './routes/audit.js'
+import { collectNodeHomes, packNodeHomes } from './nodebackup.js'
+import { deriveBackupKey } from './crypt.js'
 import { registerAuthRoutes } from './routes/auth.js'
 import { registerStatusRoutes } from './routes/status.js'
 import { registerWorkspaceRoutes } from './routes/workspace.js'
@@ -297,6 +299,16 @@ const main = async (): Promise<void> => {
       app.log.info(`backup: ${result.snapshot.file} (${result.snapshot.bytes} bytes)${result.pruned.length > 0 ? `, pruned ${result.pruned.length}` : ''}`)
       // 蜂群2计划 P3：审计留痕（自动备份，actor = system）
       recordAudit(db, { actor: 'system', kind: 'backup', detail: `快照 ${result.snapshot.file}` })
+      // 蜂群2计划 P4：节点 home 一并打包加密（6 小时内已有归档则跳过）
+      const nodeEntries = collectNodeHomes(config)
+      if (nodeEntries.length > 0) {
+        try {
+          const packed = await packNodeHomes(nodeEntries, backupDir, deriveBackupKey(config.sessionSecret), dockerRunner ?? undefined)
+          if (packed.length > 0) app.log.info(`backup: node homes → ${packed.join(', ')}`)
+        } catch (error) {
+          app.log.error(`node home backup failed: ${error instanceof Error ? error.message : String(error)}`)
+        }
+      }
     } catch (error) {
       app.log.error(`backup failed: ${(error as Error).message}`)
     }

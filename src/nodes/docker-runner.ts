@@ -104,4 +104,25 @@ export class DockerRunner {
       state: c.State === 'running' ? 'running' : c.State === 'exited' ? 'exited' : 'other',
     }))
   }
+
+  /**
+   * 蜂群2计划 P4：跑一个一次性工具容器（节点 home 卷的备份/恢复用），
+   * 退出即自删；退出码非 0 抛错。
+   */
+  async runTool(image: string, cmd: string[], binds: Array<{ from: string; to: string }>): Promise<void> {
+    await this.ensureImage(image)
+    const container = await this.docker.createContainer({
+      Image: image,
+      Cmd: cmd,
+      HostConfig: {
+        Binds: binds.map((b) => `${b.from}:${b.to}`),
+        AutoRemove: true,
+      },
+    })
+    await container.start()
+    const result = await container.wait()
+    if (result.StatusCode !== 0) {
+      throw new Error(`工具容器退出码 ${String(result.StatusCode)}：${cmd.join(' ')}`)
+    }
+  }
 }

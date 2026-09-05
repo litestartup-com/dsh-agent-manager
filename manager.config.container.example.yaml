@@ -66,6 +66,12 @@ brain:
 database:
   path: ./data/manager.db
 
+# 蜂群2计划 P4：额外纳入备份的 docker 命名卷（compose 脊柱的主脑卷无 spawn 段，
+# 在这里声明后随自动备份一起打包加密）。
+backup:
+  docker_volumes:
+    - ohdsh-brain
+
 pricing:
   peak_windows_utc:
     - { start: '01:00', end: '04:00' }
