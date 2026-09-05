@@ -164,6 +164,8 @@ $('f-cancel').addEventListener('click', () => {
 // 自动生成——展示与落盘永远一致。
 const advancedFields = ['f-agent-id', 'f-agent-name', 'f-agent-workspace']
 const advancedDirty = new Set()
+// 蜂群2计划 P6：容器模式（docker runner）下默认工作区 = manager 挂载视角路径
+let dockerMode = false
 
 for (const id of advancedFields) {
   const el = $(id)
@@ -178,7 +180,8 @@ $('f-node-name').addEventListener('input', () => {
   if (!advancedDirty.has('f-agent-id')) $('f-agent-id').value = name
   if (!advancedDirty.has('f-agent-name')) $('f-agent-name').value = name
   if (!advancedDirty.has('f-agent-workspace')) {
-    $('f-agent-workspace').value = name === '' ? '' : `~/.dsh-ohdsh/workspaces/${name}`
+    const base = dockerMode ? '/opt/ohdsh/workspaces' : '~/.dsh-ohdsh/workspaces'
+    $('f-agent-workspace').value = name === '' ? '' : `${base}/${name}`
   }
 })
 
@@ -235,7 +238,8 @@ const load = async () => {
   try {
     const [nodesResponse, runsResponse] = await Promise.all([apiFetch('/api/nodes'), apiFetch('/api/runs')])
     if (!nodesResponse.ok) return
-    const { nodes } = await nodesResponse.json()
+    const { nodes, dockerMode: isDocker } = await nodesResponse.json()
+    dockerMode = isDocker === true
     const live = nodes.filter((n) => n.state === 'live').length
     const abnormal = nodes.filter((n) => n.state !== 'live').length
     $('nodes-count').textContent = `${live}/${nodes.length} 正常${abnormal > 0 ? ` · ${abnormal} 个异常` : ''}`

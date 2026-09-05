@@ -270,7 +270,7 @@ const main = async (): Promise<void> => {
   registerNodesRoutes(app, config, nodeSupervisors, clients, upstreamClients, requireUser, (actor, kind, detail) =>
     recordAudit(db, { actor, kind, detail }),
   )
-  registerProvisionRoutes(app, config, requireUser, { db, supervisors: nodeSupervisors, clients, upstreamClients })
+  registerProvisionRoutes(app, config, requireUser, { db, supervisors: nodeSupervisors, clients, upstreamClients, docker: dockerRunner ?? undefined })
   registerSkillsRoutes(app, config, requireUser)
   registerNotificationRoutes(app, db, requireUser)
 

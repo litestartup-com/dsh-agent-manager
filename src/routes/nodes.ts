@@ -60,7 +60,9 @@ export const registerNodesRoutes = (
         }
       }),
     )
-    return { nodes }
+    // 蜂群2计划 P6：向导需要知道部署形态（docker runner 节点默认工作区路径不同）
+    const dockerMode = Object.values(config.endpoints).some((e) => e.spawn?.runner === 'docker')
+    return { nodes, dockerMode }
   })
 
   /**
