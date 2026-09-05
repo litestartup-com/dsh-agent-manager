@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -11,6 +12,7 @@ import type { GatewayClient } from '../gateway/client.js'
 import type { UpstreamClient } from '../upstream/client.js'
 import { buildUpstreamClients } from '../upstream/client.js'
 import type { NodeSupervisor } from '../nodes/supervisor.js'
+import type { DockerRunner } from '../nodes/docker-runner.js'
 import { makeSupervisor } from '../nodes/registry.js'
 import { detectDshBin, ensureNodeCredentials, ensureNodeProfiles, mergeEnv, resolveGatewayKey } from '../cli/setup.js'
 import { ensureWorkspaceGit } from '../workspace/init.js'
@@ -93,6 +95,28 @@ interface ProvisionDeps {
   supervisors: Map<string, NodeSupervisor>
   clients: Map<string, GatewayClient>
   upstreamClients: Map<string, UpstreamClient>
+  /** 蜂群2计划 P6：容器模式新增节点需要（docker runner 接线）。 */
+  docker?: DockerRunner
+}
+
+/**
+ * 容器模式：从既有 docker 端点的 host_volumes 推导宿主机工作区前缀
+ * （install.sh 已把宿主路径钉成真实绝对路径），新节点沿用同一前缀。
+ */
+const deriveHostWorkspacePath = (config: AppConfig, nodeId: string, workspacePath: string | undefined): string => {
+  const containerPath = workspacePath ?? `/opt/ohdsh/workspaces/${nodeId}`
+  for (const ep of Object.values(config.endpoints)) {
+    if (ep.spawn?.runner !== 'docker' || ep.spawn.docker === null) continue
+    for (const [host, mounted] of Object.entries(ep.spawn.docker.hostVolumes)) {
+      if (mounted.startsWith('/opt/ohdsh/workspaces/')) {
+        const tail = mounted.slice(mounted.lastIndexOf('/'))
+        if (host.endsWith(tail)) return host.slice(0, -tail.length) + '/' + nodeId
+        return host
+      }
+    }
+  }
+  // 兜底：同串路径（宿主侧可能不存在——workspaceWarning 会提醒）
+  return containerPath
 }
 
 export const registerProvisionRoutes = (
@@ -114,13 +138,19 @@ export const registerProvisionRoutes = (
       return reply.code(409).send({ error: 'duplicate_node', detail: `节点 ${body.name} 已存在` })
     }
     // 归一化工作区规格：缺省值全部由节点名推导（与向导展示的默认一致）。
+    // 蜂群2计划 P6：容器模式（任何既有 endpoint 用 docker runner）下新节点同形态，
+    // 工作区默认落在 manager 挂载视角 /opt/ohdsh/workspaces/<名>。
+    const dockerMode = Object.values(config.endpoints).some((e) => e.spawn?.runner === 'docker')
+    const workspaceDefault = dockerMode
+      ? `/opt/ohdsh/workspaces/${body.name}`
+      : join(nodesHome(), 'workspaces', body.name)
     const agentSpec =
       body.agent === undefined
         ? null
         : {
             id: body.agent.id ?? body.name,
             name: body.agent.name ?? body.name,
-            workspace: resolve(body.agent.workspace ?? join(nodesHome(), 'workspaces', body.name)),
+            workspace: resolve(body.agent.workspace ?? workspaceDefault),
             preset: body.agent.preset ?? 'standard',
             sandboxMode: body.agent.sandboxMode ?? 'workspace-write',
           }
@@ -137,6 +167,126 @@ export const registerProvisionRoutes = (
     let createdHome: string | null = null
 
     try {
+      // 蜂群2计划 P6：容器模式分支——节点 = docker runner 工蜂（镜像 + 命名卷 +
+      // 网络别名），不找 DSH bin、不做 profile/pnpm（运行时零安装）。
+      if (dockerMode) {
+        const key = 'apigw-' + randomBytes(24).toString('hex')
+        mergeEnv(ENV_PATH, { [keyRef]: key }, [keyRef])
+
+        let workspaceWarning: string | null = null
+        if (agentSpec !== null) {
+          mkdirSync(agentSpec.workspace, { recursive: true })
+          const git = ensureWorkspaceGit(agentSpec.workspace, agentSpec.name)
+          workspaceWarning = git.warning
+        }
+
+        // 宿主机侧工作区路径：从既有 docker 端点的 host_volumes 推导前缀
+        // （install.sh 已把示例里的宿主路径钉成真实路径，这里照抄同一前缀）。
+        const hostKey = deriveHostWorkspacePath(config, body.name, agentSpec?.workspace)
+
+        const dockerSpec = {
+          image: process.env.DSH_NODE_IMAGE ?? 'ohdsh/dsh-node:0.1.1-rc.2',
+          network: 'ohdsh-hive',
+          port,
+          host_volumes: { [hostKey]: agentSpec?.workspace ?? workspaceDefault },
+          named_volumes: { [`ohdsh-${body.name}`]: '/data' },
+        }
+
+        const yaml = parseYaml(readFileSync(resolve(CONFIG_PATH), 'utf8')) as Record<string, Record<string, unknown>>
+        const endpoints = (yaml.endpoints ??= {}) as Record<string, unknown>
+        const agents = (yaml.agents ??= {}) as Record<string, unknown>
+        endpoints[body.name] = {
+          url: `http://node-${body.name}:${port}`,
+          driver: 'apiproxy',
+          prefix: '/api',
+          key_ref: '',
+          sandbox_base: `http://node-${body.name}:${port}/api-gw/v1`,
+          sandbox_key_ref: keyRef,
+          spawn: {
+            managed: true,
+            runner: 'docker',
+            ready_timeout_ms: 30_000,
+            docker: dockerSpec,
+          },
+        }
+        if (agentSpec !== null) {
+          agents[agentSpec.id] = {
+            name: agentSpec.name,
+            endpoint: body.name,
+            workspace: agentSpec.workspace,
+            public: false,
+            preset: agentSpec.preset,
+            sandbox_mode: agentSpec.sandboxMode,
+          }
+        }
+        writeFileSync(resolve(CONFIG_PATH), stringifyYaml(yaml), 'utf8')
+
+        const spawn: ResolvedSpawnSpec = {
+          managed: true,
+          command: '',
+          args: [],
+          cwd: null,
+          readyTimeoutMs: 30_000,
+          detached: false,
+          logFile: null,
+          env: {},
+          restart: { maxAttempts: 3, baseDelayMs: 1_000, maxDelayMs: 30_000 },
+          runner: 'docker',
+          docker: {
+            image: dockerSpec.image,
+            containerName: null,
+            network: dockerSpec.network,
+            port,
+            hostVolumes: dockerSpec.host_volumes,
+            namedVolumes: dockerSpec.named_volumes,
+          },
+        }
+        const endpoint: ResolvedEndpoint = {
+          id: body.name,
+          url: `http://node-${body.name}:${port}`,
+          driver: 'apiproxy',
+          prefix: '/api',
+          key: '',
+          sandboxBase: `http://node-${body.name}:${port}/api-gw/v1`,
+          sandboxKey: key,
+          spawn,
+        }
+        config.endpoints[body.name] = endpoint
+        const fresh = buildUpstreamClients({ [body.name]: endpoint })
+        const upstream = fresh.get(body.name)
+        if (upstream !== undefined) upstreamClients.set(body.name, upstream)
+        const supervisor = makeSupervisor(endpoint, {
+          upstream: (id) => upstreamClients.get(id),
+          gateway: () => deps.clients.get(body.name),
+          log: (line) => app.log.info(line),
+          docker: deps.docker,
+        })
+        supervisors.set(body.name, supervisor)
+        supervisor.start(endpoint.spawn!)
+
+        if (agentSpec !== null) {
+          config.agents[agentSpec.id] = {
+            id: agentSpec.id,
+            name: agentSpec.name,
+            endpoint: body.name,
+            workspacePath: agentSpec.workspace,
+            public: false,
+            preset: agentSpec.preset,
+            sandboxMode: agentSpec.sandboxMode,
+            gitRemote: null,
+            provider: null,
+            model: null,
+          }
+        }
+
+        recordAudit(db, { actor: request.currentUser?.username ?? 'unknown', kind: 'node_create', detail: `节点 ${body.name}（docker 工蜂，端口 ${port}，工作区 ${agentSpec?.workspace ?? '—'}）` })
+        return reply.code(201).send({
+          node: { id: body.name, port, home: `ohdsh-${body.name}` },
+          workspace: agentSpec === null ? null : { id: agentSpec.id, path: agentSpec.workspace },
+          workspaceWarning,
+        })
+      }
+
       const dshBin = detectDshBin(join(userHome(), '.dsh'), null)
 
       // 1. 节点三件套：profile → 凭据 → gateway 密钥（文件层）

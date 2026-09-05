@@ -132,3 +132,61 @@ test('蜂群 P5.5: unknown agent id shape is rejected', async () => {
   const bad = await app.inject({ method: 'POST', url: '/api/nodes', payload: { name: 'BAD NAME', install: false } })
   assert.equal(bad.statusCode, 400)
 })
+
+test('蜂群2计划 P6: 容器模式新节点 = docker runner（不找 DSH bin，命名卷 + 内网别名 + 宿主路径推导）', async () => {
+  const { app, config, supervisors } = await boot()
+  // 模拟脊柱部署已存在 personal 工蜂（docker runner），向导据此进入容器模式
+  config.endpoints['personal'] = {
+    id: 'personal',
+    url: 'http://node-personal:3081',
+    driver: 'apiproxy',
+    prefix: '/api',
+    key: '',
+    sandboxBase: 'http://node-personal:3081/api-gw/v1',
+    sandboxKey: 'apigw-x',
+    spawn: {
+      managed: true,
+      command: '',
+      args: [],
+      cwd: null,
+      readyTimeoutMs: 30_000,
+      detached: false,
+      logFile: null,
+      env: {},
+      restart: { maxAttempts: 3, baseDelayMs: 1_000, maxDelayMs: 30_000 },
+      runner: 'docker',
+      docker: {
+        image: 'ohdsh/dsh-node:0.1.1-rc.2',
+        containerName: null,
+        network: 'ohdsh-hive',
+        port: 3081,
+        hostVolumes: { '/srv/ohdsh/workspaces/personal': '/opt/ohdsh/workspaces/personal' },
+        namedVolumes: { 'ohdsh-personal': '/data' },
+      },
+    },
+  }
+
+  const created = await app.inject({ method: 'POST', url: '/api/nodes', payload: { name: 'product' } })
+  assert.equal(created.statusCode, 201, JSON.stringify(created.body))
+  const body = created.json() as { node: { id: string; home: string; port: number } }
+  assert.equal(body.node.home, 'ohdsh-product', '节点 home = 命名卷')
+
+  const spawn = config.endpoints['product']?.spawn
+  assert.ok(spawn !== null && spawn !== undefined)
+  assert.equal(spawn.runner, 'docker', '容器模式绝不找 DSH bin')
+  assert.equal(spawn.docker?.network, 'ohdsh-hive')
+  assert.equal(spawn.docker?.namedVolumes['ohdsh-product'], '/data')
+  // 宿主路径前缀从 personal 推导（/srv/ohdsh/workspaces/product），容器内路径 = manager 视角
+  assert.equal(spawn.docker?.hostVolumes['/srv/ohdsh/workspaces/product'], '/opt/ohdsh/workspaces/product')
+  assert.equal(config.endpoints['product']?.url, 'http://node-product:3090')
+
+  const yaml = readFileSync(join(dir, 'manager.config.yaml'), 'utf8')
+  assert.match(yaml, /runner: docker/)
+  assert.match(yaml, /http:\/\/node-product:3090/)
+  assert.match(readFileSync(join(dir, '.env'), 'utf8'), /GW_KEY_PRODUCT=/)
+
+  stopped.push(supervisors.get('product')!)
+  const removed = await app.inject({ method: 'DELETE', url: '/api/nodes/product' })
+  assert.equal(removed.statusCode, 200)
+  assert.doesNotMatch(readFileSync(join(dir, 'manager.config.yaml'), 'utf8'), /product/)
+})

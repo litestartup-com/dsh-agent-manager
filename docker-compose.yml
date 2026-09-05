@@ -31,8 +31,9 @@ services:
     image: ohdsh/manager:${MANAGER_VERSION:-1.0.1}
     env_file: .env
     volumes:
-      - ./.env:/app/.env:ro
-      - ./manager.config.yaml:/app/manager.config.yaml:ro
+      # rw：向导新增节点会写回 manager.config.yaml 与 .env（文件即真相）
+      - ./.env:/app/.env
+      - ./manager.config.yaml:/app/manager.config.yaml
       - ./data:/app/data
       # 工蜂生命周期：manager 经宿主机 dockerd 管理本机节点容器（Portainer 同款模式）
       - /var/run/docker.sock:/var/run/docker.sock
