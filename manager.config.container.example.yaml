@@ -45,13 +45,13 @@ endpoints:
 
 agents:
   brain:
-    name: 主脑
+    name: Brain
     endpoint: brain
     workspace: /opt/ohdsh/workspaces/brain
     preset: standard
     sandbox_mode: workspace-write
   personal:
-    name: 个人
+    name: Personal
     endpoint: personal
     workspace: /opt/ohdsh/workspaces/personal
     preset: standard

@@ -51,7 +51,10 @@ const isPrivateSource = (ip: string): boolean => {
 }
 
 const brainGate: preHandlerHookHandler = async (request, reply) => {
-  if (!isPrivateSource(request.ip)) {
+  // 蜂群2计划 P6：信任「直连对端」而不是转发头——反代（nginx/Cloudflare）之后
+  // request.ip 是公网客户端 IP，会把回环/内网来源误判成公网（smoke 实测 403）。
+  const peerIp = request.socket.remoteAddress ?? request.ip
+  if (!isPrivateSource(peerIp)) {
     await reply.code(403).send({ error: 'private_network_only', hint: 'the brain API accepts private-network connections only' })
     return
   }

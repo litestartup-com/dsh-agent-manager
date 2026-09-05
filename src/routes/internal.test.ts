@@ -91,7 +91,9 @@ const boot = async (script: FakeScript): Promise<Harness> => {
     initialUser: { username: 'admin', password: null },
     warnings: [],
   }
-  const app = Fastify()
+  // trustProxy=true 与生产一致：request.ip 会取 X-Forwarded-For（公网客户端），
+  // 而门禁必须看 socket 对端——viaProxy 用例正是为这个差异而生。
+  const app = Fastify({ trustProxy: true })
   const clients = new Map([['A', new GatewayClient(ep)]])
   const schedulerStub = { reload: () => {}, nextRunAt: () => null, problemFor: () => null } as unknown as Scheduler
   registerInternalRoutes(app, config, db, clients, new Map(), schedulerStub)
@@ -146,6 +148,15 @@ test('the brain gate fails closed: no token, wrong token, non-loopback, disabled
     remoteAddress: '172.20.0.2',
   })
   assert.equal(privateNoToken.statusCode, 401, '私网来源也必须带有效 token')
+
+  // 反代场景：转发头里是公网客户端 IP，直连对端是内网 nginx/节点 → 必须放行
+  const viaProxy = await app.inject({
+    method: 'GET',
+    url: '/api/internal/agents',
+    headers: { ...authed(), 'x-forwarded-for': '203.0.113.9' },
+    remoteAddress: '172.20.0.5',
+  })
+  assert.equal(viaProxy.statusCode, 200, '信任直连对端而非转发头')
 })
 
 test('agents list: shape and busy flag', async () => {

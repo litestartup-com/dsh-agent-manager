@@ -6,6 +6,7 @@
  * 用户永远不手改它（改拓扑 = 改 manager.config.yaml / 用向导）。
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import type { AppConfig } from '../config.js'
@@ -57,19 +58,44 @@ export const syncFleetDocs = (config: AppConfig, log?: (line: string) => void): 
   for (const agent of Object.values(config.agents)) {
     const path = join(agent.workspacePath, FLEET_FILE)
     try {
-      if (readFileSync(path, 'utf8') === doc) continue
+      if (readFileSync(path, 'utf8') === doc) {
+        // 内容没变也继续走 commitFleetDoc：文件可能已存在但未提交（历史遗留 dirty）
+      } else {
+        mkdirSync(agent.workspacePath, { recursive: true })
+        writeFileSync(path, doc, 'utf8')
+        updated.push(agent.id)
+      }
     } catch {
       // 文件不存在 → 写
+      try {
+        mkdirSync(agent.workspacePath, { recursive: true })
+        writeFileSync(path, doc, 'utf8')
+        updated.push(agent.id)
+      } catch (error) {
+        log?.(`fleet.md ${agent.id}: sync failed: ${(error as Error).message.split('\n')[0]}`)
+        continue
+      }
     }
-    try {
-      mkdirSync(agent.workspacePath, { recursive: true })
-      writeFileSync(path, doc, 'utf8')
-      updated.push(agent.id)
-    } catch (error) {
-      log?.(`fleet.md ${agent.id}: sync failed: ${(error as Error).message.split('\n')[0]}`)
-    }
+    // 蜂群2计划 P6：fleet.md 是 manager 生成物——同步即提交，工作区保持 clean
+    commitFleetDoc(agent.workspacePath, log)
   }
   return updated
+}
+
+/** 只提交 fleet.md（manager 生成物）；无 git 仓或提交失败不阻断。 */
+const commitFleetDoc = (workspacePath: string, log?: (line: string) => void): void => {
+  try {
+    execFileSync('git', ['add', '--', FLEET_FILE], { cwd: workspacePath, stdio: 'ignore' })
+    const staged = execFileSync('git', ['diff', '--cached', '--name-only'], {
+      cwd: workspacePath,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
+    if (staged === '') return
+    execFileSync('git', ['commit', '-m', 'chore: 更新 fleet.md（manager 生成）'], { cwd: workspacePath, stdio: 'ignore' })
+  } catch {
+    // 不是 git 仓（或提交失败）：工作区脏由 smoke 显性报告，不在这里硬处理
+  }
 }
 
 /**
