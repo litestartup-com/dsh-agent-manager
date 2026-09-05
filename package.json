@@ -19,7 +19,8 @@
     "backup": "tsx src/cli/backup.ts",
     "backfill-cost": "tsx src/cli/backfill-cost.ts",
     "test": "tsx --test \"src/**/*.test.ts\"",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "service": "tsx src/cli/service.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
