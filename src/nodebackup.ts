@@ -12,7 +12,7 @@
  */
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { basename, isAbsolute, join, resolve, sep } from 'node:path'
 import type { AppConfig } from './config.js'
 import type { DockerRunner } from './nodes/docker-runner.js'
 import { decryptFile, encryptFile } from './crypt.js'
@@ -178,6 +178,23 @@ export const packNodeHomes = async (
 }
 
 /**
+ * 恢复前守卫（评审 B4）：目录形态的恢复会 rm -rf 目标——配置来源的路径可能被
+ * 误配为根目录/家目录/备份目录本身，毁掉不可再生的数据。凡是被判「危险」的
+ * 目标一律拒绝，宁可恢复失败也不冒删盘风险。
+ */
+const assertSafeRestoreTarget = (target: string, backupDir: string): void => {
+  const abs = resolve(target)
+  const backup = resolve(backupDir)
+  if (!isAbsolute(target)) throw new Error(`拒绝恢复：节点 home 不是绝对路径（${target}）`)
+  if (abs === resolve(sep) || abs === resolve('.') || abs === resolve(process.env.USERPROFILE ?? process.env.HOME ?? '/')) {
+    throw new Error(`拒绝恢复：目标是根/当前/家目录（${abs}）——配置里的 DSH_HOME 可能被误配`)
+  }
+  if (abs === backup || abs.startsWith(backup + sep)) {
+    throw new Error(`拒绝恢复：目标在备份目录内（${abs}）——会毁掉备份本身`)
+  }
+}
+
+/**
  * 恢复一个节点 home：解密归档 → tar 解包到目标目录（目录已存在则清空重建）。
  * docker 卷形态经一次性工具容器解包进卷。
  */
@@ -188,6 +205,8 @@ export const restoreNodeHome = async (
   key: Buffer,
   dockerRunner: DockerRunner | undefined,
 ): Promise<void> => {
+  // 评审 B4：先守卫后动刀——目标路径危险时在解密/删除任何东西之前就拒绝
+  if (entry.kind === 'dir') assertSafeRestoreTarget(entry.home, backupDir)
   const archive = join(backupDir, archiveFile)
   if (!existsSync(archive)) throw new Error(`找不到节点 home 归档：${archiveFile}`)
   const tarball = join(backupDir, `restore-${entry.nodeId}-${Date.now()}.tar.gz`)

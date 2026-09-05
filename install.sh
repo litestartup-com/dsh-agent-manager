@@ -23,6 +23,8 @@ DRY_RUN="${DRY_RUN:-0}"
 YES="${YES:-0}"
 APP_DOMAIN="${APP_DOMAIN:-}"
 TLS_MODE="${TLS_MODE:-}"
+SSL_CERT_PATH="${SSL_CERT_PATH:-/etc/ssl/ohdsh/cert.pem}"
+SSL_KEY_PATH="${SSL_KEY_PATH:-/etc/ssl/ohdsh/key.pem}"
 DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY:-}"
 MANAGER_PASSWORD="${MANAGER_PASSWORD:-}"
 
@@ -53,6 +55,12 @@ if [ "$DRY_RUN" != "1" ]; then
 fi
 
 # ---- release bundle ----
+if ! command -v unzip >/dev/null 2>&1 && [ "$DRY_RUN" != "1" ]; then
+  log "unzip not found."
+  confirm "Install unzip (apt)?" || { log "aborted (unzip required)."; exit 1; }
+  run apt-get update -qq
+  run apt-get install -y unzip
+fi
 if [ -f "$APP_DIR/docker-compose.yml" ]; then
   log "skip (exists): $APP_DIR"
 else
@@ -77,11 +85,21 @@ fi
 
 # ---- .env + config (never overwrite) ----
 cd "$APP_DIR"
+APP_DIR_ABS="$(pwd)"
 if [ "$DRY_RUN" = "1" ]; then
   log "DRY: scripts/gen-env.sh .env + copy manager.config.container.example.yaml"
 else
   DEEPSEEK_API_KEY="$DEEPSEEK_API_KEY" MANAGER_PASSWORD="$MANAGER_PASSWORD" bash scripts/gen-env.sh .env
-  [ -f manager.config.yaml ] || cp manager.config.container.example.yaml manager.config.yaml
+  if [ -f manager.config.yaml ]; then
+    log "skip (exists): manager.config.yaml"
+  else
+    cp manager.config.container.example.yaml manager.config.yaml
+    # 评审 B2：docker.sock 由宿主机 dockerd 解析 bind 路径——host_volumes 里的
+    # /opt/ohdsh/workspaces 必须换成宿主机真实绝对路径（compose 的 ./workspaces 同指此处），
+    # 而 agents.workspace 保持容器内视角（manager 挂载点）不变。
+    sed -i -e "/host_volumes:/,/named_volumes:/ s|/opt/ohdsh/workspaces|${APP_DIR_ABS}/workspaces|g" manager.config.yaml
+    log "created: manager.config.yaml (host workspace path pinned to ${APP_DIR_ABS}/workspaces)"
+  fi
 fi
 
 # ---- optional nginx TLS ----
@@ -101,7 +119,10 @@ if [ -n "$APP_DOMAIN" ]; then
       letsencrypt) SRC=tls-letsencrypt.conf ;;
       *) SRC=tls-none.conf ;;
     esac
-    sed -e "s|__APP_DOMAIN__|$APP_DOMAIN|g" "deploy/nginx/$SRC" > deploy/nginx/default.conf
+    sed -e "s|__APP_DOMAIN__|$APP_DOMAIN|g" \
+        -e "s|__SSL_CERT_PATH__|$SSL_CERT_PATH|g" \
+        -e "s|__SSL_KEY_PATH__|$SSL_KEY_PATH|g" \
+        "deploy/nginx/$SRC" > deploy/nginx/default.conf
   fi
 fi
 
