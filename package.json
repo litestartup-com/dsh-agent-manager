@@ -1,6 +1,6 @@
 {
   "name": "ohdsh",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "description": "Oh! dsh (ohdsh.com) -- dsh agents manager: personal / small-team AI middle platform on top of DeepSeek Harness and dsh-api-gateway",
