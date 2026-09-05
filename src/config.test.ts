@@ -216,6 +216,8 @@ test('蜂群2计划 P5: 随仓发布的容器示例配置必须始终通过 sche
     assert.equal(personal.spawn?.runner, 'docker')
     assert.equal(personal.spawn?.docker?.image, 'ohdsh/dsh-node:0.1.1-rc.2')
     assert.equal(personal.spawn?.docker?.network, 'ohdsh-hive', '与 compose 显式网络名一致')
+    // 工作区路径两套视角统一：节点容器内路径 = manager 视角路径（EACCES mkdir 根因回归）
+    assert.equal(personal.spawn?.docker?.hostVolumes['/opt/ohdsh/workspaces/personal'], '/opt/ohdsh/workspaces/personal')
     assert.deepEqual(cfg.backupDockerVolumes, ['ohdsh-brain'], '脊柱主脑卷进备份声明')
     assert.equal(cfg.agents['brain']?.sandboxMode, 'workspace-write')
   })

@@ -49,7 +49,8 @@ services:
       context: images/node
       dockerfile: Dockerfile
     image: ${DSH_NODE_IMAGE:-ohdsh/dsh-node:0.1.1-rc.2}
-    user: "1000:1000"
+    # 与宿主机部署用户同 uid：工作区 bind mount 两边读写一致（v0.1 同款约定）
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     # --trusted-host：/api 浏览器信任栅栏——manager 经 hive 内网以 node-brain:3082 访问，
     # 不在默认回环信任名单里会 403 forbidden（容器实测）
     command: ["--port", "3082", "--trusted-host", "node-brain", "node-brain:3082"]
@@ -60,7 +61,9 @@ services:
       BRAIN_TOKEN: ${BRAIN_TOKEN}
     volumes:
       - ohdsh-brain:/data
-      - ./workspaces/brain:/workspace
+      # 挂在与 manager 视角相同的绝对路径：manager 给节点的 workspace cwd 就是这个路径，
+      # 节点容器内必须存在同串路径（否则 session.create EACCES mkdir /opt）
+      - ./workspaces/brain:/opt/ohdsh/workspaces/brain
     restart: unless-stopped
     networks: [hive]
 

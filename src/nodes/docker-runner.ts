@@ -63,6 +63,8 @@ export class DockerRunner {
     const container = await this.docker.createContainer({
       name,
       Image: d.image,
+      // 与宿主机部署用户同 uid（HOST_UID 由 install.sh 写入 .env，经 env_file 进 manager）
+      User: `${process.env.HOST_UID ?? '1000'}:${process.env.HOST_GID ?? '1000'}`,
       // 端口参数由 entrypoint 透传给 web app；容器内网访问，不发布到宿主机。
       // --trusted-host：/api 浏览器信任栅栏——manager 以 node-<id>:port 的 Host 访问，
       // 不在默认回环信任名单会 403 forbidden（容器实测）。
