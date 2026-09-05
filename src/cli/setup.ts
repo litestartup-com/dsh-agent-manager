@@ -317,7 +317,7 @@ export const adoptOldWorkspaces = (
     },
     agents: {
       personal: {
-        name: '个人',
+        name: 'Personal',
         endpoint: 'personal',
         workspace: options.personalWorkspace,
         public: false,
@@ -325,7 +325,7 @@ export const adoptOldWorkspaces = (
         sandbox_mode: 'workspace-write',
       },
       brain: {
-        name: '主脑',
+        name: 'Brain',
         endpoint: 'brain',
         workspace: options.brainWorkspace,
         public: false,
