@@ -277,6 +277,27 @@ export const registerProvisionRoutes = (
             provider: null,
             model: null,
           }
+          // 镜像进 DB registry：chat.run 等表的外键指向 agent 表，缺行会
+          // SQLITE_CONSTRAINT_FOREIGNKEY（容器模式分支首测踩坑）
+          const row = db
+            .select({ id: schema.agent.id })
+            .from(schema.agent)
+            .all()
+            .find((a) => a.id === agentSpec.id)
+          if (row === undefined) {
+            db.insert(schema.agent)
+              .values({
+                id: agentSpec.id,
+                name: agentSpec.name,
+                workspacePath: agentSpec.workspace,
+                endpoint: body.name,
+                preset: agentSpec.preset,
+                gitRemote: null,
+                public: 0,
+                createdAt: Date.now(),
+              })
+              .run()
+          }
         }
 
         recordAudit(db, { actor: request.currentUser?.username ?? 'unknown', kind: 'node_create', detail: `节点 ${body.name}（docker 工蜂，端口 ${port}，工作区 ${agentSpec?.workspace ?? '—'}）` })

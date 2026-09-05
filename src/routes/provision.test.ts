@@ -190,3 +190,41 @@ test('蜂群2计划 P6: 容器模式新节点 = docker runner（不找 DSH bin�
   assert.equal(removed.statusCode, 200)
   assert.doesNotMatch(readFileSync(join(dir, 'manager.config.yaml'), 'utf8'), /product/)
 })
+
+test('蜂群2计划 P6 回归: 容器模式新建节点同步镜像进 DB（chat 外键不再炸）', async () => {
+  const { app, config, db } = await boot()
+  config.endpoints['personal'] = {
+    id: 'personal',
+    url: 'http://node-personal:3081',
+    driver: 'apiproxy',
+    prefix: '/api',
+    key: '',
+    sandboxBase: 'http://node-personal:3081/api-gw/v1',
+    sandboxKey: 'apigw-x',
+    spawn: {
+      managed: true,
+      command: '',
+      args: [],
+      cwd: null,
+      readyTimeoutMs: 30_000,
+      detached: false,
+      logFile: null,
+      env: {},
+      restart: { maxAttempts: 3, baseDelayMs: 1_000, maxDelayMs: 30_000 },
+      runner: 'docker',
+      docker: {
+        image: 'ohdsh/dsh-node:0.1.1-rc.2',
+        containerName: null,
+        network: 'ohdsh-hive',
+        port: 3081,
+        hostVolumes: { '/srv/ohdsh/workspaces/personal': '/opt/ohdsh/workspaces/personal' },
+        namedVolumes: { 'ohdsh-personal': '/data' },
+      },
+    },
+  }
+
+  const created = await app.inject({ method: 'POST', url: '/api/nodes', payload: { name: 'product' } })
+  assert.equal(created.statusCode, 201, JSON.stringify(created.body))
+  const row = db.select().from(schema.agent).all().find((a) => a.id === 'product')
+  assert.ok(row !== undefined, 'agent 镜像进 DB registry（chat 外键依赖它）')
+})
