@@ -16,6 +16,9 @@ data/
 logs/
 *.log
 
+# 发布物构建目录
+dist-release/
+
 # 各 agent 的工作区由各自的 git 仓库管理，不进 manager 仓库
 workspaces/
 

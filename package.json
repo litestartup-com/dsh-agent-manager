@@ -18,6 +18,7 @@
     "backup": "tsx src/cli/backup.ts",
     "restore": "tsx src/cli/backup.ts restore",
     "drill": "tsx scripts/dr-drill.ts",
+    "release:bundle": "node scripts/make-release.mjs",
     "backfill-cost": "tsx src/cli/backfill-cost.ts",
     "test": "tsx --test \"src/**/*.test.ts\"",
     "smoke": "node scripts/smoke.mjs",

@@ -1,377 +1,122 @@
 #!/usr/bin/env bash
-# Oh! dsh one-command install (Ubuntu 24, single host, all-in-one):
-# DSH node container + manager systemd service.
+# Oh! dsh — one-command install (Ubuntu 24, single-host container form:
+# nginx + manager + 主脑 spine; the 个人 worker is created by the manager).
 #
 # Usage:
-#   git clone https://github.com/litestartup-com/dsh-agent-manager.git
-#   cd dsh-agent-manager && sudo ./install.sh
+#   curl -fsSL https://get.ohdsh.com/install.sh -o install.sh && bash install.sh
+#   # one-liner for the impatient: curl -fsSL https://get.ohdsh.com/install.sh | bash
 #
-# Idempotent: existing configs (.env / manager.config.yaml / docker/.env) are
-# never overwritten. Non-interactive: every value can be preset via environment
-# (GW_KEY / SESSION_SECRET / DEEPSEEK_API_KEY / MANAGER_PASSWORD /
-#  WORKSPACE_PATH / MANAGER_PORT); only the missing ones prompt.
-# Plan-only pass: DRY_RUN=1 sudo ./install.sh
+# Idempotent: Docker present → skipped; .env existing → never overwritten.
+# Non-interactive: DEEPSEEK_API_KEY / MANAGER_PASSWORD / MANAGER_PORT / APP_DOMAIN /
+# TLS_MODE / OHDSH_VERSION can be preset via environment; only the missing ones prompt.
+# Plan-only pass: DRY_RUN=1 bash install.sh
 #
-# Note: script output is intentionally English — a minimal server locale
-# (LANG=C) would garble non-ASCII text.
+# Note: output is intentionally English — a minimal server locale (LANG=C)
+# would garble non-ASCII text (the one sanctioned exception to 默认中文).
 set -euo pipefail
 
-APP_ROOT="$(cd "$(dirname "$0")" && pwd)"
-WORKSPACE_PATH="${WORKSPACE_PATH:-$(dirname "$APP_ROOT")/workspace}"
+APP_DIR="${APP_DIR:-./ohdsh}"
+OHDSH_VERSION="${OHDSH_VERSION:-v1.0.1}"
+RELEASE_BASE="https://github.com/litestartup-com/dsh-agent-manager/releases/download/${OHDSH_VERSION}"
 MANAGER_PORT="${MANAGER_PORT:-8080}"
-GW_KEY="${GW_KEY:-}"
-SESSION_SECRET="${SESSION_SECRET:-}"
-DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY:-}"
-MANAGER_USERNAME="${MANAGER_USERNAME:-admin}"
-MANAGER_PASSWORD="${MANAGER_PASSWORD:-}"
 DRY_RUN="${DRY_RUN:-0}"
-# prod 环境（公网域名 + nginx + TLS）相关：
-DEPLOY_ENV="${DEPLOY_ENV:-}"          # dev（默认，无 nginx）| prod
-APP_DOMAIN="${APP_DOMAIN:-}"          # prod 必填，如 app.ohdsh.com
-TLS_MODE="${TLS_MODE:-}"              # origin-ca | letsencrypt | none(CF Flexible)
-SSL_CERT_PATH="${SSL_CERT_PATH:-/etc/ssl/ohdsh/cert.pem}"
-SSL_KEY_PATH="${SSL_KEY_PATH:-/etc/ssl/ohdsh/key.pem}"
-
-RUN_USER="${SUDO_USER:-$(whoami)}"
-HOST_UID="$(id -u "$RUN_USER")"
-HOST_GID="$(id -g "$RUN_USER")"
+YES="${YES:-0}"
+APP_DOMAIN="${APP_DOMAIN:-}"
+TLS_MODE="${TLS_MODE:-}"
+DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY:-}"
+MANAGER_PASSWORD="${MANAGER_PASSWORD:-}"
 
 log() { echo "[install] $*"; }
 run() { if [ "$DRY_RUN" = "1" ]; then log "DRY: $*"; else "$@"; fi }
-gen() { openssl rand -hex 32; }
 
-# ---- preflight ----
-[ "$(id -u)" = "0" ] || { echo "Run with sudo: sudo ./install.sh"; exit 1; }
-command -v docker >/dev/null 2>&1 || { echo "Docker not found. Ubuntu 24: https://docs.docker.com/engine/install/ubuntu/ — install it and re-run."; exit 1; }
-docker compose version >/dev/null 2>&1 || { echo "docker compose (v2 plugin) not available."; exit 1; }
-command -v node >/dev/null 2>&1 || { echo "Node.js not found (>= 20 required). Install it and re-run."; exit 1; }
-MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
-[ "$MAJOR" -ge 20 ] || { echo "Node.js too old ($MAJOR), >= 20 required."; exit 1; }
+confirm() {
+  [ "$YES" = "1" ] && return 0
+  [ "$DRY_RUN" = "1" ] && return 0
+  read -rp "$1 [y/N]: " ANS || true
+  case "$ANS" in y|Y|yes) return 0 ;; *) return 1 ;; esac
+}
 
-log "APP_ROOT=$APP_ROOT"
-log "WORKSPACE_PATH=$WORKSPACE_PATH"
-log "run as $RUN_USER (uid=$HOST_UID gid=$HOST_GID)"
+# ---- plan first (计划先行) ----
+log "plan: Docker (skip if present) → download release ${OHDSH_VERSION} → .env (never overwrite) → compose up"
+confirm "Continue?" || { log "aborted."; exit 0; }
 
-# ---- deployment environment ----
-if [ -z "$DEPLOY_ENV" ]; then
+# ---- docker ----
+if command -v docker >/dev/null 2>&1; then
+  log "Docker present, skipping install."
+else
+  log "Docker not found."
+  confirm "Install Docker via get.docker.com?" || { log "aborted (Docker required)."; exit 1; }
+  run sh -c 'curl -fsSL https://get.docker.com | sh'
+fi
+if [ "$DRY_RUN" != "1" ]; then
+  docker compose version >/dev/null 2>&1 || { echo "[install] docker compose (v2 plugin) not available."; exit 1; }
+fi
+
+# ---- release bundle ----
+if [ -f "$APP_DIR/docker-compose.yml" ]; then
+  log "skip (exists): $APP_DIR"
+else
+  log "Downloading release bundle ${OHDSH_VERSION}..."
+  run mkdir -p "$APP_DIR"
+  run curl -fsSL "${RELEASE_BASE}/ohdsh-compose.zip" -o /tmp/ohdsh-compose.zip
+  run unzip -q -o /tmp/ohdsh-compose.zip -d "$APP_DIR"
+  run rm -f /tmp/ohdsh-compose.zip
+fi
+
+# ---- secrets (唯一人肉输入 = API key) ----
+if [ -z "$DEEPSEEK_API_KEY" ]; then
   if [ "$DRY_RUN" = "1" ]; then
-    DEPLOY_ENV=dev
+    DEEPSEEK_API_KEY="(ask in real run)"
   else
-    read -rp "Deployment environment: dev (local, no nginx) or prod (public domain + nginx) [dev]: " DEPLOY_ENV || true
-    [ -n "$DEPLOY_ENV" ] || DEPLOY_ENV=dev
+    read -rp "DeepSeek API key (the only required input): " DEEPSEEK_API_KEY || true
   fi
 fi
-if [ "$DEPLOY_ENV" = "prod" ]; then
-  if [ -z "$APP_DOMAIN" ]; then
-    if [ "$DRY_RUN" = "1" ]; then APP_DOMAIN="(ask in real run)"; else
-      read -rp "Public domain (e.g. app.ohdsh.com): " APP_DOMAIN || true
-    fi
-  fi
+if [ -z "$MANAGER_PASSWORD" ] && [ "$DRY_RUN" != "1" ]; then
+  read -rsp "Manager initial password (empty = generate one): " MANAGER_PASSWORD; echo
+fi
+
+# ---- .env + config (never overwrite) ----
+cd "$APP_DIR"
+if [ "$DRY_RUN" = "1" ]; then
+  log "DRY: scripts/gen-env.sh .env + copy manager.config.container.example.yaml"
+else
+  DEEPSEEK_API_KEY="$DEEPSEEK_API_KEY" MANAGER_PASSWORD="$MANAGER_PASSWORD" bash scripts/gen-env.sh .env
+  [ -f manager.config.yaml ] || cp manager.config.container.example.yaml manager.config.yaml
+fi
+
+# ---- optional nginx TLS ----
+if [ -n "$APP_DOMAIN" ]; then
   if [ -z "$TLS_MODE" ]; then
-    if [ "$DRY_RUN" = "1" ]; then TLS_MODE=none; else
-      read -rp "TLS mode — origin-ca (Cloudflare Origin CA files) / letsencrypt (certbot) / none (CF Flexible, origin stays http) [origin-ca]: " TLS_MODE || true
-      [ -n "$TLS_MODE" ] || TLS_MODE=origin-ca
-    fi
-  fi
-fi
-
-# ---- secrets ----
-[ -n "$GW_KEY" ] || GW_KEY="$(gen)"
-[ -n "$SESSION_SECRET" ] || SESSION_SECRET="$(gen)"
-if [ "$DRY_RUN" = "1" ]; then
-  [ -n "$DEEPSEEK_API_KEY" ] || DEEPSEEK_API_KEY="(not provided in dry run)"
-  [ -n "$MANAGER_PASSWORD" ] || MANAGER_PASSWORD="(not provided in dry run)"
-else
-  if [ -z "$DEEPSEEK_API_KEY" ]; then read -rp "DeepSeek API key (empty = configure it later in the DSH GUI): " DEEPSEEK_API_KEY || true; fi
-  if [ -z "$MANAGER_PASSWORD" ]; then
-    read -rsp "Manager initial password (empty = generate one): " MANAGER_PASSWORD; echo
-    [ -n "$MANAGER_PASSWORD" ] || MANAGER_PASSWORD="$(gen | cut -c1-16)"
-  fi
-fi
-
-# ---- configs (never overwrite) ----
-if [ -f .env ]; then
-  log "skip (exists): .env"
-else
-  sed -e "s|^SESSION_SECRET=.*|SESSION_SECRET=$SESSION_SECRET|" \
-      -e "s|^MANAGER_USERNAME=.*|MANAGER_USERNAME=$MANAGER_USERNAME|" \
-      -e "s|^MANAGER_INITIAL_PASSWORD=.*|MANAGER_INITIAL_PASSWORD=$MANAGER_PASSWORD|" \
-      -e "s|^GW_KEY_A=.*|GW_KEY_A=$GW_KEY|" \
-      .env.example > .env
-  log "created: .env"
-fi
-
-if [ -f manager.config.yaml ]; then
-  log "skip (exists): manager.config.yaml"
-else
-  cat > manager.config.yaml <<EOF
-# Generated by install.sh — same-host scheme B (via the node container's
-# dsh-api-gateway, key auth).
-listen:
-  host: 127.0.0.1
-  port: $MANAGER_PORT
-
-endpoints:
-  A:
-    url: http://127.0.0.1:3080
-    driver: apiproxy
-    prefix: /api-gw/v1/proxy
-    key_ref: GW_KEY_A
-
-agents:
-  personal:
-    name: 个人
-    endpoint: A
-    workspace: $WORKSPACE_PATH
-    public: false
-
-runner:
-  timeout_minutes: 15
-  silence_timeout_minutes: 5
-  max_consecutive_failures: 3
-  daily_budget_usd: 2.0
-
-database:
-  path: ./data/manager.db
-
-pricing:
-  peak_windows_utc:
-    - { start: '01:00', end: '04:00' }
-    - { start: '06:00', end: '10:00' }
-  models:
-    deepseek-v4-pro:
-      off_peak: { input: 0.66, output: 1.98, cache_read: 0.022 }
-      peak: { input: 1.32, output: 3.96, cache_read: 0.044 }
-    deepseek-v4-flash:
-      off_peak: { input: 0.22, output: 0.66, cache_read: 0.007 }
-      peak: { input: 0.44, output: 1.32, cache_read: 0.014 }
-EOF
-  log "created: manager.config.yaml (endpoint A over the gateway, scheme B)"
-fi
-
-if [ -f docker/.env ]; then
-  log "skip (exists): docker/.env"
-  # Upgrade pre-existing files from older releases: append the keys the
-  # current compose interpolates, without touching user-edited values.
-  grep -q '^WORKSPACE_PATH=' docker/.env || echo "WORKSPACE_PATH=$WORKSPACE_PATH" >> docker/.env
-  grep -q '^HOST_UID=' docker/.env || echo "HOST_UID=$HOST_UID" >> docker/.env
-  grep -q '^HOST_GID=' docker/.env || echo "HOST_GID=$HOST_GID" >> docker/.env
-else
-  cat > docker/.env <<EOF
-# Generated by install.sh
-GW_KEY=$GW_KEY
-DEEPSEEK_API_KEY=$DEEPSEEK_API_KEY
-WORKSPACE_PATH=$WORKSPACE_PATH
-HOST_UID=$HOST_UID
-HOST_GID=$HOST_GID
-EOF
-  log "created: docker/.env"
-fi
-
-# ---- directories (host and container share the uid) ----
-run mkdir -p "$WORKSPACE_PATH"
-run chown -R "$HOST_UID:$HOST_GID" "$WORKSPACE_PATH"
-# The manager's SQLite dir must belong to the service user (npm ran as root).
-run mkdir -p "$APP_ROOT/data"
-run chown -R "$HOST_UID:$HOST_GID" "$APP_ROOT/data"
-if [ "$HOST_UID" != "1000" ]; then
-  log "NOTE: HOST_UID=$HOST_UID (not 1000). The container volume is initialised for uid 1000;"
-  log "      see docker/README.md if the container reports write-permission errors."
-fi
-
-# ---- node container ----
-if [ "$DRY_RUN" = "1" ]; then
-  log "DRY: docker compose up -d --build (docker/)"
-else
-  log "Building the node container (first build takes 2-5 min)..."
-  (cd docker && docker compose up -d --build)
-fi
-
-# ---- manager ----
-run npm install
-run npm run build
-
-# ---- systemd ----
-if command -v systemctl >/dev/null 2>&1; then
-  NODE_BIN="$(command -v node)"
-  if [ "$DRY_RUN" = "1" ]; then
-    log "DRY: write /etc/systemd/system/ohdsh-manager.service + enable --now"
-  else
-    sed -e "s|__APP_ROOT__|$APP_ROOT|g" \
-        -e "s|__RUN_USER__|$RUN_USER|g" \
-        -e "s|__NODE_BIN__|$NODE_BIN|g" \
-        deploy/ohdsh-manager.service > /etc/systemd/system/ohdsh-manager.service
-    systemctl daemon-reload
-    systemctl enable --now ohdsh-manager
-    log "systemd service started: journalctl -u ohdsh-manager -f"
-  fi
-else
-  log "no systemd: run the manager yourself, e.g. nohup node dist/index.js &"
-fi
-
-# ---- prod: nginx + TLS ----
-if [ "$DEPLOY_ENV" = "prod" ]; then
-  if command -v nginx >/dev/null 2>&1; then
-    log "nginx already installed"
-  else
     if [ "$DRY_RUN" = "1" ]; then
-      log "DRY: apt-get update && apt-get install -y nginx"
+      TLS_MODE=none
     else
-      # refresh the package index first: Ubuntu mirrors rotate package
-      # versions, and a stale index fails with 404 on the old filenames
-      apt-get update -qq
-      apt-get install -y nginx
+      read -rp "TLS mode — origin-ca / letsencrypt / none (Cloudflare Flexible) [none]: " TLS_MODE || true
+      [ -n "$TLS_MODE" ] || TLS_MODE=none
     fi
   fi
-
-  NGINX_CONF=/etc/nginx/sites-available/ohdsh-manager
-  if [ -f "$NGINX_CONF" ]; then
-    log "skip (exists): $NGINX_CONF"
-  else
+  log "nginx: domain=$APP_DOMAIN tls=$TLS_MODE"
+  if [ "$DRY_RUN" != "1" ]; then
     case "$TLS_MODE" in
-      origin-ca)
-        cat > "$NGINX_CONF" <<EOF
-server {
-    listen 80;
-    server_name $APP_DOMAIN;
-    return 301 https://\$host\$request_uri;
-}
-
-server {
-    listen 443 ssl;
-    server_name $APP_DOMAIN;
-    ssl_certificate     $SSL_CERT_PATH;
-    ssl_certificate_key $SSL_KEY_PATH;
-    add_header Strict-Transport-Security "max-age=31536000" always;
-
-    location / {
-        proxy_pass http://127.0.0.1:$MANAGER_PORT;
-        proxy_http_version 1.1;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_buffering off;
-        proxy_cache off;
-        proxy_read_timeout 300s;
-        proxy_send_timeout 300s;
-    }
-}
-EOF
-        log "nginx config written (origin-ca; put the Cloudflare Origin CA files at $SSL_CERT_PATH / $SSL_KEY_PATH before restarting nginx)"
-        ;;
-      letsencrypt)
-        cat > "$NGINX_CONF" <<EOF
-server {
-    listen 80;
-    server_name $APP_DOMAIN;
-
-    location / {
-        proxy_pass http://127.0.0.1:$MANAGER_PORT;
-        proxy_http_version 1.1;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_buffering off;
-        proxy_cache off;
-        proxy_read_timeout 300s;
-        proxy_send_timeout 300s;
-    }
-}
-EOF
-        ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/ohdsh-manager
-        nginx -t && systemctl reload nginx
-        log "running: certbot --nginx -d $APP_DOMAIN"
-        certbot --nginx -d "$APP_DOMAIN"
-        ;;
-      *)
-        cat > "$NGINX_CONF" <<EOF
-server {
-    listen 80;
-    server_name $APP_DOMAIN;
-
-    location / {
-        proxy_pass http://127.0.0.1:$MANAGER_PORT;
-        proxy_http_version 1.1;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_buffering off;
-        proxy_cache off;
-        proxy_read_timeout 300s;
-        proxy_send_timeout 300s;
-    }
-}
-EOF
-        log "nginx config written (http only — Cloudflare Flexible mode terminates TLS at the edge)"
-        ;;
+      origin-ca) SRC=tls-origin-ca.conf ;;
+      letsencrypt) SRC=tls-letsencrypt.conf ;;
+      *) SRC=tls-none.conf ;;
     esac
-    if [ "$TLS_MODE" != "letsencrypt" ]; then
-      ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/ohdsh-manager
-      nginx -t && systemctl reload nginx
-    fi
-  fi
-
-  # 公网 + TLS 就位后，manager 开 production（Secure cookie）
-  UNIT=/etc/systemd/system/ohdsh-manager.service
-  if [ -f "$UNIT" ] && ! grep -q '^Environment=NODE_ENV=' "$UNIT"; then
-    if [ "$DRY_RUN" = "1" ]; then
-      log "DRY: add Environment=NODE_ENV=production to ohdsh-manager.service + restart"
-    else
-      sed -i '/^\[Service\]/a Environment=NODE_ENV=production' "$UNIT"
-      systemctl daemon-reload && systemctl restart ohdsh-manager
-      log "NODE_ENV=production set (secure cookies on)"
-    fi
+    sed -e "s|__APP_DOMAIN__|$APP_DOMAIN|g" "deploy/nginx/$SRC" > deploy/nginx/default.conf
   fi
 fi
 
-# ---- acceptance ----
-if [ "$DRY_RUN" = "1" ]; then
-  log "DRY: container smoke + optional full-chain smoke"
-else
-  # Zero-cost container smoke always runs. Use bash (not ./) so a missing
-  # exec bit on a fresh clone cannot fail the step.
-  log "Running container smoke (no LLM cost)..."
-  if (cd docker && GW_KEY="$GW_KEY" bash smoke.sh); then
-    log "container smoke: ALL PASSED"
-  else
-    log "WARNING: container smoke FAILED — check: docker compose -f $APP_ROOT/docker/docker-compose.yml logs"
-  fi
+# ---- up ----
+run docker compose up -d
 
-  # The full-chain smoke drives one real agent turn (a few cents). Ask unless
-  # SMOKE_FULL=1 was set.
-  RUN_FULL="${SMOKE_FULL:-}"
-  if [ "$RUN_FULL" != "1" ]; then
-    read -rp "Run the full-chain smoke too? Drives one real agent turn (a few cents of LLM cost) [y/N]: " ANS || true
-    case "$ANS" in y|Y|yes) RUN_FULL=1 ;; *) RUN_FULL=0 ;; esac
-  fi
-  if [ "$RUN_FULL" = "1" ]; then
-    log "Running full-chain smoke (unary + mux + one prompt)..."
-    if SMOKE_KEY="$GW_KEY" npx tsx scripts/smoke-proxy-b.ts http://127.0.0.1:3080/api-gw/v1/proxy; then
-      log "full-chain smoke: ALL PASSED"
-    else
-      log "WARNING: full-chain smoke FAILED — check manager logs: journalctl -u ohdsh-manager -e"
-    fi
-  fi
-fi
-
-# ---- summary ----
 cat <<EOF
 
 ============================================================
-Installed.
-  manager:    http://127.0.0.1:$MANAGER_PORT  (user: $MANAGER_USERNAME)
-  node:       docker compose -f $APP_ROOT/docker/docker-compose.yml ps
-  workspace:  $WORKSPACE_PATH
-
-Acceptance (from $APP_ROOT):
-  export SMOKE_KEY="$(grep '^GW_KEY=' docker/.env | cut -d= -f2)"
-  npx tsx scripts/smoke-proxy-b.ts http://127.0.0.1:3080/api-gw/v1/proxy
-  ./docker/smoke.sh
+Installed. (first boot pulls images — a few minutes on a fresh box)
+  watch:   cd $APP_DIR && docker compose logs -f manager
+  manager: http://127.0.0.1:$MANAGER_PORT  (nginx on :80 when configured)
+  login:   user \$(grep '^MANAGER_USERNAME=' .env | cut -d= -f2)
+           password \$(grep '^MANAGER_INITIAL_PASSWORD=' .env | cut -d= -f2)
+           (first login forces a password change)
+  backup:  docker compose exec manager node dist/../ — see docs/USER-GUIDE.md
 ============================================================
 EOF

@@ -20,7 +20,8 @@ ensure GW_KEY_A "apigw-$(openssl rand -hex 24)"
 ensure GW_KEY_B "apigw-$(openssl rand -hex 24)"
 ensure BRAIN_TOKEN "$(openssl rand -hex 24)"
 ensure MANAGER_USERNAME "admin"
-ensure MANAGER_INITIAL_PASSWORD "$(openssl rand -hex 8)"
+# 尊重 install.sh/环境传入的口令；未提供才随机生成
+ensure MANAGER_INITIAL_PASSWORD "${MANAGER_PASSWORD:-$(openssl rand -hex 8)}"
 ensure DSH_NODE_IMAGE "ohdsh/dsh-node:0.1.1-rc.2"
 ensure MANAGER_VERSION "1.0.1"
 if [ -n "${DEEPSEEK_API_KEY:-}" ]; then
