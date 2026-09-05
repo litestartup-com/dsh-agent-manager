@@ -23,6 +23,8 @@ dsh-api-gw:
 EOF
   chmod 600 "$DSH_HOME/settings.yaml"
   echo "[entrypoint] wrote $DSH_HOME/settings.yaml"
+elif [[ -z "${GW_KEY:-}" ]]; then
+  echo "[entrypoint] ⚠ GW_KEY 未注入——网关沙箱路由将 401（manager 的 .env 里 GW_KEY_* 应为非空）"
 fi
 
 # 3) 主脑令牌文件（$HOME/.brain-auth，0600）：DSH 工具沙箱洗掉 TOKEN 字样
