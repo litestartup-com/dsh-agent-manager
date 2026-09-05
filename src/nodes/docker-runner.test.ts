@@ -136,3 +136,11 @@ test('蜂群2计划 P2b: listManaged 只回 managed 标签容器并归一化字�
   ])
   void original
 })
+
+test('蜂群2计划 P6 回归: matchesSpec——GW_KEY 或镜像不符必须重建而非认领', () => {
+  const good = { env: ['GW_KEY=apigw-new', 'DSH_HOME=/data'], image: 'ohdsh/dsh-node:0.1.1-rc.2' }
+  assert.equal(DockerRunner.matchesSpec(good, 'apigw-new', 'ohdsh/dsh-node:0.1.1-rc.2'), true, '钥匙与镜像一致 → 可认领')
+  assert.equal(DockerRunner.matchesSpec(good, 'apigw-other', 'ohdsh/dsh-node:0.1.1-rc.2'), false, '旧钥匙 → 重建（重装残留根因）')
+  assert.equal(DockerRunner.matchesSpec({ env: [], image: 'old-image' }, 'apigw-new', 'ohdsh/dsh-node:0.1.1-rc.2'), false, '镜像不符 → 重建')
+  assert.equal(DockerRunner.matchesSpec({ env: ['GW_KEY=apigw-new'], image: 'x' }, '', 'x'), false, 'manager 侧无钥匙却认领有钥匙容器 → 重建')
+})

@@ -163,6 +163,18 @@ const main = async (): Promise<void> => {
         const managed = await dockerRunner.listManaged()
         const existing = managed.find((c) => c.labels[NODE_LABEL] === id && c.state === 'running')
         if (existing !== undefined) {
+          // 蜂群2计划 P6：认领前核对运行时事实（GW_KEY/镜像）与当前配置一致；
+          // 不一致（典型：重装后残留旧容器带旧钥匙）→ 重建而不是认领。
+          const facts = await dockerRunner.runtimeFacts(existing.id)
+          const expectedImage = spec.docker?.image ?? ''
+          const expectedKey = config.endpoints[id]?.sandboxKey ?? ''
+          const matches = facts !== null && DockerRunner.matchesSpec(facts, expectedKey, expectedImage)
+          if (!matches) {
+            app.log.warn(`node ${id}: container ${existing.name} 与当前配置不符（GW_KEY/镜像），重建`)
+            await dockerRunner.stop(existing.id).catch(() => undefined)
+            supervisor.start(spec)
+            continue
+          }
           app.log.info(`node ${id}: adopt container ${existing.name} (${existing.id.slice(0, 12)})`)
           supervisor.adopt(spec, existing.id)
         } else {
