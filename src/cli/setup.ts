@@ -273,7 +273,7 @@ export const adoptOldWorkspaces = (
   }
 }
 
-const parseArgs = (argv: string[]): { options: SetupOptions; help: boolean; explicit: { personalWorkspace: boolean; brainWorkspace: boolean } } => {
+export const parseArgs = (argv: string[]): { options: SetupOptions; help: boolean; explicit: { personalWorkspace: boolean; brainWorkspace: boolean } } => {
   const user = process.env.USERPROFILE ?? process.env.HOME ?? '.'
   const nodesHome = `${user}/.dsh-ohdsh`
   const defaults: SetupOptions = {
@@ -288,7 +288,9 @@ const parseArgs = (argv: string[]): { options: SetupOptions; help: boolean; expl
     dshBin: null,
     installProfiles: true,
     gatewayLocal: null,
-    force: false,
+    // `npm run setup --force` 时 npm 会把 --force 当自己的开关吞掉（并打一行
+    // warn），根本不传给脚本——通过它注入的 npm_config_force 兜底识别。
+    force: process.env.npm_config_force === 'true',
   }
   const explicit = { personalWorkspace: false, brainWorkspace: false }
   let help = false

@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
-import { buildManagerConfig, adoptOldWorkspaces, ensureNodeCredentials, ensureNodeProfiles, mergeEnv, resolveGatewayKey } from './setup.js'
+import { buildManagerConfig, adoptOldWorkspaces, ensureNodeCredentials, ensureNodeProfiles, mergeEnv, parseArgs, resolveGatewayKey } from './setup.js'
 
 test('buildManagerConfig wires two managed nodes, agents, sandbox and presets', () => {
   const config = buildManagerConfig({
@@ -119,8 +119,21 @@ test('resolveGatewayKey reuses the provisioned key, else mints and appends apiKe
   }
 })
 
-test('adoptOldWorkspaces keeps user-customised workspaces unless explicitly overridden', () => {
-  const options = { personalWorkspace: './workspaces/personal', brainWorkspace: './workspaces/brain' }
+test('parseArgs: npm run setup --force is recognised via npm_config_force (npm swallows the flag)', () => {
+  const saved = process.env.npm_config_force
+  try {
+    process.env.npm_config_force = 'true'
+    assert.equal(parseArgs([]).options.force, true)
+    delete process.env.npm_config_force
+    assert.equal(parseArgs([]).options.force, false)
+    assert.equal(parseArgs(['--force']).options.force, true)
+  } finally {
+    if (saved === undefined) delete process.env.npm_config_force
+    else process.env.npm_config_force = saved
+  }
+})
+
+test('adoptOldWorkspaces keeps user-customised workspaces unless explicitly overridden', () => {  const options = { personalWorkspace: './workspaces/personal', brainWorkspace: './workspaces/brain' }
   const old = { agents: { personal: { workspace: 'C:/Workplace/gitee/note-kaka' }, brain: { workspace: 'D:/brain' } } }
 
   adoptOldWorkspaces(old, { personalWorkspace: false, brainWorkspace: false }, options)
