@@ -32,6 +32,21 @@ irm https://get.ohdsh.com/install.ps1 -OutFile install.ps1; powershell -Executio
 - 唯一需要输入的是 **DeepSeek API key**（设 `DEEPSEEK_API_KEY=...` 环境变量可全自动）；
 - 想看脚本要做什么：`DRY_RUN=1` 预演，`--yes` 跳过确认。
 
+### 域名 + HTTPS（可选进阶，origin-ca 模式）
+
+1. 把 Cloudflare Origin CA 的两份证书放进安装目录的 `ssl/`：
+   ```bash
+   mkdir -p ~/ohdsh/ssl
+   # 放入 cert.pem 与 key.pem（容器内路径 /etc/ssl/ohdsh/*，与旧配置一致）
+   ```
+2. 带域名重跑（幂等，证书缺失会明确报错）：
+   ```bash
+   APP_DOMAIN=app.ohdsh.com TLS_MODE=origin-ca DEEPSEEK_API_KEY=sk-xxx bash install.sh
+   ```
+   80 自动 301 到 443，manager 自动开启 secure cookie（`.env` 写入
+   `NODE_ENV=production`）。letsencrypt 模式：先 `TLS_MODE=letsencrypt` 跑通 80，
+   再在主机执行 `certbot --nginx -d app.ohdsh.com`。
+
 ### 安装后
 
 浏览器打开 `http://服务器IP`（Windows 本机：`http://127.0.0.1:8080`）→ 登录 →
