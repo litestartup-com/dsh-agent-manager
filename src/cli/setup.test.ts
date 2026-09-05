@@ -4,7 +4,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
-import { buildManagerConfig, adoptOldWorkspaces, ensureNodeCredentials, ensureNodeProfiles, mergeEnv, parseArgs, resolveGatewayKey } from './setup.js'
+import { buildManagerConfig, adoptOldWorkspaces, checkPortFree, ensureNodeCredentials, ensureNodeProfiles, mergeEnv, parseArgs, probeToolVersions, resolveGatewayKey } from './setup.js'
+import { COMPAT_DSH_VERSION, GATEWAY_REF, dshCompatible } from '../dsh-version.js'
 
 test('buildManagerConfig wires two managed nodes, agents, sandbox and presets', () => {
   const config = buildManagerConfig({
@@ -49,7 +50,7 @@ test('ensureNodeProfiles writes one isolated DSH_HOME per node, idempotently', (
       { name: 'ohdsh-personal', port: 3081 },
       { name: 'ohdsh-brain', port: 3082 },
     ]
-    const created = ensureNodeProfiles(nodesHome, specs, 'github:litestartup-com/dsh-api-gateway')
+    const created = ensureNodeProfiles(nodesHome, specs, GATEWAY_REF)
     assert.deepEqual(created.sort(), [join(nodesHome, 'ohdsh-personal'), join(nodesHome, 'ohdsh-brain')].sort())
     for (const spec of specs) {
       const dir = join(nodesHome, spec.name, 'profiles', spec.name)
@@ -62,10 +63,13 @@ test('ensureNodeProfiles writes one isolated DSH_HOME per node, idempotently', (
         dependencies: Record<string, string>
       }
       assert.ok(pkg.dsh.profile.bundles.includes('dsh-api-gateway'))
-      assert.equal(pkg.dependencies['dsh-api-gateway'], 'github:litestartup-com/dsh-api-gateway')
+      assert.equal(pkg.dependencies['dsh-api-gateway'], GATEWAY_REF, 'gateway 引用钉死 commit，不再追 master')
+      // 蜂群2计划 P1：bundle 钉版本 = COMPAT_DSH_VERSION，根治安装漂移
+      assert.equal(pkg.dependencies['@deepseek-ai/dsh-base'], COMPAT_DSH_VERSION)
+      assert.equal(pkg.dependencies['@deepseek-ai/dsh-web-app'], COMPAT_DSH_VERSION)
     }
     // 幂等：第二次不重建、不报错
-    assert.deepEqual(ensureNodeProfiles(nodesHome, specs, 'github:litestartup-com/dsh-api-gateway'), [])
+    assert.deepEqual(ensureNodeProfiles(nodesHome, specs, GATEWAY_REF), [])
   } finally {
     rmSync(nodesHome, { recursive: true, force: true })
   }
@@ -131,6 +135,41 @@ test('parseArgs: npm run setup --force is recognised via npm_config_force (npm s
     if (saved === undefined) delete process.env.npm_config_force
     else process.env.npm_config_force = saved
   }
+})
+
+test('蜂群2计划 P1: parseArgs recognises --skip-version-check', () => {
+  assert.equal(parseArgs([]).options.skipVersionCheck, false)
+  assert.equal(parseArgs(['--skip-version-check']).options.skipVersionCheck, true)
+})
+
+test('蜂群2计划 P1: dshCompatible compares against the pinned version', () => {
+  assert.equal(dshCompatible(COMPAT_DSH_VERSION), true)
+  assert.equal(dshCompatible(`v${COMPAT_DSH_VERSION}`), true)
+  assert.equal(dshCompatible('0.1.1-rc.3'), false)
+  assert.equal(dshCompatible(null), false)
+})
+
+test('蜂群2计划 P1: checkPortFree reports occupation truthfully', async () => {
+  // 先占一个随机端口
+  const net = await import('node:net')
+  const blocker = net.createServer()
+  await new Promise<void>((resolveListen) => blocker.listen(0, '127.0.0.1', resolveListen))
+  const address = blocker.address()
+  assert.ok(address !== null && typeof address === 'object')
+  const port = address.port
+  try {
+    assert.equal(await checkPortFree(port), false, '有进程监听的端口必须判占用')
+  } finally {
+    await new Promise<void>((resolveClose) => blocker.close(() => resolveClose()))
+  }
+  assert.equal(await checkPortFree(port), true, '释放后的端口必须判空闲')
+})
+
+test('蜂群2计划 P1: probeToolVersions reports node and marks missing dsh as null', () => {
+  const tools = probeToolVersions(null)
+  assert.ok(tools.node !== null, 'node 是跑测试的前提，必然存在')
+  assert.match(tools.node, /^v?\d+\./)
+  assert.equal(tools.dsh, null)
 })
 
 test('adoptOldWorkspaces keeps user-customised workspaces unless explicitly overridden', () => {  const options = { personalWorkspace: './workspaces/personal', brainWorkspace: './workspaces/brain' }

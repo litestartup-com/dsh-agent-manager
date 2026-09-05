@@ -19,6 +19,11 @@ const nodeRow = (n) => {
     .filter(Boolean)
     .join(' · ')
   const err = typeof n.lastError === 'string' && n.lastError !== '' ? ` — ${n.lastError}` : ''
+  // 蜂群2计划 P1：DSH 版本与验证版本不符 → 黄标（照跑不装瞎）
+  const versionWarn =
+    typeof n.dshVersion === 'string' && n.dshVersion !== '' && n.dshCompatible === false
+      ? `<span class="pill-mini warn" title="节点 DSH ${esc(n.dshVersion)} 与验证版本不符，契约未经此版本验证">版本告警</span>`
+      : ''
   const starting = n.state === 'starting'
   const controls = n.managed
     ? `<div class="node-actions">
@@ -34,7 +39,7 @@ const nodeRow = (n) => {
     : '<span class="muted small">外管 · 手动维护</span>'
   return `<div class="node-row" data-node-row="${esc(n.id)}">
     <div class="node-main">
-      <div class="node-title"><span class="dot ${dot}"></span>${esc(n.id)} <span class="muted">· ${esc(label)}</span></div>
+      <div class="node-title"><span class="dot ${dot}"></span>${esc(n.id)} <span class="muted">· ${esc(label)}</span> ${versionWarn}</div>
       <div class="node-meta">${esc(meta)}${esc(err)}</div>
       <div class="node-detail">agent：${esc(agents)}</div>
     </div>

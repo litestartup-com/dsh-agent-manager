@@ -7,6 +7,7 @@ import type { UpstreamClient } from '../upstream/client.js'
 import { listArchivedChats, listChats } from '../chat/store.js'
 import { activeRunCount, runningRunId } from '../runner.js'
 import { currentMonth, monthByAgent } from '../usage/store.js'
+import { COMPAT_DSH_VERSION } from '../dsh-version.js'
 
 export interface EndpointStatus {
   id: string
@@ -17,6 +18,10 @@ export interface EndpointStatus {
   apiKeySet: boolean | null
   enabled: boolean | null
   error: string | null
+  /** 蜂群2计划 P1：apiproxy 探测到的节点 DSH 版本；gateway/未知 = null。 */
+  dshVersion: string | null
+  /** 与验证版本 COMPAT_DSH_VERSION 是否一致；null = 版本未知（无告警）。 */
+  dshCompatible: boolean | null
 }
 
 /**
@@ -45,6 +50,8 @@ export const probeEndpoint = async (
     apiKeySet: null,
     enabled: null,
     error: null,
+    dshVersion: null,
+    dshCompatible: null,
   }
   if (driver === 'apiproxy') {
     const upstream = upstreamClients.get(endpointId)
@@ -53,8 +60,12 @@ export const probeEndpoint = async (
       return row
     }
     try {
-      await upstream.hostVersion()
+      const version = await upstream.hostVersion()
       row.reachable = true
+      if (version !== 'unknown') {
+        row.dshVersion = version
+        row.dshCompatible = version.replace(/^v/, '') === COMPAT_DSH_VERSION
+      }
       return row
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)

@@ -53,12 +53,15 @@ test('an unmanaged node reports the probe result as its state', async () => {
 
   const res = await app.inject({ method: 'GET', url: '/api/nodes' })
   assert.equal(res.statusCode, 200)
-  const body = res.json() as { nodes: Array<{ id: string; managed: boolean; state: string; agents: string[] }> }
+  const body = res.json() as { nodes: Array<{ id: string; managed: boolean; state: string; agents: string[]; dshVersion: string | null; dshCompatible: boolean | null }> }
   assert.equal(body.nodes.length, 1)
   assert.equal(body.nodes[0]?.id, 'A')
   assert.equal(body.nodes[0]?.managed, false)
   assert.equal(body.nodes[0]?.state, 'live')
   assert.deepEqual(body.nodes[0]?.agents, ['personal'])
+  // 蜂群2计划 P1：gateway 驱动探测不到 DSH 版本 → null，不产生虚假告警
+  assert.equal(body.nodes[0]?.dshVersion, null)
+  assert.equal(body.nodes[0]?.dshCompatible, null)
 })
 
 test('a managed node reports the supervisor state machine', async () => {

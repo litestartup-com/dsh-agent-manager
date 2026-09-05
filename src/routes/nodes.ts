@@ -28,6 +28,7 @@ export const registerNodesRoutes = (
           .filter((a) => a.endpoint === id)
           .map((a) => a.id)
         const supervisor = supervisors.get(id)
+        const probe = await probeEndpoint(config, clients, upstreamClients, id)
         if (supervisor !== undefined) {
           const s = supervisor.current
           return {
@@ -38,9 +39,10 @@ export const registerNodesRoutes = (
             attempts: s.attempts,
             lastError: s.lastError,
             agents: agentIds,
+            dshVersion: probe.dshVersion,
+            dshCompatible: probe.dshCompatible,
           }
         }
-        const probe = await probeEndpoint(config, clients, upstreamClients, id)
         return {
           id,
           managed: false,
@@ -50,6 +52,8 @@ export const registerNodesRoutes = (
           lastError: probe.reachable ? null : probe.error,
           sessions: probe.sessions,
           agents: agentIds,
+          dshVersion: probe.dshVersion,
+          dshCompatible: probe.dshCompatible,
         }
       }),
     )

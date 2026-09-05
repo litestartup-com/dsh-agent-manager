@@ -2,9 +2,11 @@ import { randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { execFileSync } from 'node:child_process'
+import net from 'node:net'
 import { pathToFileURL } from 'node:url'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { initWorkspace } from '../workspace/init.js'
+import { COMPAT_DSH_VERSION, DSH_INSTALL_COMMAND, GATEWAY_REF, dshCompatible } from '../dsh-version.js'
 
 /**
  * `npm run setup -- [选项]` — 蜂群 P4：默认安装。
@@ -30,9 +32,11 @@ interface SetupOptions {
   nodesHome: string
   dshBin: string | null
   installProfiles: boolean
-  /** 本地 gateway 包路径（file: 依赖，离线安装）；null = 用 GitHub 引用。 */
+  /** 本地 gateway 包路径（file: 依赖，离线安装）；null = 用钉死引用。 */
   gatewayLocal: string | null
   force: boolean
+  /** 蜂群2计划 P1：DSH 版本不符时放行（显式声明风险自负）。 */
+  skipVersionCheck: boolean
 }
 
 interface ProfileSpec {
@@ -40,14 +44,19 @@ interface ProfileSpec {
   port: number
 }
 
-const PROFILE_BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-api-gateway']
+// 蜂群2计划 P1：bundle 钉版本（= COMPAT_DSH_VERSION），根治裸机安装漂移；
+// gateway 既是 bundle 又是依赖，引用由 gatewayDep 决定（默认钉 commit）。
+const PROFILE_BUNDLES: Record<string, string> = {
+  '@deepseek-ai/dsh-base': COMPAT_DSH_VERSION,
+  '@deepseek-ai/dsh-web-app': COMPAT_DSH_VERSION,
+}
 
 const profileFiles = (spec: ProfileSpec, gatewayDep: string): Record<string, string> => {
   const pkg = {
     name: `dsh-profile-${spec.name}`,
     private: true,
-    dsh: { profile: { bundles: PROFILE_BUNDLES } },
-    dependencies: { 'dsh-api-gateway': gatewayDep },
+    dsh: { profile: { bundles: [...Object.keys(PROFILE_BUNDLES), 'dsh-api-gateway'] } },
+    dependencies: { ...PROFILE_BUNDLES, 'dsh-api-gateway': gatewayDep },
   }
   const patch = [
     {
@@ -101,24 +110,47 @@ export const ensureNodeCredentials = (mainDshHome: string, nodeHome: string): bo
 export const detectDshBin = (dshHome: string, override: string | null): string => {
   const fromEnv = override ?? process.env.DSH_BIN ?? null
   if (fromEnv !== null && fromEnv !== '' && existsSync(fromEnv)) return resolve(fromEnv)
-  try {
-    const found = execFileSync('where', ['dsh'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .filter((l) => l !== '')[0]
-    if (found !== undefined && /\.ps1$/i.test(found)) {
-      const candidate = join(dirname(found), 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
-      if (existsSync(candidate)) return resolve(candidate)
+
+  if (process.platform === 'win32') {
+    // Windows：`where dsh` 找到 npm 的 .ps1 垫片，真身在其旁的 node_modules 里
+    try {
+      const found = execFileSync('where', ['dsh'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter((l) => l !== '')[0]
+      if (found !== undefined && /\.ps1$/i.test(found)) {
+        const candidate = join(dirname(found), 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
+        if (existsSync(candidate)) return resolve(candidate)
+      }
+    } catch {
+      // `where` 找不到 dsh：继续按常见位置猜测
     }
-  } catch {
-    // `where` 找不到 dsh：继续按常见位置猜测
+  } else {
+    // POSIX（蜂群2计划 P1 修复）：`command` 是 shell 内建，经 sh 执行；
+    // 全局安装的 dsh 是软链，node 可直接跑，无需解析真身。
+    try {
+      const found = execFileSync('sh', ['-c', 'command -v dsh 2>/dev/null || true'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+        .trim()
+        .split(/\r?\n/)[0]
+      if (found !== undefined && found !== '' && existsSync(found)) return resolve(found)
+    } catch {
+      // 继续猜
+    }
+    try {
+      const global = execFileSync('npm', ['root', '-g'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+      const candidate = join(global, '@deepseek-ai', 'dsh', 'lib', 'bin.js')
+      if (existsSync(candidate)) return resolve(candidate)
+    } catch {
+      // 继续猜
+    }
   }
+
   const guesses = [
     join(dshHome, 'profiles', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'),
     'C:/nvm4w/nodejs/node_modules/@deepseek-ai/dsh/lib/bin.js',
   ]
   for (const guess of guesses) if (existsSync(guess)) return resolve(guess)
-  throw new Error('找不到 DSH 的 bin.js：请用 --dsh-bin 指定（node 直接跑该文件 + --profile <名>）')
+  throw new Error(`找不到 DSH 的 bin.js：请先安装钉死版本（${DSH_INSTALL_COMMAND}），或用 --dsh-bin 指定路径`)
 }
 
 /**
@@ -143,6 +175,33 @@ export const resolveGatewayKey = (dshHome: string, settingsPath: string | null):
   writeFileSync(path, stringifyYaml(parsed), 'utf8')
   return minted
 }
+
+/** 蜂群2计划 P1：探测关键工具版本（node/pnpm/git/dsh）；dshBin 为 null = DSH 未找到。 */
+export const probeToolVersions = (dshBin: string | null): Record<'node' | 'pnpm' | 'git' | 'dsh', string | null> => {
+  const run = (cmd: string, args: string[]): string | null => {
+    try {
+      const out = execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+      return out.trim().split(/\r?\n/)[0] ?? null
+    } catch {
+      return null
+    }
+  }
+  return {
+    node: run('node', ['--version']),
+    pnpm: run('pnpm', ['--version']),
+    git: run('git', ['--version']),
+    dsh: dshBin === null ? null : run('node', [dshBin, '--version']),
+  }
+}
+
+/** 蜂群2计划 P1：端口是否空闲（bind 127.0.0.1 试探；被占用 → false）。 */
+export const checkPortFree = (port: number): Promise<boolean> =>
+  new Promise((resolvePort) => {
+    const server = net.createServer()
+    server.once('error', () => resolvePort(false))
+    server.once('listening', () => server.close(() => resolvePort(true)))
+    server.listen(port, '127.0.0.1')
+  })
 
 /** .env 合并：已有的值绝不覆盖（用户手改优先）；forceKeys 例外——setup 自己
  * 拥有这些密钥（必须与刚生成的节点 settings 一致），一律以新值为准。 */
@@ -291,6 +350,7 @@ export const parseArgs = (argv: string[]): { options: SetupOptions; help: boolea
     // `npm run setup --force` 时 npm 会把 --force 当自己的开关吞掉（并打一行
     // warn），根本不传给脚本——通过它注入的 npm_config_force 兜底识别。
     force: process.env.npm_config_force === 'true',
+    skipVersionCheck: false,
   }
   const explicit = { personalWorkspace: false, brainWorkspace: false }
   let help = false
@@ -319,17 +379,18 @@ export const parseArgs = (argv: string[]): { options: SetupOptions; help: boolea
     else if (arg === '--gateway-local') defaults.gatewayLocal = next()
     else if (arg === '--no-install') defaults.installProfiles = false
     else if (arg === '--force') defaults.force = true
+    else if (arg === '--skip-version-check') defaults.skipVersionCheck = true
   }
   return { options: defaults, help, explicit }
 }
 
 const usage = (): void => {
-  console.log('用法: npm run setup -- [--workspace 路径] [--brain-workspace 路径] [--ports 3081,3082] [--dsh-bin 路径] [--gateway-local 路径] [--nodes-home 路径] [--no-install] [--force]')
+  console.log('用法: npm run setup -- [--workspace 路径] [--brain-workspace 路径] [--ports 3081,3082] [--dsh-bin 路径] [--gateway-local 路径] [--nodes-home 路径] [--no-install] [--force] [--skip-version-check]')
   console.log('  --gateway-local  用本地 dsh-api-gateway 目录做 file: 依赖（离线安装；缺省从 GitHub 拉）')
   console.log('  --nodes-home     节点目录根（每个节点一个独立 DSH_HOME，默认 ~/.dsh-ohdsh）')
 }
 
-const main = (): void => {
+const main = async (): Promise<void> => {
   const { options, help, explicit } = parseArgs(process.argv.slice(2))
   if (help) {
     usage()
@@ -359,6 +420,55 @@ const main = (): void => {
     process.exit(2)
   }
 
+  // ---- 蜂群2计划 P1：自检表（缺件/版本不符/端口占用 → 红字退出，无半成功态）----
+  console.log('⓪ 自检…')
+  let dshBin: string
+  try {
+    dshBin = detectDshBin(options.dshHome, options.dshBin)
+  } catch (error) {
+    console.error(`   ❌ DSH 未找到：${(error as Error).message}`)
+    process.exit(2)
+  }
+  const tools = probeToolVersions(dshBin)
+  for (const [name, version] of Object.entries(tools)) {
+    const ok = name === 'dsh' ? dshCompatible(version) : version !== null
+    const detail =
+      version === null
+        ? name === 'dsh'
+          ? `未找到 —— ${DSH_INSTALL_COMMAND}`
+          : '未安装'
+        : `${version}${name === 'dsh' && !dshCompatible(version) ? `（验证版本 ${COMPAT_DSH_VERSION}）` : ''}`
+    console.log(`   ${ok ? '✅' : '❌'} ${name.padEnd(6)} ${detail}`)
+  }
+  if (tools.pnpm === null || tools.git === null) {
+    console.error('   ❌ 缺少 pnpm 或 git：pnpm → npm install -g pnpm；git → 安装后重试。')
+    process.exit(2)
+  }
+  if (!dshCompatible(tools.dsh)) {
+    if (options.skipVersionCheck) {
+      console.warn(`   ⚠ DSH 版本与验证版本 ${COMPAT_DSH_VERSION} 不符，已按 --skip-version-check 放行（风险自负）。`)
+    } else {
+      console.error(`   ❌ DSH 版本必须与验证版本一致（${DSH_INSTALL_COMMAND}）；确要强行继续加 --skip-version-check。`)
+      process.exit(2)
+    }
+  }
+  const MANAGER_PORT = 8080
+  const portRows: Array<[string, number]> = [
+    ['manager', MANAGER_PORT],
+    ['personal 节点', options.personalPort],
+    ['brain 节点', options.brainPort],
+  ]
+  const busyPorts: string[] = []
+  for (const [label, port] of portRows) {
+    const free = await checkPortFree(port)
+    console.log(`   ${free ? '✅' : '❌'} 端口 ${port}（${label}）${free ? '空闲' : '被占用'}`)
+    if (!free) busyPorts.push(`${port}（${label}）`)
+  }
+  if (busyPorts.length > 0) {
+    console.error(`   ❌ 端口被占用：${busyPorts.join('、')}。换端口：--ports 3081,3082；manager 端口改 manager.config.yaml 的 listen.port。`)
+    process.exit(2)
+  }
+
   // ---- 工作区（模板幂等，绝不覆盖已有文件） --------------------------------
   console.log('① 初始化工作区…')
   // note-kaka 之类已有 RULE.md/CONTEXT.md 的笔记库是「只读权威」（TASKS 阶段二）：
@@ -381,7 +491,7 @@ const main = (): void => {
   ]
   const gatewayDep =
     options.gatewayLocal === null
-      ? 'github:litestartup-com/dsh-api-gateway'
+      ? GATEWAY_REF
       : `file:${resolve(options.gatewayLocal).replace(/\\/g, '/')}`
   console.log(`   gateway 依赖: ${gatewayDep}`)
   const nodeHomes = new Map<string, string>()
@@ -397,8 +507,8 @@ const main = (): void => {
       console.log(`   凭据已复制到 ${home}`)
     }
   }
-  const dshBin = detectDshBin(options.dshHome, options.dshBin)
-  console.log(`   DSH bin: ${dshBin}`)
+  const dshBinKnown = dshBin // 自检阶段已解析，直接复用
+  console.log(`   DSH bin: ${dshBinKnown}`)
   // Windows 上 pnpm 是 .cmd 垫片，必须 shell: true 让 cmd.exe 来执行：
   // Node ≥ 20.12（CVE-2024-27980）禁止不经 shell 直接 spawn .cmd/.bat，
   // 旧写法 execFileSync('pnpm.cmd', ...) 会 EINVAL。
