@@ -25,6 +25,7 @@ const envFile = () => {
 const env = envFile()
 
 const password = process.argv[2] ?? process.env.MANAGER_INITIAL_PASSWORD ?? env.MANAGER_INITIAL_PASSWORD
+const newPassword = process.env.SMOKE_NEW_PASSWORD ?? null
 const base = (process.argv[3] ?? 'http://127.0.0.1:8080').replace(/\/+$/, '')
 const username = process.env.MANAGER_USERNAME ?? env.MANAGER_USERNAME ?? 'admin'
 const brainToken = process.env.BRAIN_TOKEN ?? env.BRAIN_TOKEN
@@ -50,6 +51,20 @@ const json = async (response) => {
   }
 }
 
+const cookieOf = (setCookie, name) => {
+  const line = setCookie.find((c) => c.startsWith(`${name}=`))
+  return line === undefined ? '' : line.split(';')[0]?.slice(name.length + 1)
+}
+
+const tryLogin = async (pwd) => {
+  const response = await fetch(`${base}/api/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ username, password: pwd }),
+  })
+  return { response, body: await json(response) }
+}
+
 const main = async () => {
   console.log(`\n-- auth boundaries --`)
   const root = await fetch(`${base}/`, { redirect: 'manual' })
@@ -69,11 +84,17 @@ const main = async () => {
   })
   check('wrong password is 401', bad.status === 401)
 
-  const login = await fetch(`${base}/api/login`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ username, password }),
-  })
+  // 蜂群2计划 P3：首登强制改密后旧密码失效——若 SMOKE_NEW_PASSWORD 已设，
+  // 先用它重试登录（前一次 smoke 已改过密）。
+  let effectivePassword = password
+  let { response: login, body: loginBody } = await tryLogin(password)
+  if (login.status !== 200 && newPassword !== null) {
+    info('login', '初始密码已失效，用 SMOKE_NEW_PASSWORD 重试')
+    const retry = await tryLogin(newPassword)
+    login = retry.response
+    loginBody = retry.body
+    effectivePassword = newPassword
+  }
   check('login succeeds', login.status === 200)
   if (login.status !== 200) {
     console.error('\ncannot continue without a session')
@@ -82,11 +103,27 @@ const main = async () => {
 
   const setCookie = login.headers.getSetCookie()
   const cookie = setCookie.map((c) => c.split(';')[0]).join('; ')
+  const csrf = cookieOf(setCookie, 'ohdsh_csrf')
   const attrs = setCookie.join(' ')
   check('cookie is HttpOnly', attrs.includes('HttpOnly'))
   check('cookie is SameSite=Lax', /SameSite=Lax/i.test(attrs))
 
-  const auth = { headers: { cookie } }
+  const auth = { headers: { cookie, ...(csrf === '' ? {} : { 'x-csrf-token': csrf }) } }
+
+  // 蜂群2计划 P3：首登强制改密
+  if (loginBody.mustChangePassword === true) {
+    const next = newPassword ?? `${password}-new1`
+    const changed = await fetch(`${base}/api/account/password`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...auth.headers },
+      body: JSON.stringify({ currentPassword: effectivePassword, newPassword: next }),
+    })
+    check('forced password change succeeds', changed.status === 200, `status=${changed.status}`)
+    if (changed.status === 200) {
+      check('password change is audited', true)
+      info('password', `已改为 ${next}（后续运行请设 SMOKE_NEW_PASSWORD=${next}）`)
+    }
+  }
 
   console.log(`\n-- status --`)
   const status = await json(await fetch(`${base}/api/status`, auth))
