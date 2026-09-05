@@ -17,6 +17,7 @@
     "nodes": "tsx src/cli/node.ts",
     "setup": "tsx src/cli/setup.ts",
     "backup": "tsx src/cli/backup.ts",
+    "restore": "tsx src/cli/backup.ts restore",
     "backfill-cost": "tsx src/cli/backfill-cost.ts",
     "test": "tsx --test \"src/**/*.test.ts\"",
     "smoke": "node scripts/smoke.mjs",
