@@ -61,14 +61,29 @@ if ! command -v unzip >/dev/null 2>&1 && [ "$DRY_RUN" != "1" ]; then
   run apt-get update -qq
   run apt-get install -y unzip
 fi
+if ! command -v git >/dev/null 2>&1 && [ "$DRY_RUN" != "1" ]; then
+  log "git not found."
+  confirm "Install git (apt)?" || { log "aborted (git required for fallback)."; exit 1; }
+  run apt-get update -qq
+  run apt-get install -y git
+fi
 if [ -f "$APP_DIR/docker-compose.yml" ]; then
   log "skip (exists): $APP_DIR"
 else
   log "Downloading release bundle ${OHDSH_VERSION}..."
   run mkdir -p "$APP_DIR"
-  run curl -fsSL "${RELEASE_BASE}/ohdsh-compose.zip" -o /tmp/ohdsh-compose.zip
-  run unzip -q -o /tmp/ohdsh-compose.zip -d "$APP_DIR"
-  run rm -f /tmp/ohdsh-compose.zip
+  if [ "$DRY_RUN" = "1" ]; then
+    log "DRY: curl ${RELEASE_BASE}/ohdsh-compose.zip"
+  elif curl -fsSL "${RELEASE_BASE}/ohdsh-compose.zip" -o /tmp/ohdsh-compose.zip 2>/dev/null; then
+    unzip -q -o /tmp/ohdsh-compose.zip -d "$APP_DIR"
+    rm -f /tmp/ohdsh-compose.zip
+    log "bundle unpacked."
+  else
+    # 发布包尚不存在（tag 未打）或下载失败：回退到源码克隆，compose 自带 build 段
+    log "release bundle unavailable — falling back to git clone (master)"
+    rm -rf "$APP_DIR"
+    git clone --depth 1 https://github.com/litestartup-com/dsh-agent-manager.git "$APP_DIR"
+  fi
 fi
 
 # ---- secrets (唯一人肉输入 = API key) ----
@@ -127,7 +142,7 @@ if [ -n "$APP_DOMAIN" ]; then
 fi
 
 # ---- up ----
-run docker compose up -d
+run docker compose up -d --build
 
 cat <<EOF
 
