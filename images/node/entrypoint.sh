@@ -15,15 +15,23 @@ if [ ! -d "$DSH_HOME/profiles/ohdsh-node" ] || [ "$SEED_CUR" != "$SEED_NEW" ]; t
   echo "[entrypoint] profile seeded into $DSH_HOME/profiles/ohdsh-node (seed ${SEED_NEW:0:8})"
 fi
 
-# 2) gateway 静态密钥（环境注入；已有 settings 不覆盖）
-if [[ -n "${GW_KEY:-}" && ! -f "$DSH_HOME/settings.yaml" ]]; then
-  cat > "$DSH_HOME/settings.yaml" <<EOF
+# 2) gateway 静态密钥：环境变量是真相（A 清单：派生文件不可手改）。
+#    文件缺失或不含当前 GW_KEY 一律重写——卷里可能残留上一版的旧钥匙
+#    （重装/换钥匙场景实测：容器重建了，旧 settings.yaml 还在卷里）。
+if [[ -n "${GW_KEY:-}" ]]; then
+  NEED_WRITE=1
+  if [ -f "$DSH_HOME/settings.yaml" ]; then
+    if grep -q "$GW_KEY" "$DSH_HOME/settings.yaml" 2>/dev/null; then NEED_WRITE=0; fi
+  fi
+  if [ "$NEED_WRITE" = "1" ]; then
+    cat > "$DSH_HOME/settings.yaml" <<EOF
 dsh-api-gw:
   apiKeys: ['$GW_KEY']
 EOF
-  chmod 600 "$DSH_HOME/settings.yaml"
-  echo "[entrypoint] wrote $DSH_HOME/settings.yaml"
-elif [[ -z "${GW_KEY:-}" ]]; then
+    chmod 600 "$DSH_HOME/settings.yaml"
+    echo "[entrypoint] wrote $DSH_HOME/settings.yaml (GW_KEY 刷新)"
+  fi
+else
   echo "[entrypoint] ⚠ GW_KEY 未注入——网关沙箱路由将 401（manager 的 .env 里 GW_KEY_* 应为非空）"
 fi
 
