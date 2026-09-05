@@ -96,6 +96,21 @@ export const PAGES: Record<string, PageDef> = {
     script: 'skills.js',
     contentClass: 'wide',
   },
+  // 蜂群2计划 P3：首登强制改密 + 审计流水
+  password: {
+    file: 'password.html',
+    title: '修改密码 · Oh! dsh',
+    css: [],
+    script: 'password.js',
+    contentClass: '',
+  },
+  audit: {
+    file: 'audit.html',
+    title: '审计 · Oh! dsh',
+    css: [],
+    script: 'audit.js',
+    contentClass: 'wide',
+  },
 }
 
 const PLACEHOLDERS = ['{{TITLE}}', '{{HEAD}}', '{{CONTENT_CLASS}}', '{{CONTENT}}', '{{SCRIPT}}'] as const

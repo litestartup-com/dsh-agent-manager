@@ -15,6 +15,8 @@ const digest = (token: string): string => createHash('sha256').update(token).dig
 export interface SessionUser {
   id: number
   username: string
+  /** 蜂群2计划 P3：首登强制改密标记（requireUser 按它放行/拦截）。 */
+  mustChangePassword: boolean
 }
 
 export const issueSession = (db: Db, userId: number): { token: string; expiresAt: number } => {
@@ -29,7 +31,12 @@ export const resolveSession = (db: Db, token: string | undefined): SessionUser |
   if (token === undefined || token === '') return null
   const id = digest(token)
   const rows = db
-    .select({ userId: schema.session.userId, expiresAt: schema.session.expiresAt, username: schema.user.username })
+    .select({
+      userId: schema.session.userId,
+      expiresAt: schema.session.expiresAt,
+      username: schema.user.username,
+      mustChangePassword: schema.user.mustChangePassword,
+    })
     .from(schema.session)
     .innerJoin(schema.user, eq(schema.user.id, schema.session.userId))
     .where(eq(schema.session.id, id))
@@ -40,7 +47,7 @@ export const resolveSession = (db: Db, token: string | undefined): SessionUser |
     db.delete(schema.session).where(eq(schema.session.id, id)).run()
     return null
   }
-  return { id: row.userId, username: row.username }
+  return { id: row.userId, username: row.username, mustChangePassword: row.mustChangePassword === 1 }
 }
 
 export const revokeSession = (db: Db, token: string | undefined): void => {

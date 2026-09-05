@@ -5,7 +5,7 @@
 // attacker-influenced text. Unescaped, one crafted note becomes stored XSS on
 // manager's own origin -- the origin holding the session cookie.
 
-import { esc } from './ui.js'
+import { esc, apiFetch } from './ui.js'
 
 /** Tone is a closed set, so it is safe in a class attribute once checked. */
 const TONES = new Set(['good', 'warn', 'bad', 'info', 'muted'])
@@ -316,7 +316,7 @@ const toast = (text, hold) => {
 const load = async () => {
   let response
   try {
-    response = await fetch(`/api/board/${encodeURIComponent(agentId)}`, { headers: { accept: 'application/json' } })
+    response = await apiFetch(`/api/board/${encodeURIComponent(agentId)}`, { headers: { accept: 'application/json' } })
   } catch (error) {
     renderError(`连不上 manager：${error.message}`)
     return

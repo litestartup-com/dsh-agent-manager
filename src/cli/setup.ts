@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import net from 'node:net'
@@ -223,6 +223,14 @@ export const mergeEnv = (path: string, values: Record<string, string>, forceKeys
     .map(([key, value]) => `${key}=${value}`)
     .join('\n')
   writeFileSync(path, content + '\n', 'utf8')
+  // 蜂群2计划 P3：.env 含密钥，POSIX 上收紧为 owner-only（Windows 无此语义）
+  if (process.platform !== 'win32') {
+    try {
+      chmodSync(path, 0o600)
+    } catch {
+      // best effort：权限收不紧不阻断安装，但值得在文档里说明
+    }
+  }
   return merged
 }
 

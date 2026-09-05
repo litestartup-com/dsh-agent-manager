@@ -1,6 +1,6 @@
 // Plain fetch + DOM, matching the rest of the front end: no build step.
 
-import { $, esc } from './ui.js'
+import { $, esc, apiFetch } from './ui.js'
 
 const MICRO = 1_000_000
 
@@ -164,7 +164,7 @@ const renderBanners = (data) => {
 
 const load = async (month) => {
   const query = month === null || month === undefined ? '' : `?month=${encodeURIComponent(month)}`
-  const res = await fetch(`/api/usage${query}`, { credentials: 'same-origin' })
+  const res = await apiFetch(`/api/usage${query}`, { credentials: 'same-origin' })
   if (res.status === 401) {
     window.location.href = '/login'
     return

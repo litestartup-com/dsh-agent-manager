@@ -15,6 +15,9 @@ import { buildClients } from './gateway/client.js'
 import { buildUpstreamClients, closeAllMux } from './upstream/client.js'
 import { buildNodeSupervisors } from './nodes/registry.js'
 import { DockerRunner, NODE_LABEL } from './nodes/docker-runner.js'
+import { recordAudit } from './audit.js'
+import { CSRF_COOKIE } from './routes/auth.js'
+import { registerAuditRoutes } from './routes/audit.js'
 import { registerAuthRoutes } from './routes/auth.js'
 import { registerStatusRoutes } from './routes/status.js'
 import { registerWorkspaceRoutes } from './routes/workspace.js'
@@ -66,6 +69,7 @@ const main = async (): Promise<void> => {
         username: config.initialUser.username,
         passwordHash: await hashPassword(password),
         createdAt: Date.now(),
+        mustChangePassword: 1,
       })
       .run()
     app.log.warn(`created initial user "${config.initialUser.username}"`)
@@ -154,6 +158,20 @@ const main = async (): Promise<void> => {
 
   await app.register(cookie, { secret: config.sessionSecret })
   await app.register(rateLimit, { global: false })
+  // 蜂群2计划 P3：CSRF —— 非 GET 的 API 请求必须带与 cookie 一致的 X-CSRF-Token
+  // （双提交）。豁免：/api/login（尚无会话）与 /api/internal/*（主脑令牌认证）。
+  app.addHook('onRequest', async (request, reply) => {
+    const method = request.method ?? 'GET'
+    if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return
+    const url = (request.url ?? '').split('?')[0] ?? ''
+    if (url === '/api/login' || url.startsWith('/api/internal/')) return
+    const cookieToken = request.cookies[CSRF_COOKIE] ?? ''
+    const headerToken = request.headers['x-csrf-token']
+    const headerValue = Array.isArray(headerToken) ? headerToken[0] : headerToken
+    if (cookieToken === '' || headerValue !== cookieToken) {
+      await reply.code(403).send({ error: 'csrf_token_missing_or_mismatch' })
+    }
+  })
   // `no-cache` means "you may keep it, but ask before using it" -- a conditional
   // request answered by a 304, not a re-download. The page URLs carry a content
   // hash so they rarely even get here; this covers what a hash cannot reach,
@@ -210,8 +228,12 @@ const main = async (): Promise<void> => {
   app.get('/crons', { preHandler: requirePage }, page('crons'))
   app.get('/nodes', { preHandler: requirePage }, page('nodes'))
   app.get('/skills', { preHandler: requirePage }, page('skills'))
+  // 蜂群2计划 P3：改密页（强制改密期间的落点）与审计页
+  app.get('/password', { preHandler: requirePage }, page('password'))
+  app.get('/audit', { preHandler: requirePage }, page('audit'))
 
   registerAuthRoutes(app, db, secureCookies)
+  registerAuditRoutes(app, db, requireUser)
   registerStatusRoutes(app, config, db, clients, requireUser, upstreamClients)
   registerWorkspaceRoutes(app, config, requireUser)
   registerRunRoutes(app, config, db, clients, requireUser, upstreamClients)
@@ -233,8 +255,10 @@ const main = async (): Promise<void> => {
   registerCronRoutes(app, config, db, scheduler, requireUser)
   // 蜂群 P2：主脑面内部 API（仅 127.0.0.1 + X-Brain-Token）。
   registerInternalRoutes(app, config, db, clients, upstreamClients, scheduler)
-  // 蜂群 P3：节点（fleet）视图。
-  registerNodesRoutes(app, config, nodeSupervisors, clients, upstreamClients, requireUser)
+  // 蜂群 P3：节点（fleet）视图。审计回调：节点操作全留痕。
+  registerNodesRoutes(app, config, nodeSupervisors, clients, upstreamClients, requireUser, (actor, kind, detail) =>
+    recordAudit(db, { actor, kind, detail }),
+  )
   registerProvisionRoutes(app, config, requireUser, { db, supervisors: nodeSupervisors, clients, upstreamClients })
   registerSkillsRoutes(app, config, requireUser)
   registerNotificationRoutes(app, db, requireUser)
@@ -271,6 +295,8 @@ const main = async (): Promise<void> => {
     try {
       const result = await backupNow(config.databasePath, join(dirname(fileURLToPath(import.meta.url)), '..', 'manager.config.yaml'), join(dirname(fileURLToPath(import.meta.url)), '..', '.env'), backupDir)
       app.log.info(`backup: ${result.snapshot.file} (${result.snapshot.bytes} bytes)${result.pruned.length > 0 ? `, pruned ${result.pruned.length}` : ''}`)
+      // 蜂群2计划 P3：审计留痕（自动备份，actor = system）
+      recordAudit(db, { actor: 'system', kind: 'backup', detail: `快照 ${result.snapshot.file}` })
     } catch (error) {
       app.log.error(`backup failed: ${(error as Error).message}`)
     }

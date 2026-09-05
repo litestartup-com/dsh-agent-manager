@@ -203,6 +203,21 @@ const MIGRATIONS: readonly string[][] = [
      )`,
     `CREATE INDEX IF NOT EXISTS notification_at ON notification(at)`,
   ],
+  // 10 -- 蜂群2计划 P3：首登强制改密（既有账号也转正一次：初始/随机密码都得换）
+  [
+    `ALTER TABLE user ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 1`,
+  ],
+  // 11 -- 蜂群2计划 P3：审计留痕（登录/改密/节点操作/备份）
+  [
+    `CREATE TABLE IF NOT EXISTS audit_log (
+       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       at INTEGER NOT NULL,
+       actor TEXT NOT NULL,
+       kind TEXT NOT NULL,
+       detail TEXT NOT NULL
+     )`,
+    `CREATE INDEX IF NOT EXISTS audit_at ON audit_log(at)`,
+  ],
 ]
 
 export interface OpenDbResult {

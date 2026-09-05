@@ -2,7 +2,7 @@
 //
 // 技能真相源 = 各 agent 工作区的 .skills/<name>/SKILL.md；版本 = 工作区 git
 // HEAD（与运行审计同源）。启停/分发是 P5.5 配置写回的事——本页不放假按钮。
-import { $, esc, setHtml } from './ui.js'
+import { $, esc, setHtml, apiFetch } from './ui.js'
 
 const versionChip = (v) =>
   v === null ? '<span class="pill-mini muted">无 git 版本</span>' : `<span class="pill-mini">@${esc(v.slice(0, 7))}</span>`
@@ -34,7 +34,7 @@ const agentGroup = (a) => {
 
 const load = async () => {
   try {
-    const response = await fetch('/api/skills')
+    const response = await apiFetch('/api/skills')
     if (!response.ok) return
     const data = await response.json()
 

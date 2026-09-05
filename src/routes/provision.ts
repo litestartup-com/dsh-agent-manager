@@ -14,6 +14,7 @@ import type { NodeSupervisor } from '../nodes/supervisor.js'
 import { makeSupervisor } from '../nodes/registry.js'
 import { detectDshBin, ensureNodeCredentials, ensureNodeProfiles, mergeEnv, resolveGatewayKey } from '../cli/setup.js'
 import { ensureWorkspaceGit } from '../workspace/init.js'
+import { recordAudit } from '../audit.js'
 
 /**
  * 蜂群 P5.5：运行时新增 / 删除节点。
@@ -248,6 +249,8 @@ export const registerProvisionRoutes = (
         }
       }
 
+      // 蜂群2计划 P3：审计留痕（创建节点）
+      recordAudit(db, { actor: request.currentUser?.username ?? 'unknown', kind: 'node_create', detail: `节点 ${body.name}（端口 ${port}，工作区 ${agentSpec?.workspace ?? '—'}）` })
       return reply.code(201).send({
         node: { id: body.name, port, home: nodeHomePath, state: supervisor.current.state },
         workspace: agentSpec === null ? null : { id: agentSpec.id, path: agentSpec.workspace },
@@ -289,6 +292,8 @@ export const registerProvisionRoutes = (
     app.log.info(
       `node ${request.params.id}: unmanaged (${bound.length} workspace binding(s) removed from config; files on disk kept)`,
     )
+    // 蜂群2计划 P3：审计留痕（删除节点）
+    recordAudit(db, { actor: request.currentUser?.username ?? 'unknown', kind: 'node_delete', detail: `节点 ${request.params.id} 删除（磁盘目录保留）` })
     return reply.send({ ok: true, removedWorkspaces: bound.map((a) => a.id) })
   })
 }
