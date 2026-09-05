@@ -76,6 +76,14 @@ export class DockerRunner {
         ],
         RestartPolicy: { Name: 'unless-stopped' },
       },
+      // 蜂群2计划 P6 实测根因：manager 探活 URL 是 http://node-<id>:port，但 compose 的
+      // 内嵌 DNS 只认识 compose 服务名——manager 自己拉的容器必须显式注册网络别名，
+      // 否则 DNS 解析失败（fetch failed）。别名给两个形态：node-<id> 与 <id>。
+      NetworkingConfig: {
+        EndpointsConfig: {
+          [d.network]: { Aliases: [`node-${nodeId}`, nodeId] },
+        },
+      },
     })
     await container.start()
     return container.id
