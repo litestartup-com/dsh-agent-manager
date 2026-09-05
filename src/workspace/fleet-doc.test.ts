@@ -1,9 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { renderFleetDoc, syncFleetDocs, FLEET_FILE } from './fleet-doc.js'
+import { DEFAULT_PRICING } from '../pricing.js'
 import type { AppConfig } from '../config.js'
 
 const configFor = (): AppConfig => {
@@ -41,7 +42,7 @@ const configFor = (): AppConfig => {
     },
     runner: { timeoutMs: 1_000, silenceMs: 0, maxConsecutiveFailures: 3, dailyBudgetMicroUsd: null },
     databasePath: ':memory:',
-    pricing: { peakWindowsUtc: [], weekendsOffPeak: true, timezone: 'Asia/Shanghai', models: {} },
+    pricing: DEFAULT_PRICING,
     sessionSecret: 'x'.repeat(32),
     initialUser: { username: 'admin', password: null },
     warnings: [],
