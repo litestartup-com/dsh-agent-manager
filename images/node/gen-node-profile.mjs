@@ -11,25 +11,40 @@ const out = process.env.PROFILE_DIR ?? '/opt/ohdsh-profile'
 
 mkdirSync(out, { recursive: true })
 
-writeFileSync(
-  `${out}/package.json`,
-  JSON.stringify(
-    {
-      name: 'dsh-profile-ohdsh-node',
-      private: true,
-      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-api-gateway'] } },
-      dependencies: {
-        '@deepseek-ai/dsh-base': DSH_VERSION,
-        '@deepseek-ai/dsh-web-app': DSH_VERSION,
-        'dsh-api-gateway': GATEWAY_REF,
-      },
+writeFileSync(`${out}/package.json`, JSON.stringify(
+  {
+    name: 'dsh-profile-ohdsh-node',
+    private: true,
+    dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-api-gateway'] } },
+    dependencies: {
+      '@deepseek-ai/dsh-base': DSH_VERSION,
+      '@deepseek-ai/dsh-web-app': DSH_VERSION,
+      'dsh-api-gateway': GATEWAY_REF,
     },
-    null,
-    2,
-  ) + '\n',
+  },
+  null,
+  2,
+) + '\n', 'utf8')
+// pnpm ≥10 默认拒绝运行依赖构建脚本（ERR_PNPM_IGNORED_BUILDS）——
+// 显式批准 DSH 依赖链里必须构建的原生/后置脚本包。
+writeFileSync(
+  `${out}/pnpm-workspace.yaml`,
+  [
+    'packages:',
+    '  - .',
+    '',
+    'nodeLinker: hoisted',
+    'autoInstallPeers: false',
+    'onlyBuiltDependencies:',
+    "  - '@deepseek-ai/dsh-subprocess-local'",
+    "  - '@google/genai'",
+    '  - koffi',
+    '  - node-pty',
+    '  - protobufjs',
+    '',
+  ].join('\n'),
   'utf8',
 )
-writeFileSync(`${out}/pnpm-workspace.yaml`, 'packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n', 'utf8')
 writeFileSync(`${out}/cordis.yml`, '# dsh profile root — empty entry list; edit cordis.patch.yml\n[]\n', 'utf8')
 writeFileSync(
   `${out}/cordis.patch.yml`,

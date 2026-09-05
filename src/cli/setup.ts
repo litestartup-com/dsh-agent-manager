@@ -70,7 +70,22 @@ const profileFiles = (spec: ProfileSpec, gatewayDep: string): Record<string, str
   ]
   return {
     'package.json': JSON.stringify(pkg, null, 2) + '\n',
-    'pnpm-workspace.yaml': 'packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n',
+    // pnpm ≥10 默认拒绝运行依赖构建脚本（ERR_PNPM_IGNORED_BUILDS，实测容器构建撞过）——
+    // 显式批准 DSH 依赖链里必须构建的原生/后置脚本包。
+    'pnpm-workspace.yaml': [
+      'packages:',
+      '  - .',
+      '',
+      'nodeLinker: hoisted',
+      'autoInstallPeers: false',
+      'onlyBuiltDependencies:',
+      "  - '@deepseek-ai/dsh-subprocess-local'",
+      "  - '@google/genai'",
+      '  - koffi',
+      '  - node-pty',
+      '  - protobufjs',
+      '',
+    ].join('\n'),
     'cordis.yml': '# dsh profile root — empty entry list; edit cordis.patch.yml\n[]\n',
     'cordis.patch.yml': stringifyYaml(patch),
   }
