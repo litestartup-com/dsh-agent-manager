@@ -67,6 +67,10 @@ test('ensureNodeProfiles writes one isolated DSH_HOME per node, idempotently', (
       // 蜂群2计划 P1：bundle 钉版本 = COMPAT_DSH_VERSION，根治安装漂移
       assert.equal(pkg.dependencies['@deepseek-ai/dsh-base'], COMPAT_DSH_VERSION)
       assert.equal(pkg.dependencies['@deepseek-ai/dsh-web-app'], COMPAT_DSH_VERSION)
+      // pnpm ≥10 构建脚本白名单（镜像构建实测撞过 ERR_PNPM_IGNORED_BUILDS）
+      const workspace = readFileSync(join(dir, 'pnpm-workspace.yaml'), 'utf8')
+      assert.ok(workspace.includes('onlyBuiltDependencies:'), '必须声明构建脚本白名单')
+      assert.ok(workspace.includes('node-pty') && workspace.includes('koffi'), '原生依赖必须在白名单内')
     }
     // 幂等：第二次不重建、不报错
     assert.deepEqual(ensureNodeProfiles(nodesHome, specs, GATEWAY_REF), [])
