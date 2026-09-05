@@ -2011,6 +2011,9 @@ button:disabled {
 textarea.text-input {
   resize: vertical;
 }
+select.text-input {
+  max-width: none;
+}
 
 .form-actions {
   display: flex;
