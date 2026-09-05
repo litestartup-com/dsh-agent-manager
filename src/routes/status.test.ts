@@ -134,11 +134,16 @@ test('an apiproxy endpoint gets a row probed via host.describe, not /health', as
 
   const response = await app.inject({ method: 'GET', url: '/api/status' })
   assert.equal(response.statusCode, 200)
-  const body = response.json() as { endpoints: Array<{ id: string; driver: string; reachable: boolean; error: string | null }> }
+  const body = response.json() as {
+    endpoints: Array<{ id: string; driver: string; reachable: boolean; error: string | null; dshVersion: string | null; dshCompatible: boolean | null }>
+  }
   assert.equal(body.endpoints.length, 1)
   assert.equal(body.endpoints[0]!.id, 'A')
   assert.equal(body.endpoints[0]!.driver, 'apiproxy')
   assert.equal(body.endpoints[0]!.reachable, false)
   assert.ok(body.endpoints[0]!.error !== null, 'the unreachable reason is included')
+  // 蜂群2计划 P1：探测失败时版本字段为 null，不产生虚假告警
+  assert.equal(body.endpoints[0]!.dshVersion, null)
+  assert.equal(body.endpoints[0]!.dshCompatible, null)
   await app.close()
 })
