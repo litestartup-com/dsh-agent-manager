@@ -131,12 +131,15 @@ else
     log "skip (exists): manager.config.yaml"
   else
     cp manager.config.container.example.yaml manager.config.yaml
-    # 评审 B2：docker.sock 由宿主机 dockerd 解析 bind 路径——host_volumes 里的
-    # /opt/ohdsh/workspaces 必须换成宿主机真实绝对路径（compose 的 ./workspaces 同指此处），
-    # 而 agents.workspace 保持容器内视角（manager 挂载点）不变。
-    sed -i -e "/host_volumes:/,/named_volumes:/ s|/opt/ohdsh/workspaces|${APP_DIR_ABS}/workspaces|g" manager.config.yaml
+    # 评审 B2：docker.sock 由宿主机 dockerd 解析 bind 路径——host_volumes 里
+    # 行首的 /opt/ohdsh/workspaces（= 宿主机路径）必须换成宿主机真实绝对路径；
+    # 冒号右侧（= 节点容器内路径）与 agents.workspace 保持 /opt/ohdsh/... 不变。
+    sed -i -e "s|^\( *\)/opt/ohdsh/workspaces|\1${APP_DIR_ABS}/workspaces|g" manager.config.yaml
     log "created: manager.config.yaml (host workspace path pinned to ${APP_DIR_ABS}/workspaces)"
   fi
+  # 节点容器与宿主机部署用户同 uid（工作区写权限两边一致；root 服务器 = 0）
+  grep -q '^HOST_UID=' .env || echo "HOST_UID=$(id -u)" >> .env
+  grep -q '^HOST_GID=' .env || echo "HOST_GID=$(id -g)" >> .env
 fi
 
 # ---- optional nginx TLS ----

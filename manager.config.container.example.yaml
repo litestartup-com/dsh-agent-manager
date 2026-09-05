@@ -37,7 +37,9 @@ endpoints:
         network: ohdsh-hive
         port: 3081
         host_volumes:
-          /opt/ohdsh/workspaces/personal: /workspace
+          # 左=宿主机路径（install.sh 会替换为安装目录真实路径）；右=节点容器内路径，
+          # 必须与 agents.workspace 同串——manager 把 workspace 作为 cwd 发给节点
+          /opt/ohdsh/workspaces/personal: /opt/ohdsh/workspaces/personal
         named_volumes:
           ohdsh-personal: /data
 
