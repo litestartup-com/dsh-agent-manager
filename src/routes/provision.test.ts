@@ -223,7 +223,11 @@ test('蜂群2计划 P6 回归: 容器模式新建节点同步镜像进 DB（chat
     },
   }
 
-  const created = await app.inject({ method: 'POST', url: '/api/nodes', payload: { name: 'product' } })
+  const created = await app.inject({
+    method: 'POST',
+    url: '/api/nodes',
+    payload: { name: 'product', agent: { id: 'product', name: '产品', workspace: join(dir, 'ws-product-docker') } },
+  })
   assert.equal(created.statusCode, 201, JSON.stringify(created.body))
   const row = db.select().from(schema.agent).all().find((a) => a.id === 'product')
   assert.ok(row !== undefined, 'agent 镜像进 DB registry（chat 外键依赖它）')
