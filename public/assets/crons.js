@@ -1,4 +1,4 @@
-import { $, bannerHtml, esc } from './ui.js'
+import { $, bannerHtml, esc, apiFetch } from './ui.js'
 
 /** Whole cents: this is a budget ceiling, not a per-run figure. */
 const money = (micro) => `$${(micro / 1e6).toFixed(2)}`
@@ -124,7 +124,7 @@ const render = () => {
 // --- loading -----------------------------------------------------------------
 
 const load = async () => {
-  const [cronRes, statusRes] = await Promise.all([fetch('/api/crons'), fetch('/api/status')])
+  const [cronRes, statusRes] = await Promise.all([apiFetch('/api/crons'), apiFetch('/api/status')])
   if (!cronRes.ok) {
     $('banners').innerHTML = bannerHtml({ level: 'bad', title: '读取失败', body: `HTTP ${cronRes.status}` })
     return
@@ -215,12 +215,12 @@ $('cron-form').addEventListener('submit', async (event) => {
   try {
     const response =
       id === ''
-        ? await fetch('/api/crons', {
+        ? await apiFetch('/api/crons', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ agentId: $('f-agent').value, ...body }),
           })
-        : await fetch(`/api/crons/${encodeURIComponent(id)}`, {
+        : await apiFetch(`/api/crons/${encodeURIComponent(id)}`, {
             method: 'PATCH',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify(body),
@@ -257,7 +257,7 @@ $('list').addEventListener('click', async (event) => {
   }
 
   if (act === 'toggle') {
-    await fetch(`/api/crons/${encodeURIComponent(id)}`, {
+    await apiFetch(`/api/crons/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ enabled: !cron.enabled }),
@@ -269,7 +269,7 @@ $('list').addEventListener('click', async (event) => {
   if (act === 'delete') {
     // The prompt is the thing worth losing, so it is named in the question.
     if (!window.confirm(`删除「${cron.name}」？运行记录和花费会保留，只是不再自动运行。`)) return
-    await fetch(`/api/crons/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    await apiFetch(`/api/crons/${encodeURIComponent(id)}`, { method: 'DELETE' })
     await load()
     return
   }
@@ -279,7 +279,7 @@ $('list').addEventListener('click', async (event) => {
     button.disabled = true
     box.innerHTML = '<span class="muted small">正在跑，可能要几分钟…</span>'
     try {
-      const response = await fetch(`/api/crons/${encodeURIComponent(id)}/run`, { method: 'POST' })
+      const response = await apiFetch(`/api/crons/${encodeURIComponent(id)}/run`, { method: 'POST' })
       const result = await response.json().catch(() => ({}))
       if (!response.ok) {
         box.innerHTML = bannerHtml({ level: 'bad', title: '没跑起来', body: esc(String(result.error ?? response.status)) })

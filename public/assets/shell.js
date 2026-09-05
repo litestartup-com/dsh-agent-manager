@@ -3,7 +3,7 @@
 // Split out of the (since-deleted) home page script when the frame stopped
 // being the dashboard's private property; every page owns the shell equally.
 
-import { $, ago, banner, esc, icon, setHtml, when } from './ui.js'
+import { $, ago, banner, esc, icon, setHtml, when, apiFetch } from './ui.js'
 
 /** An agent is only as healthy as the endpoint it runs on. */
 const agentHealth = (agent, endpoints) => {
@@ -147,7 +147,7 @@ const openBrainChat = async (fresh) => {
     }
   }
   try {
-    const response = await fetch('/api/chats', {
+    const response = await apiFetch('/api/chats', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ agentId: 'brain' }),
@@ -457,7 +457,7 @@ const maybeVacatePrevious = () => {
   if (prevId === '' || prevId === openChatId) return
   const prev = chatById.get(prevId)
   if (prev === undefined || prev.turns > 0 || (prev.title ?? '') !== '') return
-  void fetch(`/api/chats/${encodeURIComponent(prevId)}/vacate`, { method: 'POST' })
+  void apiFetch(`/api/chats/${encodeURIComponent(prevId)}/vacate`, { method: 'POST' })
     .then(() => loadShell())
     .catch(() => {
       // 清理是顺手为之，失败不打扰。
@@ -470,14 +470,19 @@ export const loadShell = async () => {
     // tree, and two independent refreshes would let the rows disagree about
     // which agent is busy for a second at a time.
     const [me, status, threads, nodesData, notifications] = await Promise.all([
-      fetch('/api/me').then((r) => (r.ok ? r.json() : null)),
-      fetch('/api/status').then((r) => (r.ok ? r.json() : null)),
-      fetch('/api/chats').then((r) => (r.ok ? r.json() : null)),
-      fetch('/api/nodes').then((r) => (r.ok ? r.json() : null)).catch(() => null),
-      fetch('/api/notifications').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      apiFetch('/api/me').then((r) => (r.ok ? r.json() : null)),
+      apiFetch('/api/status').then((r) => (r.ok ? r.json() : null)),
+      apiFetch('/api/chats').then((r) => (r.ok ? r.json() : null)),
+      apiFetch('/api/nodes').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      apiFetch('/api/notifications').then((r) => (r.ok ? r.json() : null)).catch(() => null),
     ])
     if (me === null || status === null) {
       window.location.href = '/login'
+      return
+    }
+    // 蜂群2计划 P3：首登强制改密 —— 除改密页外一律弹过去
+    if (me.mustChangePassword === true && window.location.pathname !== '/password') {
+      window.location.href = '/password'
       return
     }
 
@@ -520,7 +525,7 @@ export const loadShell = async () => {
  */
 const loadSpendHint = async () => {
   try {
-    const response = await fetch('/api/usage')
+    const response = await apiFetch('/api/usage')
     if (!response.ok) return
     const t = (await response.json()).totals
     if (t.runs === 0) return
@@ -542,7 +547,7 @@ const loadSpendHint = async () => {
  */
 const loadCronHint = async () => {
   try {
-    const response = await fetch('/api/crons')
+    const response = await apiFetch('/api/crons')
     if (!response.ok) return
     const { crons } = await response.json()
     const hint = $('cron-hint')
@@ -737,7 +742,7 @@ window.addEventListener('shell:title', (event) => {
  */
 const loadArchiveHint = async () => {
   try {
-    const response = await fetch('/api/chats/archived')
+    const response = await apiFetch('/api/chats/archived')
     if (!response.ok) return
     const { chats } = await response.json()
     $('archive-hint').textContent = chats.length === 0 ? '' : String(chats.length)
@@ -798,7 +803,7 @@ const titleOf = (chatId) => {
 const rename = async (chatId) => {
   const title = window.prompt('会话名称', titleOf(chatId))
   if (title === null || title.trim() === '') return
-  const response = await fetch(`/api/chats/${encodeURIComponent(chatId)}`, {
+  const response = await apiFetch(`/api/chats/${encodeURIComponent(chatId)}`, {
     method: 'PATCH',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ title: title.trim() }),
@@ -816,7 +821,7 @@ const archive = async (chatId) => {
   if (!window.confirm(`归档会话「${titleOf(chatId)}」？\n\n对话记录和账单都会保留，可以在【已归档】里恢复。`)) {
     return
   }
-  const response = await fetch(`/api/chats/${encodeURIComponent(chatId)}/remove`, { method: 'POST' })
+  const response = await apiFetch(`/api/chats/${encodeURIComponent(chatId)}/remove`, { method: 'POST' })
   const body = await response.json().catch(() => ({}))
   if (!response.ok) {
     window.alert(body.detail ?? '归档失败')
@@ -960,7 +965,7 @@ const openPanel = async (agentId) => {
   setHtml('agent-panel-content', '<div class="skeleton w60"></div><div class="skeleton w40"></div>')
   panel.querySelector('[data-close]')?.focus()
   try {
-    const response = await fetch(`/api/agents/${encodeURIComponent(agentId)}`)
+    const response = await apiFetch(`/api/agents/${encodeURIComponent(agentId)}`)
     if (!response.ok) {
       setHtml('agent-panel-content', banner('bad', '读不到 agent 详情', `服务端返回 ${response.status}`))
       return
@@ -1045,7 +1050,7 @@ $('agent-nav').addEventListener('click', async (event) => {
   // followed by a navigation rather than a plain link.
   create.disabled = true
   try {
-    const response = await fetch('/api/chats', {
+    const response = await apiFetch('/api/chats', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ agentId: create.dataset.new }),
@@ -1062,7 +1067,7 @@ $('agent-nav').addEventListener('click', async (event) => {
 })
 
 $('logout').addEventListener('click', async () => {
-  await fetch('/api/logout', { method: 'POST' })
+  await apiFetch('/api/logout', { method: 'POST' })
   window.location.href = '/login'
 })
 
@@ -1117,7 +1122,7 @@ $('notify-bell')?.addEventListener('click', async (event) => {
     return
   }
   try {
-    const response = await fetch('/api/notifications')
+    const response = await apiFetch('/api/notifications')
     if (!response.ok) return
     const body = await response.json()
     const bell = $('notify-bell')
@@ -1135,14 +1140,14 @@ $('notify-bell')?.addEventListener('click', async (event) => {
 notifyPanel.addEventListener('click', async (event) => {
   const readAll = event.target.closest('[data-notify-read-all]')
   if (readAll !== null) {
-    await fetch('/api/notifications/read-all', { method: 'POST' })
+    await apiFetch('/api/notifications/read-all', { method: 'POST' })
     setNotifyBadge(0)
     closeNotifyPanel()
     return
   }
   const item = event.target.closest('.notify-item')
   if (item === null) return
-  await fetch(`/api/notifications/${encodeURIComponent(item.dataset.nid)}/read`, { method: 'POST' })
+  await apiFetch(`/api/notifications/${encodeURIComponent(item.dataset.nid)}/read`, { method: 'POST' })
   // 纯告知（无链接）点了不跳转，只标已读
   if (item.getAttribute('href') === '#') event.preventDefault()
 })
@@ -1223,7 +1228,7 @@ let healed = false
 const selfHealStaleFrame = async () => {
   if (healed || loadedShellVersion === null) return
   try {
-    const response = await fetch('/', { headers: { accept: 'text/html' }, cache: 'no-store' })
+    const response = await apiFetch('/', { headers: { accept: 'text/html' }, cache: 'no-store' })
     if (!response.ok) return
     const html = await response.text()
     const match = html.match(/shell\.js\?v=([a-f0-9]+)/)

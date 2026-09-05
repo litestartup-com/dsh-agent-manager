@@ -21,7 +21,7 @@
 //   turn_done   { runId, state, error }     (manager's)
 
 import { md } from './md.js'
-import { $, esc, icon, money } from './ui.js'
+import { $, esc, icon, money, apiFetch } from './ui.js'
 
 const el = {
   notices: $('chat-notices'),
@@ -870,7 +870,7 @@ const postAsk = async (card, path, body) => {
   for (const button of buttons) button.disabled = true
   error.textContent = ''
   try {
-    const response = await fetch(path, {
+    const response = await apiFetch(path, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
@@ -1183,7 +1183,7 @@ const cancelQueued = async (row, action) => {
   if (item === undefined) return
   const index = queuedItems.indexOf(item)
   try {
-    await fetch(`/api/chats/${encodeURIComponent(chatId)}/queued/${encodeURIComponent(id)}/cancel`, { method: 'POST' })
+    await apiFetch(`/api/chats/${encodeURIComponent(chatId)}/queued/${encodeURIComponent(id)}/cancel`, { method: 'POST' })
   } catch {
     // The row stays if the server cannot be reached; the user can try again.
     return
@@ -1337,7 +1337,7 @@ const renderDelegations = (list) => {
 
 const loadDelegations = async () => {
   try {
-    const response = await fetch(`/api/chats/${encodeURIComponent(chatId)}/delegations`)
+    const response = await apiFetch(`/api/chats/${encodeURIComponent(chatId)}/delegations`)
     if (!response.ok) return
     const body = await response.json()
     renderDelegations(Array.isArray(body.delegations) ? body.delegations : [])
@@ -1353,7 +1353,7 @@ const load = async () => {
   buffered = []
   let response
   try {
-    response = await fetch(`/api/chats/${encodeURIComponent(chatId)}`, { headers: { accept: 'application/json' } })
+    response = await apiFetch(`/api/chats/${encodeURIComponent(chatId)}`, { headers: { accept: 'application/json' } })
   } catch (error) {
     loading = false
     fatal(`连不上 manager：${error.message}`)
@@ -1563,7 +1563,7 @@ const send = async () => {
   render()
 
   try {
-    const response = await fetch(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
+    const response = await apiFetch(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ text }),
@@ -1625,7 +1625,7 @@ el.input.addEventListener('keydown', (event) => {
 
 const cancel = async () => {
   try {
-    const response = await fetch(`/api/chats/${encodeURIComponent(chatId)}/cancel`, { method: 'POST' })
+    const response = await apiFetch(`/api/chats/${encodeURIComponent(chatId)}/cancel`, { method: 'POST' })
     const body = await response.json().catch(() => ({}))
     toast(response.ok ? '已请求停止' : (body.detail ?? '停止失败'))
   } catch (error) {

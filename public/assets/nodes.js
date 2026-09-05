@@ -2,7 +2,7 @@
 //
 // 两个列表：全部节点（托管读监督器状态机，外管读探活）+ 全局最近任务
 // 流。15 秒轮询，与侧栏同一数据源 /api/nodes，不另起真相。
-import { $, ago, esc, setHtml } from './ui.js'
+import { $, ago, esc, setHtml, apiFetch } from './ui.js'
 
 const NODE_STATE_DOT = { live: 'ok', cold: 'muted', starting: 'warn', restarting: 'warn', offline: 'bad' }
 const NODE_STATE_LABEL = { live: 'live', cold: '未启动', starting: '启动中', restarting: '重启中', offline: 'offline' }
@@ -75,7 +75,7 @@ const runRow = (r) => {
 // 蜂群 P5.1：节点管控（起/停/重启）+ 日志抽屉。
 const nodeAction = async (id, action) => {
   try {
-    const response = await fetch(`/api/nodes/${encodeURIComponent(id)}/${action}`, { method: 'POST' })
+    const response = await apiFetch(`/api/nodes/${encodeURIComponent(id)}/${action}`, { method: 'POST' })
     const body = await response.json().catch(() => ({}))
     if (!response.ok) {
       alert(body.detail ?? `操作失败（${response.status}）`)
@@ -92,7 +92,7 @@ let logsTimer = null
 const refreshLogs = async () => {
   if (logsNode === null) return
   try {
-    const response = await fetch(`/api/nodes/${encodeURIComponent(logsNode)}/logs`)
+    const response = await apiFetch(`/api/nodes/${encodeURIComponent(logsNode)}/logs`)
     const body = await response.json().catch(() => ({}))
     $('node-logs-body').textContent = typeof body.logs === 'string' && body.logs !== '' ? body.logs : '（暂无输出）'
     $('node-logs-body').scrollTop = $('node-logs-body').scrollHeight
@@ -138,7 +138,7 @@ $('node-logs-close').addEventListener('click', closeLogs)
 const removeNode = async (id) => {
   if (!window.confirm(`解除节点「${id}」的托管？\n\n- 进程会停止\n- 配置里会删掉「节点 + 它绑定的工作区」两行\n- 磁盘上的目录全部保留`)) return
   try {
-    const response = await fetch(`/api/nodes/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    const response = await apiFetch(`/api/nodes/${encodeURIComponent(id)}`, { method: 'DELETE' })
     const body = await response.json().catch(() => ({}))
     if (!response.ok) {
       alert(body.detail ?? `删除失败（${response.status}）`)
@@ -205,7 +205,7 @@ $('node-form').addEventListener('submit', async (event) => {
   save.disabled = true
   save.textContent = '创建中（安装依赖，可能需要一两分钟）…'
   try {
-    const response = await fetch('/api/nodes', {
+    const response = await apiFetch('/api/nodes', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(payload),
@@ -233,7 +233,7 @@ $('node-form').addEventListener('submit', async (event) => {
 
 const load = async () => {
   try {
-    const [nodesResponse, runsResponse] = await Promise.all([fetch('/api/nodes'), fetch('/api/runs')])
+    const [nodesResponse, runsResponse] = await Promise.all([apiFetch('/api/nodes'), apiFetch('/api/runs')])
     if (!nodesResponse.ok) return
     const { nodes } = await nodesResponse.json()
     const live = nodes.filter((n) => n.state === 'live').length

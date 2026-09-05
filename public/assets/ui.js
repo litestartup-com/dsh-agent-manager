@@ -78,3 +78,23 @@ export const when = (ms) =>
   ms === null || ms === undefined
     ? '—'
     : new Date(ms).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+
+// ---- 蜂群2计划 P3：CSRF 双提交 ----
+
+/** 登录时服务端种下的 CSRF cookie（非 httpOnly，前端可读）。 */
+export const csrfToken = () => {
+  const match = document.cookie.match(/(?:^|;\s*)ohdsh_csrf=([^;]+)/)
+  return match === null ? '' : decodeURIComponent(match[1])
+}
+
+/**
+ * 全局 fetch 包装：非 GET 请求自动带上 X-CSRF-Token（与 cookie 一致）。
+ * 页面脚本一律走它，服务端对所有非 GET /api/* 校验（登录与主脑内部 API 豁免）。
+ */
+export const apiFetch = (url, options = {}) => {
+  const token = csrfToken()
+  const headers = { ...(options.headers ?? {}) }
+  const method = (options.method ?? 'GET').toUpperCase()
+  if (token !== '' && method !== 'GET' && method !== 'HEAD') headers['x-csrf-token'] = token
+  return fetch(url, { ...options, method, headers })
+}

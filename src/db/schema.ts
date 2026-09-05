@@ -16,6 +16,8 @@ export const user = sqliteTable('user', {
   username: text('username').notNull().unique(),
   passwordHash: text('password_hash').notNull(),
   createdAt: integer('created_at').notNull(),
+  /** 蜂群2计划 P3：1 = 首登必须改密（初始密码一次性；迁移 10 对既有账号也置 1）。 */
+  mustChangePassword: integer('must_change_password').notNull().default(0),
 })
 
 /** Server-side sessions so a login can actually be revoked (a JWT cannot). */
@@ -145,6 +147,15 @@ export const notification = sqliteTable('notification', {
   link: text('link'),
   at: integer('at').notNull(),
   read: integer('read').notNull().default(0),
+})
+
+/** 蜂群2计划 P3：审计流水（登录/改密/节点操作/备份），只追加不修改。 */
+export const auditLog = sqliteTable('audit_log', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  at: integer('at').notNull(),
+  actor: text('actor').notNull(),
+  kind: text('kind').notNull(),
+  detail: text('detail').notNull(),
 })
 
 /**

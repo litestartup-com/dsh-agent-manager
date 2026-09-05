@@ -22,6 +22,15 @@ export const makeRequireUser =
       await reply.code(401).send({ error: 'unauthorized' })
       return
     }
+    // 蜂群2计划 P3：强制改密期间，除「自身信息 / 登出 / 改密」外的 API 一律 403
+    if (user.mustChangePassword) {
+      const url = (request.url ?? '').split('?')[0] ?? ''
+      const allowed = url === '/api/me' || url === '/api/logout' || url === '/api/account/password'
+      if (!allowed) {
+        await reply.code(403).send({ error: 'password_change_required' })
+        return
+      }
+    }
     request.currentUser = user
   }
 

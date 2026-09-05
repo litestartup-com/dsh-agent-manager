@@ -4,6 +4,7 @@ import type { AppConfig } from '../config.js'
 import type { GatewayClient } from '../gateway/client.js'
 import type { UpstreamClient } from '../upstream/client.js'
 import type { NodeSupervisor } from '../nodes/supervisor.js'
+import type { AuditKind } from '../audit.js'
 import { probeEndpoint } from './status.js'
 
 /**
@@ -20,6 +21,8 @@ export const registerNodesRoutes = (
   clients: Map<string, GatewayClient>,
   upstreamClients: Map<string, UpstreamClient>,
   requireUser: preHandlerHookHandler,
+  /** 蜂群2计划 P3：节点操作审计回调（wiring 层注入，测试可不传）。 */
+  audit?: (actor: string, kind: AuditKind, detail: string) => void,
 ): void => {
   app.get('/api/nodes', { preHandler: requireUser }, async () => {
     const nodes = await Promise.all(
@@ -87,6 +90,7 @@ export const registerNodesRoutes = (
         .send({ error: 'not_managed', detail: `节点 ${request.params.id} 由外部管理，manager 无法启动它` })
     }
     target.supervisor.start(target.spawn)
+    audit?.(request.currentUser?.username ?? 'unknown', 'node_up', `节点 ${request.params.id} 启动`)
     return reply.send({ ok: true, state: target.supervisor.current.state })
   })
 
@@ -99,6 +103,7 @@ export const registerNodesRoutes = (
         .send({ error: 'not_managed', detail: `节点 ${request.params.id} 由外部管理，manager 无法停止它` })
     }
     target.supervisor.stop()
+    audit?.(request.currentUser?.username ?? 'unknown', 'node_down', `节点 ${request.params.id} 停止`)
     return reply.send({ ok: true, state: target.supervisor.current.state })
   })
 
@@ -111,6 +116,7 @@ export const registerNodesRoutes = (
         .send({ error: 'not_managed', detail: `节点 ${request.params.id} 由外部管理，manager 无法重启它` })
     }
     target.supervisor.restart(target.spawn)
+    audit?.(request.currentUser?.username ?? 'unknown', 'node_restart', `节点 ${request.params.id} 重启`)
     return reply.send({ ok: true, state: target.supervisor.current.state })
   })
 

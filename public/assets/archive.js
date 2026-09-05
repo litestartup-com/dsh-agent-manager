@@ -4,7 +4,7 @@
 // indistinguishable from a real one. This page is what makes 「归档」 an honest
 // word: everything hidden from the sidebar is listed here, with the way back.
 
-import { $, ago, banner, bannerHtml, esc, setHtml, when } from './ui.js'
+import { $, ago, banner, bannerHtml, esc, setHtml, when, apiFetch } from './ui.js'
 
 const notice = (level, title, body) => {
   $('archive-notice').innerHTML = banner(level, title, body)
@@ -36,7 +36,7 @@ const row = (chat) => {
 
 const load = async () => {
   try {
-    const response = await fetch('/api/chats/archived')
+    const response = await apiFetch('/api/chats/archived')
     if (!response.ok) {
       notice('bad', '读不到归档列表', `服务端返回 ${response.status}`)
       return
@@ -60,7 +60,7 @@ $('archive-list').addEventListener('click', async (event) => {
   const id = button.closest('.arch-row').dataset.id
   button.disabled = true
   try {
-    const response = await fetch(`/api/chats/${encodeURIComponent(id)}/restore`, { method: 'POST' })
+    const response = await apiFetch(`/api/chats/${encodeURIComponent(id)}/restore`, { method: 'POST' })
     const body = await response.json().catch(() => ({}))
     if (!response.ok) {
       button.disabled = false
