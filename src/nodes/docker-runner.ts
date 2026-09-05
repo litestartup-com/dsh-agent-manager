@@ -117,11 +117,21 @@ export class DockerRunner {
     }))
   }
 
-  /** 容器运行时事实（env 与镜像），用于对账时判断「在跑容器」是否还匹配当前配置。 */
-  async runtimeFacts(containerId: string): Promise<{ env: string[]; image: string } | null> {
+  /** 容器运行时事实（env 与镜像 ID），用于对账时判断「在跑容器」是否还匹配当前配置。 */
+  async runtimeFacts(containerId: string): Promise<{ env: string[]; imageId: string } | null> {
     try {
       const info = await this.docker.getContainer(containerId).inspect()
-      return { env: info.Config.Env ?? [], image: info.Config.Image }
+      return { env: info.Config.Env ?? [], imageId: info.Image }
+    } catch {
+      return null
+    }
+  }
+
+  /** 当前 tag 对应的镜像 ID（tag 被重建覆盖后 ID 会变——比 tag 名更硬的判断依据）。 */
+  async imageIdOf(image: string): Promise<string | null> {
+    try {
+      const info = await this.docker.getImage(image).inspect()
+      return info.Id
     } catch {
       return null
     }
@@ -129,11 +139,11 @@ export class DockerRunner {
 
   /**
    * 工蜂容器与当前期望是否一致（蜂群2计划 P6 实测根因：重装后旧容器带旧 GW_KEY
-   * 被对账认领，manager 手里的 key 与网关 settings 里的永久错配 → sandbox 401）。
-   * 比对两件事：GW_KEY 环境值、镜像。任一不符 → 必须重建而非认领。
+   * 被对账认领 → sandbox 401；以及 tag 同名重建后旧镜像容器不被发现 → 新入口
+   * 不生效）。比对：GW_KEY 环境值 + 镜像 ID（不是 tag 名）。
    */
-  static matchesSpec(facts: { env: string[]; image: string }, sandboxKey: string, image: string): boolean {
-    if (facts.image !== image) return false
+  static matchesSpec(facts: { env: string[]; imageId: string }, sandboxKey: string, expectedImageId: string | null): boolean {
+    if (expectedImageId !== null && facts.imageId !== expectedImageId) return false
     const gwEntry = facts.env.find((e) => e.startsWith('GW_KEY='))
     if (sandboxKey === '') return gwEntry === undefined || gwEntry === 'GW_KEY='
     return gwEntry === `GW_KEY=${sandboxKey}`
