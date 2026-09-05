@@ -98,6 +98,15 @@ if [ -z "$MANAGER_PASSWORD" ] && [ "$DRY_RUN" != "1" ]; then
   read -rsp "Manager initial password (empty = generate one): " MANAGER_PASSWORD; echo
 fi
 
+# ---- domain / TLS（留空 = 纯 HTTP 直连；给了域名会自动问 TLS 模式）----
+if [ -z "$APP_DOMAIN" ]; then
+  if [ "$DRY_RUN" = "1" ]; then
+    log "DRY: domain not provided — plain HTTP"
+  else
+    read -rp "Public domain (empty = plain HTTP, no TLS): " APP_DOMAIN || true
+  fi
+fi
+
 # ---- .env + config (never overwrite) ----
 cd "$APP_DIR"
 APP_DIR_ABS="$(pwd)"
@@ -121,26 +130,48 @@ fi
 if [ -n "$APP_DOMAIN" ]; then
   if [ -z "$TLS_MODE" ]; then
     if [ "$DRY_RUN" = "1" ]; then
-      TLS_MODE=none
+      TLS_MODE=origin-ca
     else
-      read -rp "TLS mode — origin-ca / letsencrypt / none (Cloudflare Flexible) [none]: " TLS_MODE || true
-      [ -n "$TLS_MODE" ] || TLS_MODE=none
+      read -rp "TLS mode — origin-ca (Cloudflare Origin CA, default) / letsencrypt / none (CF Flexible) [origin-ca]: " TLS_MODE || true
+      [ -n "$TLS_MODE" ] || TLS_MODE=origin-ca
     fi
   fi
   log "nginx: domain=$APP_DOMAIN tls=$TLS_MODE"
+
   if [ "$TLS_MODE" = "origin-ca" ]; then
-    # 证书放在 $APP_DIR_ABS/ssl/（compose 挂进容器 /etc/ssl/ohdsh，路径与旧配置一致）
-    if [ "$DRY_RUN" != "1" ]; then
+    # 证书获取顺序：$APP_DIR/ssl/ 已有 → SSL_CERT_SRC/SSL_KEY_SRC → 主机 /etc/ssl/ohdsh/*
+    # （旧安装的证书位置，自动复制）—— 都不存在才报错，报错给足两种放法。
+    if [ "$DRY_RUN" = "1" ]; then
+      log "DRY: ensure $APP_DIR_ABS/ssl/cert.pem + key.pem (auto-copy from /etc/ssl/ohdsh or SSL_CERT_SRC/SSL_KEY_SRC)"
+    else
       mkdir -p "$APP_DIR_ABS/ssl"
-      if [ ! -f "$APP_DIR_ABS/ssl/cert.pem" ] || [ ! -f "$APP_DIR_ABS/ssl/key.pem" ]; then
-        echo "[install] TLS_MODE=origin-ca 需要证书：把 cert.pem 与 key.pem 放进 $APP_DIR_ABS/ssl/ 后重跑本脚本（幂等）。"
+      CERT="$APP_DIR_ABS/ssl/cert.pem"
+      KEY="$APP_DIR_ABS/ssl/key.pem"
+      if [ ! -f "$CERT" ]; then
+        for SRC in "${SSL_CERT_SRC:-}" /etc/ssl/ohdsh/cert.pem; do
+          if [ -n "$SRC" ] && [ -f "$SRC" ]; then cp "$SRC" "$CERT" && log "cert copied from $SRC" && break; fi
+        done
+      fi
+      if [ ! -f "$KEY" ]; then
+        for SRC in "${SSL_KEY_SRC:-}" /etc/ssl/ohdsh/key.pem; do
+          if [ -n "$SRC" ] && [ -f "$SRC" ]; then cp "$SRC" "$KEY" && log "key copied from $SRC" && break; fi
+        done
+      fi
+      if [ ! -f "$CERT" ] || [ ! -f "$KEY" ]; then
+        echo "[install] TLS_MODE=origin-ca 需要证书，二选一："
+        echo "           1) 放进 $APP_DIR_ABS/ssl/ 的 cert.pem 与 key.pem；"
+        echo "           2) 设 SSL_CERT_SRC/SSL_KEY_SRC 指向现有证书路径后重跑（幂等）。"
         exit 1
       fi
+      chmod 600 "$KEY"
       # 反代上 HTTPS 后 manager 必须开 secure cookie
       grep -q '^NODE_ENV=' .env 2>/dev/null || echo 'NODE_ENV=production' >> .env
     fi
   fi
-  if [ "$DRY_RUN" != "1" ]; then
+
+  if [ "$DRY_RUN" = "1" ]; then
+    log "DRY: write deploy/nginx/default.conf"
+  else
     case "$TLS_MODE" in
       origin-ca) SRC=tls-origin-ca.conf ;;
       letsencrypt) SRC=tls-letsencrypt.conf ;;
