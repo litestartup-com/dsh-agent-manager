@@ -104,6 +104,9 @@ test('蜂群2计划 P2b: start 创建容器（名称/标签/命令/环境/挂载
   assert.equal(host.NetworkMode, 'hive')
   assert.deepEqual(host.Binds, ['/opt/ohdsh/workspaces/personal:/workspace', 'ohdsh-personal:/data'])
   assert.deepEqual(host.RestartPolicy, { Name: 'unless-stopped' })
+  // 网络别名：manager 探活 URL http://node-<id>:port 靠它解析（fetch failed 根因回归）
+  const net = created.NetworkingConfig as { EndpointsConfig: Record<string, { Aliases: string[] }> }
+  assert.deepEqual(net.EndpointsConfig['hive']?.Aliases, ['node-personal', 'personal'])
 })
 
 test('蜂群2计划 P2b: stop = stop + remove；logs 收集容器输出', async () => {
