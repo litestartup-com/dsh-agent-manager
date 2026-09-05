@@ -2,7 +2,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { stringify } from 'yaml'
 import { loadConfig } from './config.js'
 
@@ -202,4 +203,20 @@ test('蜂群2计划 P2: process spawn keeps resolving with runner=process and do
   }))
   assert.equal(cfg.endpoints['A']?.spawn?.runner, 'process')
   assert.equal(cfg.endpoints['A']?.spawn?.docker, null)
+})
+
+test('蜂群2计划 P5: 随仓发布的容器示例配置必须始终通过 schema（install.sh 依赖它）', () => {
+  const example = join(dirname(fileURLToPath(import.meta.url)), '..', 'manager.config.container.example.yaml')
+  withEnv({ GW_KEY_A: 'apigw-a', GW_KEY_B: 'apigw-b' }, () => {
+    const cfg = loadConfig(example)
+    const brain = cfg.endpoints['brain']
+    const personal = cfg.endpoints['personal']
+    assert.ok(brain !== undefined && personal !== undefined)
+    assert.equal(brain.spawn, null, '主脑由 compose 声明（脊柱，非托管）')
+    assert.equal(personal.spawn?.runner, 'docker')
+    assert.equal(personal.spawn?.docker?.image, 'ohdsh/dsh-node:0.1.1-rc.2')
+    assert.equal(personal.spawn?.docker?.network, 'hive')
+    assert.deepEqual(cfg.backupDockerVolumes, ['ohdsh-brain'], '脊柱主脑卷进备份声明')
+    assert.equal(cfg.agents['brain']?.sandboxMode, 'workspace-write')
+  })
 })
