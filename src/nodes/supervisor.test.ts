@@ -16,6 +16,8 @@ const spec = (over: Partial<ResolvedSpawnSpec> = {}): ResolvedSpawnSpec => ({
   logFile: null,
   env: {},
   restart: { maxAttempts: 3, baseDelayMs: 20, maxDelayMs: 100 },
+  runner: 'process',
+  docker: null,
   ...over,
 })
 

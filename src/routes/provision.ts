@@ -83,6 +83,8 @@ const spawnFor = (dshBin: string, name: string, nodeHomePath: string): ResolvedS
   logFile: null,
   env: { DSH_HOME: nodeHomePath },
   restart: { maxAttempts: 3, baseDelayMs: 1_000, maxDelayMs: 30_000 },
+  runner: 'process',
+  docker: null,
 })
 
 interface ProvisionDeps {
