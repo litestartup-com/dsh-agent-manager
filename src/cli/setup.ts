@@ -71,7 +71,8 @@ const profileFiles = (spec: ProfileSpec, gatewayDep: string): Record<string, str
   return {
     'package.json': JSON.stringify(pkg, null, 2) + '\n',
     // pnpm ≥10 默认拒绝运行依赖构建脚本（ERR_PNPM_IGNORED_BUILDS，实测容器构建撞过）——
-    // 显式批准 DSH 依赖链里必须构建的原生/后置脚本包。
+    // 显式批准 DSH 依赖链里必须构建的原生/后置脚本包。10 认顶层键、11 认 pnpm 嵌套键，
+    // 两个形态都给（9 及以下直接忽略，按旧语义照跑）。
     'pnpm-workspace.yaml': [
       'packages:',
       '  - .',
@@ -84,6 +85,13 @@ const profileFiles = (spec: ProfileSpec, gatewayDep: string): Record<string, str
       '  - koffi',
       '  - node-pty',
       '  - protobufjs',
+      'pnpm:',
+      '  onlyBuiltDependencies:',
+      "    - '@deepseek-ai/dsh-subprocess-local'",
+      "    - '@google/genai'",
+      '    - koffi',
+      '    - node-pty',
+      '    - protobufjs',
       '',
     ].join('\n'),
     'cordis.yml': '# dsh profile root — empty entry list; edit cordis.patch.yml\n[]\n',

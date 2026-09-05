@@ -26,7 +26,8 @@ writeFileSync(`${out}/package.json`, JSON.stringify(
   2,
 ) + '\n', 'utf8')
 // pnpm ≥10 默认拒绝运行依赖构建脚本（ERR_PNPM_IGNORED_BUILDS）——
-// 显式批准 DSH 依赖链里必须构建的原生/后置脚本包。
+// 显式批准 DSH 依赖链里必须构建的原生/后置脚本包。10 认顶层键、11 认 pnpm 嵌套键，
+// 两个形态都给（9 及以下直接忽略，按旧语义照跑）。
 writeFileSync(
   `${out}/pnpm-workspace.yaml`,
   [
@@ -41,6 +42,13 @@ writeFileSync(
     '  - koffi',
     '  - node-pty',
     '  - protobufjs',
+    'pnpm:',
+    '  onlyBuiltDependencies:',
+    "    - '@deepseek-ai/dsh-subprocess-local'",
+    "    - '@google/genai'",
+    '    - koffi',
+    '    - node-pty',
+    '    - protobufjs',
     '',
   ].join('\n'),
   'utf8',
