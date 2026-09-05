@@ -21,6 +21,7 @@ const nodeRow = (n) => {
   const err = typeof n.lastError === 'string' && n.lastError !== '' ? ` — ${n.lastError}` : ''
   const starting = n.state === 'starting'
   // 蜂群 P5.1：托管节点可起/停/重启；外管节点按钮不撒谎，直接说明。
+  const hasAgents = Array.isArray(n.agents) && n.agents.length > 0
   const controls = n.managed
     ? `<div class="node-actions">
         ${
@@ -30,6 +31,8 @@ const nodeRow = (n) => {
                <button type="button" class="btn-quiet btn-sm" data-node-restart="${esc(n.id)}" ${starting ? 'disabled' : ''}>重启</button>`
         }
         <button type="button" class="btn-quiet btn-sm" data-node-logs="${esc(n.id)}">日志</button>
+        <button type="button" class="btn-quiet btn-sm" data-node-rm="${esc(n.id)}"
+                ${hasAgents ? 'disabled title="节点上还有 agent，先迁移再删除"' : 'title="解除托管（磁盘目录保留）"'}>删除</button>
       </div>`
     : '<span class="muted small">外管 · 手动维护</span>'
   return `<div class="node-row" data-node-row="${esc(n.id)}">
@@ -121,10 +124,96 @@ $('nodes-list').addEventListener('click', (event) => {
   if (restart !== null) return void nodeAction(restart.dataset.nodeRestart, 'restart')
   const logs = event.target.closest('[data-node-logs]')
   if (logs !== null) return void openLogs(logs.dataset.nodeLogs)
+  const rm = event.target.closest('[data-node-rm]')
+  if (rm !== null) return void removeNode(rm.dataset.nodeRm)
 })
 
 $('node-logs-refresh').addEventListener('click', () => void refreshLogs())
 $('node-logs-close').addEventListener('click', closeLogs)
+
+// ---- 蜂群 P5.5：新增节点向导 + 删除 ----
+
+const removeNode = async (id) => {
+  if (!window.confirm(`解除节点「${id}」的托管？\n\n进程会停止、配置会移除；磁盘上的目录保留。`)) return
+  try {
+    const response = await fetch(`/api/nodes/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    const body = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      alert(body.detail ?? `删除失败（${response.status}）`)
+      return
+    }
+    await load()
+  } catch (error) {
+    alert(`删除失败：${error.message}`)
+  }
+}
+
+$('new-node').addEventListener('click', () => {
+  $('node-editor').hidden = false
+  $('f-node-name').focus()
+})
+
+$('f-cancel').addEventListener('click', () => {
+  $('node-editor').hidden = true
+})
+
+$('f-with-agent').addEventListener('change', (event) => {
+  $('f-agent-fields').hidden = !event.target.checked
+})
+
+$('node-form').addEventListener('submit', async (event) => {
+  event.preventDefault()
+  const name = $('f-node-name').value.trim()
+  const portRaw = $('f-node-port').value.trim()
+  const withAgent = $('f-with-agent').checked
+  if (name === '') return
+
+  const payload = {
+    name,
+    ...(portRaw === '' ? {} : { port: Number(portRaw) }),
+    ...(withAgent
+      ? {
+          agent: {
+            id: $('f-agent-id').value.trim() || name,
+            name: $('f-agent-name').value.trim() || name,
+            workspace: $('f-agent-workspace').value.trim(),
+            ...($('f-agent-preset').value.trim() === '' ? {} : { preset: $('f-agent-preset').value.trim() }),
+            sandboxMode: $('f-agent-sandbox').value,
+          },
+        }
+      : {}),
+  }
+  if (withAgent && payload.agent.workspace === '') {
+    $('f-warn').textContent = '勾选了创建 agent，工作区路径不能为空'
+    return
+  }
+
+  const save = $('f-save')
+  save.disabled = true
+  save.textContent = '创建中（安装依赖，可能需要一两分钟）…'
+  try {
+    const response = await fetch('/api/nodes', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    const body = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      $('f-warn').textContent = body.detail ?? `创建失败（${response.status}）`
+      return
+    }
+    $('f-warn').textContent = ''
+    $('node-editor').hidden = true
+    $('node-form').reset()
+    $('f-agent-fields').hidden = true
+    await load()
+  } catch (error) {
+    $('f-warn').textContent = `创建失败：${error.message}`
+  } finally {
+    save.disabled = false
+    save.textContent = '创建'
+  }
+})
 
 const load = async () => {
   try {

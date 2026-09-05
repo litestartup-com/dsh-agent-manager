@@ -1,8 +1,73 @@
 <div class="wrap">
   <div class="page-head">
     <h1 class="grow">节点</h1>
+    <button id="new-node" class="btn btn-sm" type="button">
+      <svg width="14" height="14"><use href="#i-add" /></svg>
+      新增节点
+    </button>
     <span id="nodes-refresh" class="muted small"></span>
   </div>
+
+  <!-- 蜂群 P5.5：新增节点向导（默认隐藏）。 -->
+  <section id="node-editor" class="section" hidden>
+    <div class="card">
+      <form id="node-form" novalidate>
+        <div class="field-row">
+          <label class="field">
+            <span class="field-label">节点名</span>
+            <input id="f-node-name" class="text-input mono" maxlength="32" placeholder="product" required />
+            <span class="field-hint muted small">小写字母/数字/下划线；会成为 ~/.dsh-ohdsh 下的目录名。</span>
+          </label>
+          <label class="field">
+            <span class="field-label">端口（留空自动分配）</span>
+            <input id="f-node-port" class="text-input mono" type="number" min="1024" max="65535" placeholder="自动" />
+          </label>
+        </div>
+        <label class="field field-check">
+          <span class="checkbox-line">
+            <input type="checkbox" id="f-with-agent" />
+            同时创建新 agent 并绑定到这个节点
+          </span>
+        </label>
+        <div id="f-agent-fields" hidden>
+          <div class="field-row">
+            <label class="field">
+              <span class="field-label">agent id</span>
+              <input id="f-agent-id" class="text-input mono" maxlength="32" placeholder="product" />
+            </label>
+            <label class="field">
+              <span class="field-label">agent 名称</span>
+              <input id="f-agent-name" class="text-input" maxlength="80" placeholder="产品" />
+            </label>
+          </div>
+          <label class="field">
+            <span class="field-label">工作区路径</span>
+            <input id="f-agent-workspace" class="text-input mono" placeholder="C:\workspaces\product" />
+            <span class="field-hint muted small">目录不存在会自动创建；工作区需要 git 才有运行审计留痕。</span>
+          </label>
+          <div class="field-row">
+            <label class="field">
+              <span class="field-label">preset</span>
+              <input id="f-agent-preset" class="text-input mono" placeholder="standard" />
+            </label>
+            <label class="field">
+              <span class="field-label">沙箱模式</span>
+              <select id="f-agent-sandbox" class="pill-select">
+                <option value="workspace-write">workspace-write（可写工作区）</option>
+                <option value="read-only">read-only（只读）</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div id="f-warn"></div>
+        <div class="form-actions">
+          <span class="muted small">创建会安装 gateway 依赖，可能需要一两分钟</span>
+          <button type="button" id="f-cancel" class="btn-quiet btn-sm">取消</button>
+          <button type="submit" id="f-save" class="btn btn-sm">创建</button>
+        </div>
+      </form>
+    </div>
+  </section>
 
   <div id="banners" role="alert"></div>
 

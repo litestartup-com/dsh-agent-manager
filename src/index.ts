@@ -25,6 +25,7 @@ import { registerInternalRoutes } from './routes/internal.js'
 import { registerNodesRoutes } from './routes/nodes.js'
 import { registerSkillsRoutes } from './routes/skills.js'
 import { registerNotificationRoutes } from './routes/notifications.js'
+import { registerProvisionRoutes } from './routes/provision.js'
 import { Scheduler } from './cron/schedule.js'
 import { assetCacheHeaders, buildPages } from './pages.js'
 
@@ -207,6 +208,7 @@ const main = async (): Promise<void> => {
   registerInternalRoutes(app, config, db, clients, upstreamClients, scheduler)
   // 蜂群 P3：节点（fleet）视图。
   registerNodesRoutes(app, config, nodeSupervisors, clients, upstreamClients, requireUser)
+  registerProvisionRoutes(app, config, requireUser, { db, supervisors: nodeSupervisors, clients, upstreamClients })
   registerSkillsRoutes(app, config, requireUser)
   registerNotificationRoutes(app, db, requireUser)
 

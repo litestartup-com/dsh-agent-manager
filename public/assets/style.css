@@ -2070,6 +2070,19 @@ button:disabled {
   padding: 14px;
 }
 
+/* 节点向导（P5.5）的勾选项行 */
+.field-check {
+  display: block;
+  margin: 4px 0 12px;
+}
+.checkbox-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+
 /* ---- docked, collapsed to a rail (>= 1024px) ---- */
 
 /* Scoped to the docked width on purpose. `nav-rail` is a remembered preference,
