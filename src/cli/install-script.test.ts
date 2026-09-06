@@ -38,3 +38,14 @@ test('install.ps1 falls back to codeload zip when git clone fails', () => {
   assert.match(text, /Expand-Archive/)
   assert.match(text, /git clone https:\/\/github\.com\/litestartup-com\/dsh-agent-manager\.git/)
 })
+
+/**
+ * 蜂群2计划 P6 回归：install.ps1 必须拦死 setup 的失败退出码。
+ *
+ * 实测现场：setup 自检 pnpm 红字 exit 2，旧脚本不查退出码，继续 build、
+ * 报「完成」并开浏览器——假成功（manager 无配置直接崩）。无半成功态。
+ */
+test('install.ps1 aborts when npm run setup exits non-zero', () => {
+  const text = new TextDecoder('utf-8', { fatal: true }).decode(readFileSync(join(root, 'install.ps1')))
+  assert.match(text, /\$LASTEXITCODE -ne 0\) \{ throw 'npm run setup 失败/)
+})

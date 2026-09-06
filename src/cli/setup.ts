@@ -201,17 +201,24 @@ export const resolveGatewayKey = (dshHome: string, settingsPath: string | null):
 
 /** 蜂群2计划 P1：探测关键工具版本（node/pnpm/git/dsh）；dshBin 为 null = DSH 未找到。 */
 export const probeToolVersions = (dshBin: string | null): Record<'node' | 'pnpm' | 'git' | 'dsh', string | null> => {
-  const run = (cmd: string, args: string[]): string | null => {
+  const run = (cmd: string, args: string[], shell = false): string | null => {
     try {
-      const out = execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+      const out = execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], shell })
       return out.trim().split(/\r?\n/)[0] ?? null
     } catch {
       return null
     }
   }
+  // Windows 上 pnpm 是 .CMD 垫片：node ≥20 无 shell 直接 spawn 会 EINVAL（CVE-2024-27980
+  // 加固，仓库 L543 同款坑）；无扩展名探测则先 ENOENT。shell: true 交给 cmd 解析；
+  // 只剩 .ps1 垫片的机器（nvm4w 布局）再走 powershell 兜底。
+  const probePnpm = (): string | null =>
+    process.platform === 'win32'
+      ? run('pnpm', ['--version'], true) ?? run('powershell', ['-NoProfile', '-Command', 'pnpm --version'])
+      : run('pnpm', ['--version'])
   return {
     node: run('node', ['--version']),
-    pnpm: run('pnpm', ['--version']),
+    pnpm: probePnpm(),
     git: run('git', ['--version']),
     dsh: dshBin === null ? null : run('node', [dshBin, '--version']),
   }

@@ -176,6 +176,12 @@ test('蜂群2计划 P1: probeToolVersions reports node and marks missing dsh as 
   assert.equal(tools.dsh, null)
 })
 
+test('蜂群2计划 P6 回归: Windows 上 pnpm 探测必须穿透 .CMD 垫片（node≥20 无 shell 直接 EINVAL/ENOENT）', { skip: process.platform !== 'win32' }, () => {
+  const tools = probeToolVersions(null)
+  assert.ok(tools.pnpm !== null, 'pnpm 已装且探针必须找得到——发布实测：旧探针报 EINVAL 导致 setup 自检假红')
+  assert.match(tools.pnpm, /^\d+\.\d+\.\d+$/)
+})
+
 test('adoptOldWorkspaces keeps user-customised workspaces unless explicitly overridden', () => {  const options = { personalWorkspace: './workspaces/personal', brainWorkspace: './workspaces/brain' }
   const old = { agents: { personal: { workspace: 'C:/Workplace/gitee/note-kaka' }, brain: { workspace: 'D:/brain' } } }
 

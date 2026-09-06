@@ -96,9 +96,11 @@ if (Test-Path (Join-Path $WorkspaceDir 'package.json')) {
   $cloned = $false
   if ($DryRun) { $cloned = $true }
   else {
-    # PS5.1 坑（实测）：`2>` 会把 native stderr 转成 ErrorRecord，撞上本脚本
-    # 顶部的 ErrorActionPreference=Stop 直接终止；合并进成功流（2>&1）最稳。
-    git clone https://github.com/litestartup-com/dsh-agent-manager.git $WorkspaceDir 2>&1 | Out-Null
+    # PS5.1 坑（两轮实测）：本行绝不能加重定向——2> 或 2>&1 会让 PS 拦截
+    # native stderr 生成 NativeCommandError，撞上顶部 ErrorActionPreference=Stop
+    # 直接终止脚本；不重定向时 stderr 直通控制台（有噪音但安全），失败后
+    # 由下方 package.json 判据接管回退。
+    git clone https://github.com/litestartup-com/dsh-agent-manager.git $WorkspaceDir
     if (Test-Path (Join-Path $WorkspaceDir 'package.json')) { $cloned = $true }
     else {
       Step 'GitHub 直连失败，回退 codeload zip（此路径装完可用；npm run update 需 git 仓，不可用）…'
@@ -134,7 +136,14 @@ try {
     Step 'manager.config.yaml 已存在——跳过 setup（改配置请直接编辑；重装 npm run setup -- --force）。'
   } else {
     Step 'npm install + npm run setup（自检表：node/pnpm/git/dsh 红绿分明）…'
-    if (-not $DryRun) { npm install; if ($LASTEXITCODE -ne 0) { throw 'npm install 失败' }; npm run setup }
+    if (-not $DryRun) {
+      npm install
+      if ($LASTEXITCODE -ne 0) { throw 'npm install 失败' }
+      npm run setup
+      # 发布实测：setup 自检红字 exit 2，但旧脚本不查退出码继续报「完成」——
+      # 假成功必须拦死（无半成功态）。
+      if ($LASTEXITCODE -ne 0) { throw 'npm run setup 失败（看上方自检表红字，补齐后重跑，幂等）' }
+    }
   }
   Step 'npm run build…'
   if (-not $DryRun) { npm run build }
