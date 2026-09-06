@@ -8,6 +8,7 @@
 
 - **两条一键命令**：`install.sh`（Ubuntu 容器：nginx + manager + 主脑脊柱）/ `install.ps1`（Windows 裸机），幂等跳过已装组件，唯一人肉输入 = API key
 - `install.ps1` 带 UTF-8 BOM（发布前实测：无 BOM 时 Windows PowerShell 5.1 按 GBK 读中文 → ParserError，官方推荐路径直接失败）
+- `install.ps1` 克隆失败自动回退 codeload zip（发布前实测：国内网络 github.com git/raw 均超时，codeload 可达 200）
 - **容器化**：dsh-node / manager 双镜像（构建期冻结依赖，运行时零安装）+ compose 脊柱 + manager 经 docker.sock 管理工蜂容器（标签对账，向导/起停/日志语义不变）
 - nginx 三模式 TLS 模板 + `gen-env.sh` 幂等密钥生成 + 发布包生成器 + 发布清单（`docs/RELEASE.md`）
 

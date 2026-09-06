@@ -24,3 +24,17 @@ test('install.ps1 starts with a UTF-8 BOM so Windows PowerShell 5.1 can parse it
   // BOM 之后必须是合法 UTF-8，杜绝半吊子编码
   assert.doesNotThrow(() => new TextDecoder('utf-8', { fatal: true }).decode(bytes))
 })
+
+/**
+ * 蜂群2计划 P6 回归：install.ps1 必须有 codeload zip 回退。
+ *
+ * 实测现场：中国网络 github.com git HTTPS 直接超时/重置（raw 也超时），
+ * 只有 codeload.github.com 可达（实测 200）。没有回退 = Windows 裸机在
+ * 国内装不上。回退路径装完可用；npm run update 需 git 仓，脚本里如实告知。
+ */
+test('install.ps1 falls back to codeload zip when git clone fails', () => {
+  const text = new TextDecoder('utf-8', { fatal: true }).decode(readFileSync(join(root, 'install.ps1')))
+  assert.match(text, /codeload\.github\.com\/litestartup-com\/dsh-agent-manager\/zip\/refs\/heads\/master/)
+  assert.match(text, /Expand-Archive/)
+  assert.match(text, /git clone https:\/\/github\.com\/litestartup-com\/dsh-agent-manager\.git/)
+})

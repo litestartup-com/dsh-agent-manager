@@ -88,12 +88,35 @@ if (-not [string]::IsNullOrEmpty($ApiKey)) {
   }
 }
 
-# ---- 克隆 ----
+# ---- 克隆（GitHub 直连失败 → 回退 codeload zip：中国网络 github.com 常被重置/超时）----
 if (Test-Path (Join-Path $WorkspaceDir 'package.json')) {
   Step "仓库已存在（$WorkspaceDir），跳过克隆。"
 } else {
   Step '克隆 dsh-agent-manager…'
-  if (-not $DryRun) { git clone https://github.com/litestartup-com/dsh-agent-manager.git $WorkspaceDir }
+  $cloned = $false
+  if ($DryRun) { $cloned = $true }
+  else {
+    git clone https://github.com/litestartup-com/dsh-agent-manager.git $WorkspaceDir 2>$null
+    if (Test-Path (Join-Path $WorkspaceDir 'package.json')) { $cloned = $true }
+    else {
+      Step 'GitHub 直连失败，回退 codeload zip（此路径装完可用；npm run update 需 git 仓，不可用）…'
+      $zip = Join-Path $env:TEMP 'ohdsh-master.zip'
+      [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+      Invoke-WebRequest -UseBasicParsing -Uri 'https://codeload.github.com/litestartup-com/dsh-agent-manager/zip/refs/heads/master' -OutFile $zip
+      $extract = Join-Path $env:TEMP ('ohdsh-extract-' + [guid]::NewGuid().ToString('N'))
+      Expand-Archive -Path $zip -DestinationPath $extract
+      $inner = Get-ChildItem $extract -Directory | Select-Object -First 1
+      New-Item -ItemType Directory -Force -Path $WorkspaceDir | Out-Null
+      Copy-Item -Path (Join-Path $inner.FullName '*') -Destination $WorkspaceDir -Recurse -Force
+      Remove-Item $extract -Recurse -Force
+      Remove-Item $zip -Force
+      $cloned = Test-Path (Join-Path $WorkspaceDir 'package.json')
+    }
+  }
+  if (-not $cloned) {
+    Step '克隆与 zip 回退均失败——检查网络后重跑本脚本（幂等，已装项自动跳过）。'
+    exit 1
+  }
 }
 
 # ---- install + setup + build + 启动 ----
