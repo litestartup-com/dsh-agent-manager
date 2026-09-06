@@ -1,4 +1,4 @@
-# Oh! dsh — Windows 一键安装（裸机形态：manager + 主脑 + 个人，本机直跑）。
+﻿# Oh! dsh — Windows 一键安装（裸机形态：manager + 主脑 + 个人，本机直跑）。
 #
 # 推荐（先下载查看再执行）：
 #   irm https://get.ohdsh.com/install.ps1 -OutFile install.ps1
