@@ -52,8 +52,25 @@ const opts = { message: 'test write' }
 
 test('rejects paths that escape the workspace', () => {
   const root = makeRepo()
-  for (const bad of ['../escape.md', '../../etc/hosts', 'a/../../escape.md', 'C:/Windows/System32/x.md', '/etc/hosts']) {
+  // 平台无关的逃逸：`../` 与 POSIX 绝对路径在 win32 / posix 下都判为绝对。
+  // 注意 `resolveInside` 用平台原生 isAbsolute：`/etc/hosts` 在 win32 下
+  // 同样 isAbsolute（驱动器根路径），两边都会拒绝。
+  const alwaysRejected = ['../escape.md', '../../etc/hosts', 'a/../../escape.md', '/etc/hosts']
+  // Windows 驱动器绝对路径只在 win32 上是绝对路径；在 posix 上它是工作区内
+  // 合法相对路径（写成 <root>/C:/...），没有逃逸风险，应当放行——CI 在 Linux
+  // 上跑，这里必须按平台断言，否则整条套件 Linux-only 红（蜂群2计划 P6 回归）。
+  const winOnlyRejected = ['C:/Windows/System32/x.md', 'D:\\outside\\x.md']
+
+  for (const bad of alwaysRejected) {
     assert.throws(() => resolveInside(root, bad), WriteRejected, `should reject ${bad}`)
+  }
+  for (const bad of winOnlyRejected) {
+    if (process.platform === 'win32') {
+      assert.throws(() => resolveInside(root, bad), WriteRejected, `should reject ${bad}`)
+    } else {
+      const resolved = resolveInside(root, bad)
+      assert.ok(resolved.startsWith(root), `${bad} must stay inside the workspace on posix`)
+    }
   }
 })
 
