@@ -96,21 +96,29 @@ if (Test-Path (Join-Path $WorkspaceDir 'package.json')) {
   $cloned = $false
   if ($DryRun) { $cloned = $true }
   else {
-    git clone https://github.com/litestartup-com/dsh-agent-manager.git $WorkspaceDir 2>$null
+    # PS5.1 坑（实测）：`2>` 会把 native stderr 转成 ErrorRecord，撞上本脚本
+    # 顶部的 ErrorActionPreference=Stop 直接终止；合并进成功流（2>&1）最稳。
+    git clone https://github.com/litestartup-com/dsh-agent-manager.git $WorkspaceDir 2>&1 | Out-Null
     if (Test-Path (Join-Path $WorkspaceDir 'package.json')) { $cloned = $true }
     else {
       Step 'GitHub 直连失败，回退 codeload zip（此路径装完可用；npm run update 需 git 仓，不可用）…'
-      $zip = Join-Path $env:TEMP 'ohdsh-master.zip'
-      [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-      Invoke-WebRequest -UseBasicParsing -Uri 'https://codeload.github.com/litestartup-com/dsh-agent-manager/zip/refs/heads/master' -OutFile $zip
-      $extract = Join-Path $env:TEMP ('ohdsh-extract-' + [guid]::NewGuid().ToString('N'))
-      Expand-Archive -Path $zip -DestinationPath $extract
-      $inner = Get-ChildItem $extract -Directory | Select-Object -First 1
-      New-Item -ItemType Directory -Force -Path $WorkspaceDir | Out-Null
-      Copy-Item -Path (Join-Path $inner.FullName '*') -Destination $WorkspaceDir -Recurse -Force
-      Remove-Item $extract -Recurse -Force
-      Remove-Item $zip -Force
-      $cloned = Test-Path (Join-Path $WorkspaceDir 'package.json')
+      try {
+        $zip = Join-Path $env:TEMP 'ohdsh-master.zip'
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest -UseBasicParsing -Uri 'https://codeload.github.com/litestartup-com/dsh-agent-manager/zip/refs/heads/master' -OutFile $zip
+        $extract = Join-Path $env:TEMP ('ohdsh-extract-' + [guid]::NewGuid().ToString('N'))
+        Expand-Archive -Path $zip -DestinationPath $extract
+        $inner = Get-ChildItem $extract -Directory | Select-Object -First 1
+        # 失败克隆可能留下残缺 .git——整体清掉重建，杜绝半坏仓库
+        if (Test-Path $WorkspaceDir) { Remove-Item $WorkspaceDir -Recurse -Force }
+        New-Item -ItemType Directory -Force -Path $WorkspaceDir | Out-Null
+        Copy-Item -Path (Join-Path $inner.FullName '*') -Destination $WorkspaceDir -Recurse -Force
+        Remove-Item $extract -Recurse -Force
+        Remove-Item $zip -Force
+        $cloned = Test-Path (Join-Path $WorkspaceDir 'package.json')
+      } catch {
+        $cloned = $false
+      }
     }
   }
   if (-not $cloned) {
