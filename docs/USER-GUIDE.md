@@ -35,7 +35,7 @@ bash install.sh                    # 交互式：API key → 密码 → 域名 �
 irm https://get.ohdsh.com/install.ps1 -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-- 脚本会**跳过已装好的组件**（Docker / Node / git / pnpm / DSH），重跑不覆盖任何配置与数据；
+- 脚本会**跳过已装好的组件**（Docker / Node / git / DSH），重跑不覆盖任何配置与数据；
 - 唯一需要输入的是 **DeepSeek API key**（设 `DEEPSEEK_API_KEY=...` 环境变量可全自动）；
 - 想看脚本要做什么：`DRY_RUN=1` 预演，`--yes` 跳过确认。
 

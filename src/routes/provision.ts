@@ -14,7 +14,7 @@ import { buildUpstreamClients } from '../upstream/client.js'
 import type { NodeSupervisor } from '../nodes/supervisor.js'
 import type { DockerRunner } from '../nodes/docker-runner.js'
 import { makeSupervisor } from '../nodes/registry.js'
-import { detectDshBin, ensureNodeCredentials, ensureNodeProfiles, mergeEnv, resolveGatewayKey } from '../cli/setup.js'
+import { detectDshBin, ensureNodeCredentials, ensureNodeProfiles, mergeEnv, profileInstallCommand, resolveGatewayKey } from '../cli/setup.js'
 import { ensureWorkspaceGit } from '../workspace/init.js'
 import { syncFleetDocs } from '../workspace/fleet-doc.js'
 import { recordAudit } from '../audit.js'
@@ -320,9 +320,12 @@ export const registerProvisionRoutes = (
       mergeEnv(ENV_PATH, { [keyRef]: key }, [keyRef])
 
       // 2. 依赖安装（同步；pnpm store 命中时通常几十秒）
+      // 蜂群2计划 P6：与 setup 同款——固定 npx pnpm@9（全局 pnpm ≥10 无视构建
+      // 白名单，实测 ERR_PNPM_IGNORED_BUILDS 导致原生依赖不构建）。
       if (body.install !== false) {
         const dir = join(nodeHomePath, 'profiles', body.name)
-        execFileSync(process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm', ['install', '--prefer-offline'], {
+        const { cmd, args } = profileInstallCommand(process.platform)
+        execFileSync(cmd, [...args, '--prefer-offline'], {
           cwd: dir,
           shell: true,
           stdio: ['ignore', 'inherit', 'inherit'],

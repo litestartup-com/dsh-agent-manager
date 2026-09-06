@@ -53,7 +53,8 @@ DeepSeek Harness 提供 agent 运行时（会话 / 工具 / 沙箱 / 文件系�
 
 ## 从源码运行（开发者）
 
-前置：Node ≥ 20（推荐 22）、pnpm、git、DeepSeek Harness（版本见 `COMPAT_DSH_VERSION`）。
+前置：Node ≥ 20（推荐 22）、git、DeepSeek Harness（版本见 `COMPAT_DSH_VERSION`）；
+节点依赖由 setup 用 `npx pnpm@9` 临时拉取安装，无需全局 pnpm。
 
 ```powershell
 git clone <repo-url>

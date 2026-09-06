@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import net from 'node:net'
@@ -18,7 +18,8 @@ import { COMPAT_DSH_VERSION, DSH_INSTALL_COMMAND, GATEWAY_REF, dshCompatible } f
  *   4. 生成 .env（SESSION_SECRET / GW_KEY_A / BRAIN_TOKEN，幂等保留旧值）
  *   5. 生成 manager.config.yaml（两个托管节点 + 两个 agent + 沙箱/pre-set 全接）
  *
- * 前置：本机已装 DSH（$DSH_HOME 存在且有 credentials）、node / pnpm / git 在 PATH。
+ * 前置：本机已装 DSH（$DSH_HOME 存在且有 credentials）、node / git 在 PATH
+ * （节点依赖由 npx 临时拉取 pnpm@9，不要求全局 pnpm）。
  */
 
 interface SetupOptions {
@@ -198,6 +199,18 @@ export const resolveGatewayKey = (dshHome: string, settingsPath: string | null):
   writeFileSync(path, stringifyYaml(parsed), 'utf8')
   return minted
 }
+
+/**
+ * 蜂群2计划 P6：节点 profile 依赖固定用 pnpm@9（npx 临时拉取，不碰用户全局）。
+ * pnpm ≥10 的构建脚本白名单键语义反复变（实测 11.21 仍触发
+ * ERR_PNPM_IGNORED_BUILDS，koffi/node-pty 等原生依赖不构建 → 节点运行期
+ * 悄悄缺功能），容器镜像早已钉死 pnpm@9（DSH-FACTS），裸机同款。
+ * Windows：npx 是 .cmd 垫片，必须 shell: true（CVE-2024-27980，EINVAL 实测）。
+ */
+export const profileInstallCommand = (platform: NodeJS.Platform): { cmd: string; args: string[] } =>
+  platform === 'win32'
+    ? { cmd: 'npx.cmd', args: ['-y', 'pnpm@9', 'install'] }
+    : { cmd: 'npx', args: ['-y', 'pnpm@9', 'install'] }
 
 /** 蜂群2计划 P1：探测关键工具版本（node/pnpm/git/dsh）；dshBin 为 null = DSH 未找到。 */
 export const probeToolVersions = (dshBin: string | null): Record<'node' | 'pnpm' | 'git' | 'dsh', string | null> => {
@@ -469,17 +482,20 @@ const main = async (): Promise<void> => {
   }
   const tools = probeToolVersions(dshBin)
   for (const [name, version] of Object.entries(tools)) {
-    const ok = name === 'dsh' ? dshCompatible(version) : version !== null
+    // pnpm 行只报告不设门槛：节点依赖固定由 npx 临时拉取 pnpm@9（全局 pnpm 版本无关）。
+    const ok = name === 'pnpm' ? true : name === 'dsh' ? dshCompatible(version) : version !== null
     const detail =
       version === null
         ? name === 'dsh'
           ? `未找到 —— ${DSH_INSTALL_COMMAND}`
-          : '未安装'
+          : name === 'pnpm'
+            ? '未安装（依赖安装由 npx 临时拉取 pnpm@9）'
+            : '未安装'
         : `${version}${name === 'dsh' && !dshCompatible(version) ? `（验证版本 ${COMPAT_DSH_VERSION}）` : ''}`
     console.log(`   ${ok ? '✅' : '❌'} ${name.padEnd(6)} ${detail}`)
   }
-  if (tools.pnpm === null || tools.git === null) {
-    console.error('   ❌ 缺少 pnpm 或 git：pnpm → npm install -g pnpm；git → 安装后重试。')
+  if (tools.git === null) {
+    console.error('   ❌ 缺少 git：git → 安装后重试。')
     process.exit(2)
   }
   if (!dshCompatible(tools.dsh)) {
@@ -547,24 +563,28 @@ const main = async (): Promise<void> => {
   }
   const dshBinKnown = dshBin // 自检阶段已解析，直接复用
   console.log(`   DSH bin: ${dshBinKnown}`)
-  // Windows 上 pnpm 是 .cmd 垫片，必须 shell: true 让 cmd.exe 来执行：
-  // Node ≥ 20.12（CVE-2024-27980）禁止不经 shell 直接 spawn .cmd/.bat，
-  // 旧写法 execFileSync('pnpm.cmd', ...) 会 EINVAL。
-  const pnpmCmd = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
   if (options.installProfiles) {
+    let failures = 0
     for (const [name, home] of nodeHomes) {
       const dir = join(home, 'profiles', name)
       try {
-        execFileSync(pnpmCmd, ['install'], { cwd: dir, shell: true, stdio: ['ignore', 'inherit', 'inherit'] })
+        // 换 pnpm 大版本（如 11→9）时 pnpm 会弹「node_modules 将重建」交互确认，
+        // 无人值守直接挂死——先删干净，全新安装无提示。
+        rmSync(join(dir, 'node_modules'), { recursive: true, force: true })
+        const { cmd, args } = profileInstallCommand(process.platform)
+        execFileSync(cmd, args, { cwd: dir, shell: true, stdio: ['ignore', 'inherit', 'inherit'] })
       } catch (error) {
+        failures += 1
         const message = ((error as Error).message ?? String(error)).split('\n')[0] ?? ''
-        console.error(`   pnpm install 失败于 ${dir}: ${message}`)
-        if (message.includes('ENOENT')) {
-          console.error('   找不到 pnpm 命令——请确认 pnpm 在 PATH（或稍后手动进入该目录执行 pnpm install）。')
-        } else {
-          console.error('   可稍后手动在该目录执行 pnpm install；GitHub 不通时改用 --gateway-local 指向本地 dsh-api-gateway 目录重跑 setup --force。')
-        }
+        console.error(`   pnpm@9 install 失败于 ${dir}: ${message}`)
+        console.error('   GitHub 不通时改用 --gateway-local 指向本地 dsh-api-gateway 目录重跑 setup --force。')
       }
+    }
+    // 蜂群2计划 P6 回归：节点依赖没装成 = 半成功态——红字退出（发布实测旧代码软失败
+    // 继续，节点能起但原生工具悄悄缺）。修复后重跑 setup --force（幂等）。
+    if (failures > 0) {
+      console.error('   ❌ 节点依赖安装失败——修复后重跑 setup --force（幂等）。')
+      process.exit(2)
     }
   }
 

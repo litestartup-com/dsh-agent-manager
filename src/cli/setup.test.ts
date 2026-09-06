@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
-import { buildManagerConfig, adoptOldWorkspaces, checkPortFree, ensureNodeCredentials, ensureNodeProfiles, mergeEnv, parseArgs, probeToolVersions, resolveGatewayKey } from './setup.js'
+import { buildManagerConfig, adoptOldWorkspaces, checkPortFree, ensureNodeCredentials, ensureNodeProfiles, mergeEnv, parseArgs, probeToolVersions, profileInstallCommand, resolveGatewayKey } from './setup.js'
 import { COMPAT_DSH_VERSION, GATEWAY_REF, dshCompatible } from '../dsh-version.js'
 
 test('buildManagerConfig wires two managed nodes, agents, sandbox and presets', () => {
@@ -180,6 +180,15 @@ test('蜂群2计划 P6 回归: Windows 上 pnpm 探测必须穿透 .CMD 垫片�
   const tools = probeToolVersions(null)
   assert.ok(tools.pnpm !== null, 'pnpm 已装且探针必须找得到——发布实测：旧探针报 EINVAL 导致 setup 自检假红')
   assert.match(tools.pnpm, /^\d+\.\d+\.\d+$/)
+})
+
+test('蜂群2计划 P6 回归: 节点依赖固定 npx pnpm@9——全局 pnpm ≥10 无视构建白名单（实测 ERR_PNPM_IGNORED_BUILDS）', () => {
+  const win = profileInstallCommand('win32')
+  assert.equal(win.cmd, 'npx.cmd')
+  assert.deepEqual(win.args, ['-y', 'pnpm@9', 'install'])
+  const posix = profileInstallCommand('linux')
+  assert.equal(posix.cmd, 'npx')
+  assert.deepEqual(posix.args, ['-y', 'pnpm@9', 'install'])
 })
 
 test('adoptOldWorkspaces keeps user-customised workspaces unless explicitly overridden', () => {  const options = { personalWorkspace: './workspaces/personal', brainWorkspace: './workspaces/brain' }

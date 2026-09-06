@@ -49,3 +49,12 @@ test('install.ps1 aborts when npm run setup exits non-zero', () => {
   const text = new TextDecoder('utf-8', { fatal: true }).decode(readFileSync(join(root, 'install.ps1')))
   assert.match(text, /\$LASTEXITCODE -ne 0\) \{ throw 'npm run setup 失败/)
 })
+
+/**
+ * 蜂群2计划 P6 回归：install.ps1 不得安装全局 pnpm——节点依赖由 setup
+ * 用 npx pnpm@9 临时拉取（全局 pnpm ≥10 实测无视构建白名单）。
+ */
+test('install.ps1 does not install a global pnpm', () => {
+  const text = new TextDecoder('utf-8', { fatal: true }).decode(readFileSync(join(root, 'install.ps1')))
+  assert.doesNotMatch(text, /npm install -g pnpm'/)
+})

@@ -31,7 +31,7 @@ function Confirm-Step([string]$Msg) {
 function Have([string]$Cmd) { return $null -ne (Get-Command $Cmd -ErrorAction SilentlyContinue) }
 
 # ---- 计划先行 ----
-Plan '探测并补齐 Node/git/pnpm/DSH（已装且版本对=跳过）→ 问 API key → 克隆 → npm install → setup（自检表）→ build → 启动'
+Plan '探测并补齐 Node/git/DSH（已装且版本对=跳过；节点依赖由 npx 临时拉取 pnpm@9）→ 问 API key → 克隆 → npm install → setup（自检表）→ build → 启动'
 if (-not $DryRun) { Confirm-Step '按计划继续？' }
 
 # ---- Node ----
@@ -56,12 +56,6 @@ if (-not (Have 'git')) {
   Step '安装 git（winget）…'
   if (-not $DryRun) { winget install -e --id Git.Git --accept-source-agreements --accept-package-agreements }
 } else { Step 'git 已装，跳过。' }
-
-# ---- pnpm ----
-if (-not (Have 'pnpm')) {
-  Step '安装 pnpm…'
-  if (-not $DryRun) { npm install -g pnpm }
-} else { Step 'pnpm 已装，跳过。' }
 
 # ---- DSH（钉版本）----
 $DshOk = $false
