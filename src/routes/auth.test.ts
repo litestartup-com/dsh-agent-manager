@@ -9,28 +9,13 @@ import { openDb, schema, type Db } from '../db/index.js'
 import { hashPassword } from '../auth/password.js'
 import { makeRequireUser } from '../auth/hooks.js'
 import { listAudit } from '../audit.js'
-import { CSRF_COOKIE, registerAuthRoutes } from './auth.js'
+import { CSRF_COOKIE, makeCsrfHook, registerAuthRoutes } from './auth.js'
 import { registerAuditRoutes } from './audit.js'
 
 /**
  * 蜂群2计划 P3：认证/CSRF/强制改密/审计 全链路。
- * CSRF hook 与 index.ts 同款（复制而非复用：hook 属于 boot 装配，单测各自装配）。
+ * CSRF 门与 index.ts 共用 makeCsrfHook（单点，不再复制）。
  */
-
-const csrfHook = async (app: FastifyInstance): Promise<void> => {
-  app.addHook('onRequest', async (request, reply) => {
-    const method = request.method ?? 'GET'
-    if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return
-    const url = (request.url ?? '').split('?')[0] ?? ''
-    if (url === '/api/login' || url.startsWith('/api/internal/')) return
-    const cookieToken = request.cookies[CSRF_COOKIE] ?? ''
-    const headerToken = request.headers['x-csrf-token']
-    const headerValue = Array.isArray(headerToken) ? headerToken[0] : headerToken
-    if (cookieToken === '' || headerValue !== cookieToken) {
-      await reply.code(403).send({ error: 'csrf_token_missing_or_mismatch' })
-    }
-  })
-}
 
 const boot = async (): Promise<{ app: FastifyInstance; db: Db }> => {
   const dir = mkdtempSync(join(tmpdir(), 'auth-test-'))
@@ -40,7 +25,7 @@ const boot = async (): Promise<{ app: FastifyInstance; db: Db }> => {
     .run()
   const app = Fastify()
   await app.register(cookie, { secret: 'x'.repeat(32) })
-  await csrfHook(app)
+  app.addHook('onRequest', makeCsrfHook(false))
   registerAuthRoutes(app, db, false)
   registerAuditRoutes(app, db, makeRequireUser(db))
   return { app, db }
@@ -112,6 +97,31 @@ test('蜂群2计划 P3: 非 GET 请求缺 CSRF 令牌被拒，带一致令牌放
     headers: { cookie: `mgr_sid=${sid}; ${CSRF_COOKIE}=${csrf}`, 'x-csrf-token': csrf },
   })
   assert.equal(ok.statusCode, 200)
+  await app.close()
+})
+
+test('蜂群2计划 P3 自愈: 升级前老会话缺 CSRF cookie，403 补发 cookie，带新 cookie 重试即放行', async () => {
+  const { app } = await boot()
+  const { sid } = await login(app, 'admin', 'initial-pass')
+
+  // 模拟升级前的老会话：只有 mgr_sid、没有 ohdsh_csrf（Windows 生产机改密报 403 的现场）
+  const first = await app.inject({
+    method: 'POST',
+    url: '/api/logout',
+    headers: { cookie: `mgr_sid=${sid}` },
+  })
+  assert.equal(first.statusCode, 403)
+  assert.equal((first.json() as { error: string }).error, 'csrf_token_missing_or_mismatch')
+  const healed = cookieOf(first, CSRF_COOKIE)
+  assert.ok(healed !== '', '缺 cookie 的 403 必须补发 ohdsh_csrf')
+
+  // 前端 apiFetch 带新 cookie 重试一次 → 放行
+  const retry = await app.inject({
+    method: 'POST',
+    url: '/api/logout',
+    headers: { cookie: `mgr_sid=${sid}; ${CSRF_COOKIE}=${healed}`, 'x-csrf-token': healed },
+  })
+  assert.equal(retry.statusCode, 200)
   await app.close()
 })
 

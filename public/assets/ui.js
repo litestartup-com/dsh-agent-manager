@@ -90,11 +90,24 @@ export const csrfToken = () => {
 /**
  * 全局 fetch 包装：非 GET 请求自动带上 X-CSRF-Token（与 cookie 一致）。
  * 页面脚本一律走它，服务端对所有非 GET /api/* 校验（登录与主脑内部 API 豁免）。
+ * 升级自愈：老会话缺 csrf cookie 时服务端 403 并补发 cookie——带新 cookie 重试一次。
  */
-export const apiFetch = (url, options = {}) => {
-  const token = csrfToken()
-  const headers = { ...(options.headers ?? {}) }
-  const method = (options.method ?? 'GET').toUpperCase()
-  if (token !== '' && method !== 'GET' && method !== 'HEAD') headers['x-csrf-token'] = token
-  return fetch(url, { ...options, method, headers })
+export const apiFetch = async (url, options = {}) => {
+  const once = () => {
+    const token = csrfToken()
+    const headers = { ...(options.headers ?? {}) }
+    const method = (options.method ?? 'GET').toUpperCase()
+    if (token !== '' && method !== 'GET' && method !== 'HEAD') headers['x-csrf-token'] = token
+    return fetch(url, { ...options, method, headers })
+  }
+  const response = await once()
+  if (response.status === 403) {
+    try {
+      const body = await response.clone().json()
+      if (body.error === 'csrf_token_missing_or_mismatch' && csrfToken() !== '') return await once()
+    } catch {
+      // 非 JSON 的 403：原样返回
+    }
+  }
+  return response
 }

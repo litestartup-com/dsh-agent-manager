@@ -17,7 +17,7 @@ import { archiveOrphanChats } from './chat/store.js'
 import { buildNodeSupervisors } from './nodes/registry.js'
 import { DockerRunner, NODE_LABEL } from './nodes/docker-runner.js'
 import { recordAudit } from './audit.js'
-import { CSRF_COOKIE } from './routes/auth.js'
+import { makeCsrfHook } from './routes/auth.js'
 import { registerAuditRoutes } from './routes/audit.js'
 import { collectNodeHomes, packNodeHomes } from './nodebackup.js'
 import { deriveBackupKey } from './crypt.js'
@@ -199,18 +199,8 @@ const main = async (): Promise<void> => {
   await app.register(rateLimit, { global: false })
   // 蜂群2计划 P3：CSRF —— 非 GET 的 API 请求必须带与 cookie 一致的 X-CSRF-Token
   // （双提交）。豁免：/api/login（尚无会话）与 /api/internal/*（主脑令牌认证）。
-  app.addHook('onRequest', async (request, reply) => {
-    const method = request.method ?? 'GET'
-    if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return
-    const url = (request.url ?? '').split('?')[0] ?? ''
-    if (url === '/api/login' || url.startsWith('/api/internal/')) return
-    const cookieToken = request.cookies[CSRF_COOKIE] ?? ''
-    const headerToken = request.headers['x-csrf-token']
-    const headerValue = Array.isArray(headerToken) ? headerToken[0] : headerToken
-    if (cookieToken === '' || headerValue !== cookieToken) {
-      await reply.code(403).send({ error: 'csrf_token_missing_or_mismatch' })
-    }
-  })
+  // P6 自愈：升级前的老会话缺 csrf cookie → 服务端补发，前端 403 重试一次。
+  app.addHook('onRequest', makeCsrfHook(secureCookies))
   // `no-cache` means "you may keep it, but ask before using it" -- a conditional
   // request answered by a 304, not a re-download. The page URLs carry a content
   // hash so they rarely even get here; this covers what a hash cannot reach,

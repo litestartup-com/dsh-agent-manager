@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, preHandlerHookHandler } from 'fastify'
 import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import type { Db } from '../db/index.js'
@@ -10,6 +10,29 @@ import { recordAudit } from '../audit.js'
 
 /** 蜂群2计划 P3：CSRF 双提交 cookie（非 httpOnly，前端读出来放进 X-CSRF-Token）。 */
 export const CSRF_COOKIE = 'ohdsh_csrf'
+
+/**
+ * CSRF 门（P6 自愈版）：非 GET 请求必须带与 cookie 一致的 X-CSRF-Token。
+ * 升级场景自愈：带着有效会话但缺 csrf cookie 的老会话（升级前的登录），
+ * 由服务端补发 cookie —— 前端收到该 403 后带新 cookie 自动重试一次，用户无感。
+ */
+export const makeCsrfHook = (secure: boolean): preHandlerHookHandler => async (request, reply) => {
+  const method = request.method ?? 'GET'
+  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return
+  const url = (request.url ?? '').split('?')[0] ?? ''
+  if (url === '/api/login' || url.startsWith('/api/internal/')) return
+
+  const cookieToken = request.cookies[CSRF_COOKIE] ?? ''
+  const hasSession = (request.cookies[COOKIE_NAME] ?? '') !== ''
+  if (hasSession && cookieToken === '') {
+    reply.setCookie(CSRF_COOKIE, randomBytes(24).toString('base64url'), { path: '/', sameSite: 'lax', secure })
+  }
+  const headerToken = request.headers['x-csrf-token']
+  const headerValue = Array.isArray(headerToken) ? headerToken[0] : headerToken
+  if (cookieToken === '' || headerValue !== cookieToken) {
+    await reply.code(403).send({ error: 'csrf_token_missing_or_mismatch' })
+  }
+}
 
 const loginBody = z.object({
   username: z.string().min(1).max(64),
