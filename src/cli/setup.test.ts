@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
-import { buildManagerConfig, adoptOldWorkspaces, checkPortFree, ensureNodeCredentials, ensureNodeProfiles, mergeEnv, parseArgs, probeToolVersions, profileInstallCommand, resolveGatewayKey } from './setup.js'
+import { buildManagerConfig, adoptOldWorkspaces, checkPortFree, ensureNodeCredentials, ensureNodeProfiles, mergeEnv, parseArgs, probeToolVersions, profileInstallCommand, resolveGatewayKey, setupEnvValues } from './setup.js'
 import { COMPAT_DSH_VERSION, GATEWAY_REF, dshCompatible } from '../dsh-version.js'
 
 test('buildManagerConfig wires two managed nodes, agents, sandbox and presets', () => {
@@ -189,6 +189,15 @@ test('蜂群2计划 P6 回归: 节点依赖固定 npx pnpm@9——全局 pnpm �
   const posix = profileInstallCommand('linux')
   assert.equal(posix.cmd, 'npx')
   assert.deepEqual(posix.args, ['-y', 'pnpm@9', 'install'])
+})
+
+test('蜂群2计划 P6 回归: setup 必须预生成首启密码进 .env（manager 隐藏窗口启动，生成密码会丢）', () => {
+  const values = setupEnvValues('apigw-a', 'apigw-b')
+  assert.equal(values.GW_KEY_A, 'apigw-a')
+  assert.equal(values.GW_KEY_B, 'apigw-b')
+  assert.match(values.SESSION_SECRET, /^[0-9a-f]{64}$/)
+  assert.match(values.BRAIN_TOKEN, /^[0-9a-f]{48}$/)
+  assert.match(values.MANAGER_INITIAL_PASSWORD, /^[A-Za-z0-9_-]{22}$/, '16 字节 base64url')
 })
 
 test('adoptOldWorkspaces keeps user-customised workspaces unless explicitly overridden', () => {  const options = { personalWorkspace: './workspaces/personal', brainWorkspace: './workspaces/brain' }

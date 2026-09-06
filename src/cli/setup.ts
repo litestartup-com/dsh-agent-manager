@@ -212,6 +212,23 @@ export const profileInstallCommand = (platform: NodeJS.Platform): { cmd: string;
     ? { cmd: 'npx.cmd', args: ['-y', 'pnpm@9', 'install'] }
     : { cmd: 'npx', args: ['-y', 'pnpm@9', 'install'] }
 
+/**
+ * 蜂群2计划 P6 回归：setup 写进 .env 的密钥集（含首启密码）。
+ * MANAGER_INITIAL_PASSWORD 必须在 manager 首启前落盘：manager 无配置密码时会
+ * 自己 generate 且只打印到日志（index.ts），Windows 安装器隐藏窗口启动 → 用户
+ * 永远拿不到。不进 forceKeys（用户改过绝不覆盖）。
+ */
+export const setupEnvValues = (
+  personalKey: string,
+  brainKey: string,
+): { SESSION_SECRET: string; GW_KEY_A: string; GW_KEY_B: string; BRAIN_TOKEN: string; MANAGER_INITIAL_PASSWORD: string } => ({
+  SESSION_SECRET: randomBytes(32).toString('hex'),
+  GW_KEY_A: personalKey,
+  GW_KEY_B: brainKey,
+  BRAIN_TOKEN: randomBytes(24).toString('hex'),
+  MANAGER_INITIAL_PASSWORD: randomBytes(16).toString('base64url'),
+})
+
 /** 蜂群2计划 P1：探测关键工具版本（node/pnpm/git/dsh）；dshBin 为 null = DSH 未找到。 */
 export const probeToolVersions = (dshBin: string | null): Record<'node' | 'pnpm' | 'git' | 'dsh', string | null> => {
   const run = (cmd: string, args: string[], shell = false): string | null => {
@@ -593,17 +610,7 @@ const main = async (): Promise<void> => {
   // 每个节点自己的 settings.yaml 里一把独立的 gateway 密钥；manager 分 ref 引用。
   const personalKey = resolveGatewayKey(nodeHomes.get('ohdsh-personal')!, null)
   const brainKey = resolveGatewayKey(nodeHomes.get('ohdsh-brain')!, null)
-  const envValues = mergeEnv(
-    '.env',
-    {
-      SESSION_SECRET: randomBytes(32).toString('hex'),
-      GW_KEY_A: personalKey,
-      GW_KEY_B: brainKey,
-      BRAIN_TOKEN: randomBytes(24).toString('hex'),
-    },
-    // GW 密钥必须与节点 settings 一致（setup 每次重新铸造节点钥）：
-    ['GW_KEY_A', 'GW_KEY_B'],
-  )
+  const envValues = mergeEnv('.env', setupEnvValues(personalKey, brainKey), ['GW_KEY_A', 'GW_KEY_B'])
 
   // ---- manager 配置 -------------------------------------------------------
   console.log('④ 生成 manager.config.yaml…')
