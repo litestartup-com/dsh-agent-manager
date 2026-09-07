@@ -11,7 +11,7 @@
 - `install.ps1` 克隆失败自动回退 codeload zip（发布前实测：国内网络 github.com git/raw 均超时，codeload 可达 200）
 - Windows 安装的节点依赖固定 `npx pnpm@9`（发布前实测：全局 pnpm 11 无视构建白名单，原生依赖不构建）；setup 预生成首启密码进 `.env`（隐藏窗口启动下生成密码会丢）
 - **容器化**：dsh-node / manager 双镜像（构建期冻结依赖，运行时零安装）+ compose 脊柱 + manager 经 docker.sock 管理工蜂容器（标签对账，向导/起停/日志语义不变）
-- nginx 三模式 TLS 模板 + `gen-env.sh` 幂等密钥生成 + 发布包生成器 + 发布清单（`docs/RELEASE.md`）
+- nginx 三模式 TLS 模板 + `gen-env.sh` 幂等密钥生成 + 发布包生成器 + 发布清单（维护者内部）
 
 ### 安全（D2/D4）
 
@@ -42,7 +42,7 @@
 ## 1.0.0 — 蜂群 v1（2026-09-05）
 
 单主机多节点版正式发布：默认安装 = manager（总办）+ 主脑（总控）+ 个人（工作区），
-一条命令、5 分钟用起来。路线图见 `docs/MILESTONES.md`。
+一条命令、5 分钟用起来。
 
 ### 蜂群核心
 

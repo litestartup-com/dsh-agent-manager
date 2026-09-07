@@ -28,7 +28,7 @@ irm https://get.ohdsh.com/install.ps1 -OutFile install.ps1; powershell -Executio
 DeepSeek Harness 提供 agent 运行时（会话 / 工具 / 沙箱 / 文件系统）；Oh! dsh 提供控制面：
 认证、聊天中继、主脑派工、定时任务、节点管理、技能清单、记账、备份恢复。
 
-概念层级（详见 `docs/MILESTONES.md`）：
+概念层级（详见 `docs/USER-GUIDE.md`）：
 
 ```
 服务器 ──► 节点（= 一个 DSH agent 进程 + 独立 DSH_HOME）──► 工作区（身份+目录+preset+沙箱）──► 会话
@@ -88,13 +88,12 @@ npm start              # 启动 manager，自动拉起托管节点
 | 文档 | 内容 |
 | --- | --- |
 | `docs/USER-GUIDE.md` | 用户手册（安装 / 主脑 / 节点 / 定时 / 记账 / 备份） |
-| `docs/MILESTONES.md` | **路线图唯一真相源** |
-| `docs/RELEASE.md` | 发布流程 |
 | `CHANGELOG.md` | 变更记录 |
 
-> **内部设计文档不在本仓库**：设计稿、实施计划、评审记录、上游行为事实卡等集中在独立的
-> 内部设计库（不公开发布），仓库内只保留用户面文档与路线图。本仓库的代码、配置样例与
-> 用户文档即完整的可运行、可自托管交付物。
+> **本仓库只放用户面文档。** 设计稿、路线图、实施计划、评审记录、发布流程、
+> 上游行为事实卡均在不公开的内部设计库。**已交付的能力看 `CHANGELOG.md` 与
+> GitHub Release，不对未发布的功能做公开承诺。** 代码、配置样例与用户手册
+> 即完整的可运行、可自托管交付物。
 
 ## 测试
 

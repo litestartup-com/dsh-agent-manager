@@ -22,9 +22,13 @@ dist-release/
 # 各 agent 的工作区由各自的 git 仓库管理，不进 manager 仓库
 workspaces/
 
-# 文档：公开文档（路线图/用户手册）进仓库；内部工作文档（计划/设计/头脑风暴）
-# 在 notes/（不进 git）。公开面：README.md / docs/ / CHANGELOG.md / LICENSE
+# 文档：公开面只有 README.md / docs/USER-GUIDE.md / CHANGELOG.md / LICENSE。
+# 内部工作文档（设计/计划/路线图/评审/发布流程）在独立的内部设计库，不进本仓库。
 notes/
+docs/MILESTONES.md
+docs/RELEASE.md
+docs/TECH-*.md
+docs/archive/
 
 # PowerShell 5.1 ModuleAnalysisCache（在本目录跑 PS5.1 脚本时产生）
 Microsoft/
