@@ -56,6 +56,24 @@ try {
   failures.push(`部署文件校验失败: ${error instanceof Error ? error.message : String(error)}`)
 }
 
+// ---- 4) 债务 H1:manager 容器非 root + docker.sock 降权接线 + nginx 封内网面 ----
+try {
+  const managerDockerfile = readFileSync(join(root, 'images/manager/Dockerfile'), 'utf8')
+  if (!/^\s*USER\s+\d+:\d+\s*$/m.test(managerDockerfile)) {
+    failures.push('images/manager/Dockerfile: 缺少 USER 指令（manager 容器必须非 root）')
+  }
+  const compose = readFileSync(join(root, 'docker-compose.yml'), 'utf8')
+  if (!/group_add/.test(compose)) failures.push('docker-compose.yml: manager 缺少 group_add（docker.sock 经宿主 docker 组 GID 访问）')
+  if (!/\$\{DOCKER_GID:/.test(compose)) failures.push('docker-compose.yml: group_add 应引用 DOCKER_GID（gen-env.sh 探测宿主 docker 组）')
+  for (const rel of ['deploy/nginx/default.conf', 'deploy/nginx/tls-none.conf', 'deploy/nginx/tls-origin-ca.conf', 'deploy/nginx/tls-letsencrypt.conf']) {
+    const conf = readFileSync(join(root, rel), 'utf8')
+    if (!conf.includes('location /api/internal/')) failures.push(`${rel}: 缺少 /api/internal/ 反代块`)
+    if (!conf.includes('deny all')) failures.push(`${rel}: /api/internal/ 缺少私网 ACL（deny all）`)
+  }
+} catch (error) {
+  failures.push(`H1 部署加固校验失败: ${error instanceof Error ? error.message : String(error)}`)
+}
+
 if (failures.length > 0) {
   console.error('check-docs FAILED:')
   for (const f of failures) console.error(`  - ${f}`)

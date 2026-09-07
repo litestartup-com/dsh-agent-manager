@@ -140,6 +140,13 @@ else
   # 节点容器与宿主机部署用户同 uid（工作区写权限两边一致；root 服务器 = 0）
   grep -q '^HOST_UID=' .env || echo "HOST_UID=$(id -u)" >> .env
   grep -q '^HOST_GID=' .env || echo "HOST_GID=$(id -g)" >> .env
+  # 债务 H1：manager 容器以 HOST_UID:HOST_GID 运行——真相文件与数据目录
+  # 必须按同一属主放行（root 部署 = 0:0 时 chown 无变化，manager 保持 root，
+  # 降权只在非 root 部署用户下生效；docker.sock 的组级访问见 gen-env.sh 的 DOCKER_GID）
+  HOST_UID_VAL="$(grep '^HOST_UID=' .env | cut -d= -f2)"
+  HOST_GID_VAL="$(grep '^HOST_GID=' .env | cut -d= -f2)"
+  mkdir -p data workspaces
+  chown -R "$HOST_UID_VAL:$HOST_GID_VAL" .env manager.config.yaml data workspaces
 fi
 
 # ---- optional nginx TLS ----

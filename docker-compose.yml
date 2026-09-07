@@ -32,6 +32,13 @@ services:
     image: ohdsh/manager:${MANAGER_VERSION:-1.0.1}
     container_name: ohdsh-manager
     env_file: .env
+    # 债务 H1：manager 非 root 运行（与 node-brain 同款 HOST_UID 约定）；
+    # docker.sock 经 group_add 注入宿主 docker 组 GID 访问（DOCKER_GID 由
+    # gen-env.sh 探测写入 .env）。真相文件/data 目录的宿主属主由 install.sh
+    # 按同一 HOST_UID 放行。
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    group_add:
+      - "${DOCKER_GID:?DOCKER_GID missing in .env — run: bash scripts/gen-env.sh}"
     volumes:
       # rw：向导新增节点会写回 manager.config.yaml 与 .env（文件即真相）
       - ./.env:/app/.env
