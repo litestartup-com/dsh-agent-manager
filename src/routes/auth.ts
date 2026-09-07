@@ -1,11 +1,12 @@
 import { randomBytes } from 'node:crypto'
+import { chmodSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import type { FastifyInstance, preHandlerHookHandler } from 'fastify'
 import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import type { Db } from '../db/index.js'
 import { schema } from '../db/index.js'
 import { hashPassword, verifyPassword } from '../auth/password.js'
-import { COOKIE_NAME, issueSession, resolveSession, revokeSession } from '../auth/session.js'
+import { COOKIE_NAME, issueSession, resolveSession, revokeAllForUser, revokeSession } from '../auth/session.js'
 import { recordAudit } from '../audit.js'
 
 /** 蜂群2计划 P3：CSRF 双提交 cookie（非 httpOnly，前端读出来放进 X-CSRF-Token）。 */
@@ -34,6 +35,39 @@ export const makeCsrfHook = (secure: boolean): preHandlerHookHandler => async (r
   }
 }
 
+/**
+ * P1-5：改密成功后抹掉 `.env` 里的初始口令。
+ *
+ * 它只在"库里没有用户"时有意义，改密之后就纯粹是一份留在磁盘上的明文口令，
+ * 而这个文件在容器形态里是 rw 挂载的。键保留、值清空（保持 .env 的形状可读），
+ * 其余行连注释一起原样保留。
+ *
+ * 写法与 workspace/writer 一致：`.tmp` + rename（原子），失败只警告不影响改密
+ * —— 只读挂载或权限不足时，改密本身仍必须成功。
+ */
+export const clearInitialPassword = (envPath: string): boolean => {
+  const text = readFileSync(envPath, 'utf8')
+  const lines = text.split(/\r?\n/)
+  let touched = false
+  const next = lines.map((line) => {
+    const match = /^(\s*MANAGER_INITIAL_PASSWORD\s*=)(.*)$/.exec(line)
+    if (match === null || (match[2] ?? '') === '') return line
+    touched = true
+    return `${match[1]}`
+  })
+  if (!touched) return false
+  const tmp = `${envPath}.tmp`
+  writeFileSync(tmp, next.join(text.includes('\r\n') ? '\r\n' : '\n'), 'utf8')
+  // 0600：与 gen-env.sh 在 POSIX 上的收紧一致（Windows 上是空操作）
+  try {
+    chmodSync(tmp, 0o600)
+  } catch {
+    // 权限模型不支持（Windows）——不是失败
+  }
+  renameSync(tmp, envPath)
+  return true
+}
+
 const loginBody = z.object({
   username: z.string().min(1).max(64),
   password: z.string().min(1).max(256),
@@ -44,7 +78,13 @@ const passwordBody = z.object({
   newPassword: z.string().min(1).max(256),
 })
 
-export const registerAuthRoutes = (app: FastifyInstance, db: Db, secure: boolean): void => {
+export const registerAuthRoutes = (
+  app: FastifyInstance,
+  db: Db,
+  secure: boolean,
+  /** P1-5：改密后要抹初始口令的 `.env` 路径；省略则跳过这一步（测试与旧调用）。 */
+  envPath?: string,
+): void => {
   app.post(
     '/api/login',
     {
@@ -124,7 +164,33 @@ export const registerAuthRoutes = (app: FastifyInstance, db: Db, secure: boolean
       .set({ passwordHash: await hashPassword(parsed.data.newPassword), mustChangePassword: 0 })
       .where(eq(schema.user.id, user.id))
       .run()
-    recordAudit(db, { actor: user.username, kind: 'password_change', detail: '成功' })
+
+    // P1-5：口令换了，旧会话就必须失效 —— 否则"改密"踢不掉已经拿着 cookie 的
+    // 攻击者，改密只是让他多知道一个密码。当前设备紧接着换发一枚新会话，
+    // 所以操作者自己不会被踢下线（体验不变，安全性提高）。
+    revokeAllForUser(db, user.id)
+    const { token, expiresAt } = issueSession(db, user.id)
+    const csrf = randomBytes(24).toString('base64url')
+    reply.setCookie(CSRF_COOKIE, csrf, { path: '/', sameSite: 'lax', secure, expires: new Date(expiresAt) })
+    reply.setCookie(COOKIE_NAME, token, {
+      path: '/',
+      httpOnly: true,
+      sameSite: 'lax',
+      secure,
+      expires: new Date(expiresAt),
+    })
+
+    recordAudit(db, { actor: user.username, kind: 'password_change', detail: '成功（已吊销其它会话）' })
+
+    if (envPath !== undefined) {
+      // 抹初始口令是"顺手清理"，不是改密的前提：只读挂载/权限不足时只警告。
+      try {
+        if (clearInitialPassword(envPath)) app.log.info('cleared MANAGER_INITIAL_PASSWORD from .env')
+      } catch (error) {
+        app.log.warn(`could not clear MANAGER_INITIAL_PASSWORD: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+
     return reply.send({ ok: true })
   })
 }

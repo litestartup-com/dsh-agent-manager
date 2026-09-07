@@ -262,7 +262,9 @@ const main = async (): Promise<void> => {
   app.get('/password', { preHandler: requirePage }, page('password'))
   app.get('/audit', { preHandler: requirePage }, page('audit'))
 
-  registerAuthRoutes(app, db, secureCookies)
+  // P1-5：改密成功后抹掉 .env 里的初始口令（路径推导与自动备份处一致；
+  // 单一来源收进 AppConfig 是 P2-5 的事）。
+  registerAuthRoutes(app, db, secureCookies, join(here, '..', '.env'))
   registerAuditRoutes(app, db, requireUser)
   registerStatusRoutes(app, config, db, clients, requireUser, upstreamClients)
   registerWorkspaceRoutes(app, config, requireUser)
