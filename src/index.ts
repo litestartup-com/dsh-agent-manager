@@ -53,9 +53,10 @@ const main = async (): Promise<void> => {
         ? {}
         : { transport: { target: 'pino-pretty', options: { translateTime: 'HH:MM:ss', ignore: 'pid,hostname' } } }),
     },
-    // Behind Caddy/nginx for TLS, so trust the proxy headers for client IPs
-    // (which the login rate limiter keys on).
-    trustProxy: true,
+    // P0-4：反代信任边界由 TRUST_PROXY 决定，默认不信任转发头 —— 登录限流以
+    // request.ip 为键，全信任等于让攻击者换个 X-Forwarded-For 就绕过唯一的暴破防线。
+    // 反代后想要真实客户端 IP：在 .env 里写可信的那一跳（如 TRUST_PROXY=127.0.0.1）。
+    trustProxy: config.trustProxy ?? false,
   })
 
   if (applied.length > 0) app.log.info(`applied database migrations: ${applied.join(', ')}`)

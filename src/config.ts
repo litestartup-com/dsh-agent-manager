@@ -208,8 +208,35 @@ export interface ResolvedAgent {
   model: string | null
 }
 
+/**
+ * P0-4：`trustProxy` 不再写死为 true。
+ *
+ * 全信任转发头时 `request.ip` 取 X-Forwarded-For，而登录限流以它为键 ——
+ * 每次换一个 XFF 就等于没有限流，而这是暴破口令的唯一防线。
+ * 所以默认**不信任**（键落在不可伪造的直连对端上），要真实客户端 IP 的部署
+ * 在 `.env` 里显式声明可信的那一跳（具体地址或网段）。
+ *
+ * 取值：空/`false`/`0` → false；`true` → true；其余 → 原串
+ * （fastify 接受 IP / CIDR / 逗号列表）。
+ *
+ * **不支持“跳数”写法**：`TRUST_PROXY=1` 会被 fastify 当成 IP 字串而不是 1 跳，
+ * 静默误读比不支持更危险 —— 所以纯数字一律视为无效，回落为不信任
+ * （由 loadConfig 推一条启动警告）。
+ */
+export const parseTrustProxy = (raw: string | undefined): boolean | string => {
+  const value = (raw ?? '').trim()
+  if (value === '' || value.toLowerCase() === 'false' || /^\d+$/.test(value)) return false
+  if (value.toLowerCase() === 'true') return true
+  return value
+}
+
 export interface AppConfig {
   listen: { host: string; port: number }
+  /**
+   * P0-4：反代信任边界（`TRUST_PROXY`）—— 缺省/未配置 = 不信任转发头。
+   * 可选：测试里手写的 AppConfig 字面量不必关心它（读取方统一 `?? false`）。
+   */
+  trustProxy?: boolean | string
   endpoints: Record<string, ResolvedEndpoint>
   agents: Record<string, ResolvedAgent>
   runner: {
@@ -428,8 +455,17 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
 
   const password = process.env.MANAGER_INITIAL_PASSWORD ?? ''
 
+  const trustProxyRaw = (process.env.TRUST_PROXY ?? '').trim()
+  if (/^\d+$/.test(trustProxyRaw)) {
+    warnings.push(
+      `TRUST_PROXY=${trustProxyRaw} 不支持“跳数”写法（会被当成 IP 字串）；已按“不信任转发头”处理。` +
+        '请写具体地址或网段，如 TRUST_PROXY=127.0.0.1',
+    )
+  }
+
   return {
     listen: file.listen,
+    trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
     endpoints,
     agents,
     runner: {
