@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { chmodSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { chmodSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import type { FastifyInstance, preHandlerHookHandler } from 'fastify'
 import { eq } from 'drizzle-orm'
 import { z } from 'zod'
@@ -56,15 +56,28 @@ export const clearInitialPassword = (envPath: string): boolean => {
     return `${match[1]}`
   })
   if (!touched) return false
+  const body = next.join(text.includes('\r\n') ? '\r\n' : '\n')
   const tmp = `${envPath}.tmp`
-  writeFileSync(tmp, next.join(text.includes('\r\n') ? '\r\n' : '\n'), 'utf8')
+  writeFileSync(tmp, body, 'utf8')
   // 0600：与 gen-env.sh 在 POSIX 上的收紧一致（Windows 上是空操作）
   try {
     chmodSync(tmp, 0o600)
   } catch {
     // 权限模型不支持（Windows）——不是失败
   }
-  renameSync(tmp, envPath)
+  try {
+    renameSync(tmp, envPath)
+  } catch {
+    // 容器形态下 `.env` 是**文件级 bind mount**（compose: ./.env:/app/.env），
+    // 挂载点不能被 rename 顶替（EBUSY/EXDEV）——回落为原地写。
+    // 原子性在这一步让位于"能用"：这是清理动作，且内容只是抹掉一个值。
+    writeFileSync(envPath, body, 'utf8')
+    try {
+      unlinkSync(tmp)
+    } catch {
+      // 残留的 .tmp 不影响正确性
+    }
+  }
   return true
 }
 
