@@ -36,7 +36,9 @@ export class DockerRunner {
       // 镜像缺失 → 拉取
     }
     await new Promise<void>((resolvePull, rejectPull) => {
-      this.docker.pull(image, (error: Error | null, stream?: NodeJS.ReadableStream) => {
+      // 回调式调用，dockerode 同时返回一个 promise：显式丢弃，否则它的拒绝会
+      // 变成未处理拒绝（错误本身已经由回调转给 rejectPull）。
+      void this.docker.pull(image, (error: Error | null, stream?: NodeJS.ReadableStream) => {
         if (error !== null || stream === undefined) {
           rejectPull(error ?? new Error(`pull ${image}: no stream`))
           return

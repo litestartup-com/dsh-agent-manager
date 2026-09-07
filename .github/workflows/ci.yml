@@ -15,7 +15,11 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
+      # P2-2：lint 抓类型系统兜不住的几类真 bug（悬挂 promise / 误用 promise）
+      - run: npm run lint
       - run: npm test
+      # P2-1：前端测试此前从未在 CI 跑过——md.js 的 escape-first 是 XSS 的唯一防线
+      - run: npm run test:web
       - run: npm run drill
       - run: npm run build
       - run: node scripts/fresh-boot-smoke.mjs

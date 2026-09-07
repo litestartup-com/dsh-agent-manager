@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { timingSafeEqual } from 'node:crypto'
-import type { FastifyInstance, preHandlerHookHandler } from 'fastify'
+import type { FastifyInstance, preHandlerAsyncHookHandler } from 'fastify'
 import { and, desc, eq, gte, inArray } from 'drizzle-orm'
 import { z } from 'zod'
 import type { AppConfig } from '../config.js'
@@ -50,7 +50,9 @@ const isPrivateSource = (ip: string): boolean => {
   return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254)
 }
 
-const brainGate: preHandlerHookHandler = async (request, reply) => {
+// async 钩子用 fastify 的 async 专用类型：preHandlerHookHandler 的签名是 void 返回
+// （给回调式钩子用的），把 async 函数标成它会让"返回 promise 给不等待方"无法被 lint 区分。
+const brainGate: preHandlerAsyncHookHandler = async (request, reply) => {
   // 蜂群2计划 P6：信任「直连对端」而不是转发头——反代（nginx/Cloudflare）之后
   // request.ip 是公网客户端 IP，会把回环/内网来源误判成公网（smoke 实测 403）。
   const peerIp = request.socket.remoteAddress ?? request.ip
