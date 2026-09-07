@@ -2,6 +2,9 @@ node_modules/
 dist/
 *.tsbuildinfo
 
+# 配置备份是派生品，不进 git
+manager.config.backup.yaml
+
 # 密钥与本地配置：绝不进 git
 .env
 .env.local
