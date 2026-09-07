@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased — 技术债 High×3 修复（2026-09-07）
+
+### 安全与正确性
+
+- **H1 manager 容器非 root + docker.sock 组级降权 + nginx 内网 ACL**：manager 镜像内建 `USER 1000:1000`；compose 以 `HOST_UID:HOST_GID` 运行并经 `group_add` 注入宿主 docker 组 GID（`DOCKER_GID` 由 gen-env.sh 探测写入 .env）；install.sh 按 HOST_UID 放行 `.env`/`manager.config.yaml`/`data`/`workspaces`；四个 nginx 模板对 `/api/internal/` 加私网 ACL（token 之外的第二道门）。注意：部署用户为 root（HOST_UID=0）时容器仍为 root——docker.sock 的持有者本就等价宿主 root，完整收口需 socket-proxy/rootless docker（后续）
+- **H2 provision 全量回滚**：副作用重排为「准备 → DB → 真相文件 → 内存 → 进程」，任一步失败按相反顺序撤销（stop 监督器 / 撤销内存 / 恢复 .env 与 yaml 快照 / 删 DB 行 / 清目录），杜绝半开通幽灵节点；审计记录失败尝试
+- **H3 fleet.md 提交收窄**：`git commit -- fleet.md` 路径限定（用户已 staged 的其它改动绝不被捎带）+ 提交走与 run 快照共用的每 agent 提交锁（`src/workspace/commit-lock.ts`），不再互踩 index.lock
+
+### 回归测试
+
+- `fleet-doc.test.ts`：用户预 staged 文件不得进入 manager 提交的断言
+- `provision.test.ts`：DB 写入失败（SQLite 触发器注入）→ 六面（内存/监督器/yaml/.env/目录/DB）零残留断言
+- `scripts/check-docs.mjs`：manager 镜像 USER、compose group_add/DOCKER_GID、nginx internal ACL 的部署门禁
+
 ## 1.0.1 — 产品级单机版（蜂群2计划，2026-09-05）
 
 从「功能 v1」到「产品级 v1」：一键安装、容器化、安全三件、备份全量、版本治理。
