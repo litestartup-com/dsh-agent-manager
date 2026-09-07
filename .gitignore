@@ -22,8 +22,11 @@ dist-release/
 # 各 agent 的工作区由各自的 git 仓库管理，不进 manager 仓库
 workspaces/
 
-# 文档：公开面只有 README.md / docs/USER-GUIDE.md / CHANGELOG.md / LICENSE。
+# 文档：公开面只有 README.md / AGENTS.md / docs/USER-GUIDE.md / CHANGELOG.md / LICENSE。
 # 内部工作文档（设计/计划/路线图/评审/发布流程）在独立的内部设计库，不进本仓库。
+# 本地开发规约与上下文（每次会话先读）也只在本机：
+RULE.md
+CONTEXT.md
 notes/
 docs/MILESTONES.md
 docs/RELEASE.md
