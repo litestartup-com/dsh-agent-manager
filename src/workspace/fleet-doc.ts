@@ -10,6 +10,7 @@ import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import type { AppConfig } from '../config.js'
+import { withCommitLock } from './commit-lock.js'
 
 export const FLEET_FILE = 'fleet.md'
 /** 主脑令牌文件（节点用户 HOME 下；0600；不进工作区/git）。 */
@@ -52,7 +53,7 @@ export const renderFleetDoc = (config: AppConfig): string => {
 }
 
 /** 把 fleet.md 同步进每个 agent 工作区；返回被写入/更新的 agent id。 */
-export const syncFleetDocs = (config: AppConfig, log?: (line: string) => void): string[] => {
+export const syncFleetDocs = async (config: AppConfig, log?: (line: string) => void): Promise<string[]> => {
   const updated: string[] = []
   const doc = renderFleetDoc(config)
   for (const agent of Object.values(config.agents)) {
@@ -76,26 +77,40 @@ export const syncFleetDocs = (config: AppConfig, log?: (line: string) => void): 
         continue
       }
     }
-    // 蜂群2计划 P6：fleet.md 是 manager 生成物——同步即提交，工作区保持 clean
-    commitFleetDoc(agent.workspacePath)
+    // 蜂群2计划 P6：fleet.md 是 manager 生成物——同步即提交，工作区保持 clean。
+    // 债务 H3：提交走每 agent 提交锁（与 run 快照提交互斥），且只提交 fleet.md 一个路径。
+    await commitFleetDoc(agent.workspacePath, agent.id)
   }
   return updated
 }
 
-/** 只提交 fleet.md（manager 生成物）；无 git 仓或提交失败不阻断。 */
-const commitFleetDoc = (workspacePath: string): void => {
-  try {
-    execFileSync('git', ['add', '--', FLEET_FILE], { cwd: workspacePath, stdio: 'ignore' })
-    const staged = execFileSync('git', ['diff', '--cached', '--name-only'], {
-      cwd: workspacePath,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim()
-    if (staged === '') return
-    execFileSync('git', ['commit', '-m', 'chore: 更新 fleet.md（manager 生成）'], { cwd: workspacePath, stdio: 'ignore' })
-  } catch {
-    // 不是 git 仓（或提交失败）：工作区脏由 smoke 显性报告，不在这里硬处理
-  }
+/**
+ * 只提交 fleet.md（manager 生成物）；无 git 仓或提交失败不阻断。
+ *
+ * 债务 H3 两处修复：
+ * 1. `git commit -- fleet.md` 路径限定——用户工作区里已 stage 的其它改动
+ *    绝不能被捎带进 manager 的提交（旧实现无 pathspec，会整仓提交）。
+ * 2. 走 `withCommitLock(agentId)`——与 runner 的快照提交同一把锁，
+ *    两个 git 进程不再互相踩 index.lock。
+ */
+const commitFleetDoc = async (workspacePath: string, agentId: string): Promise<void> => {
+  await withCommitLock(agentId, async () => {
+    try {
+      execFileSync('git', ['add', '--', FLEET_FILE], { cwd: workspacePath, stdio: 'ignore' })
+      const staged = execFileSync('git', ['diff', '--cached', '--name-only', '--', FLEET_FILE], {
+        cwd: workspacePath,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim()
+      if (staged === '') return
+      execFileSync('git', ['commit', '-m', 'chore: 更新 fleet.md（manager 生成）', '--', FLEET_FILE], {
+        cwd: workspacePath,
+        stdio: 'ignore',
+      })
+    } catch {
+      // 不是 git 仓（或提交失败）：工作区脏由 smoke 显性报告，不在这里硬处理
+    }
+  })
 }
 
 /**

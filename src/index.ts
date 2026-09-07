@@ -140,7 +140,7 @@ const main = async (): Promise<void> => {
   )
   if (seededWorkspaces.length > 0) app.log.info(`workspaces seeded: ${seededWorkspaces.join(', ')}`)
   // 蜂群2计划 P6：fleet.md 拓扑共享文档——每个工作区一份，随 config 自动同步
-  const syncedFleet = syncFleetDocs(config, (line) => app.log.info(line))
+  const syncedFleet = await syncFleetDocs(config, (line) => app.log.info(line))
   if (syncedFleet.length > 0) app.log.info(`fleet.md synced: ${syncedFleet.join(', ')}`)
   // 裸机形态：主脑令牌写入节点用户 HOME（容器形态由节点 entrypoint 自己派生）。
   // DSH 工具沙箱洗 TOKEN 字样 env（DSH-FACTS §2），技能手册读 $HOME/.brain-auth。

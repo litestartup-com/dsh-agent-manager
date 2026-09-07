@@ -8,6 +8,7 @@ import type { ResolvedAgent } from './config.js'
 import { GatewayError, isAdoptDisabled, type GatewayClient } from './gateway/client.js'
 import { normalizeUsage, streamFrames, sumUsage, type GatewayFrame, type TokenUsage } from './gateway/stream.js'
 import { computeCost, DEFAULT_PRICING, type PricingTable } from './pricing.js'
+import { withCommitLock } from './workspace/commit-lock.js'
 import { currentHead, snapshotAfter, snapshotBefore } from './workspace/snapshot.js'
 import type { UpstreamClient } from './upstream/client.js'
 import { UpstreamError } from './upstream/rpc.js'
@@ -204,27 +205,10 @@ export const runningRunId = (agentId: string): string | null => {
 export const activeRunCount = (agentId: string): number => activeRuns.get(agentId)?.size ?? 0
 
 /**
- * 蜂群 P5.4：每 agent 一把提交锁。回合并行，但 git 快照/提交排队执行——
- * 两个回合同时 git add/commit 会在 index.lock 上互相踩踏。落盘是排队点，
- * 其余全程并行。
+ * 蜂群 P5.4:每 agent 一把提交锁。回合并行,但 git 快照/提交排队执行——
+ * 两个回合同时 git add/commit 会在 index.lock 上互相踩踏。落盘是排队点,
+ * 其余全程并行。锁本体在 workspace/commit-lock.ts(fleet.md 同步共用同一把)。
  */
-const commitTails = new Map<string, Promise<void>>()
-
-const withCommitLock = async <T>(agentId: string, fn: () => Promise<T>): Promise<T> => {
-  const prev = commitTails.get(agentId) ?? Promise.resolve()
-  let release!: () => void
-  const gate = new Promise<void>((resolve) => {
-    release = resolve
-  })
-  commitTails.set(agentId, gate)
-  await prev
-  try {
-    return await fn()
-  } finally {
-    release()
-    if (commitTails.get(agentId) === gate) commitTails.delete(agentId)
-  }
-}
 
 const SUMMARY_LIMIT = 4_000
 

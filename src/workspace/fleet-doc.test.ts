@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { renderFleetDoc, syncFleetDocs, FLEET_FILE, provisionBrainToken, BRAIN_TOKEN_FILE } from './fleet-doc.js'
@@ -84,18 +85,45 @@ test('蜂群2计划 P6: 主脑令牌写入节点用户 HOME（不进工作区/gi
   }
 })
 
-test('蜂群2计划 P6: syncFleetDocs 写入每个工作区、幂等、内容变化时更新', () => {
+test('蜂群2计划 P6: syncFleetDocs 写入每个工作区、幂等、内容变化时更新', async () => {
   const config = configFor()
-  const updated = syncFleetDocs(config)
+  const updated = await syncFleetDocs(config)
   assert.deepEqual(updated.sort(), ['brain', 'personal'])
   for (const agent of Object.values(config.agents)) {
     assert.equal(readFileSync(join(agent.workspacePath, FLEET_FILE), 'utf8'), renderFleetDoc(config))
     assert.ok(existsSync(join(agent.workspacePath, FLEET_FILE)))
   }
   // 幂等：内容一致不重写
-  assert.deepEqual(syncFleetDocs(config), [])
+  assert.deepEqual(await syncFleetDocs(config), [])
   // 拓扑变化 → 自动更新
   config.agents['product'] = { id: 'product', name: '产品', endpoint: 'personal', workspacePath: join(config.agents['brain']!.workspacePath, '..', 'product'), public: false, preset: 'standard', sandboxMode: null, gitRemote: null, provider: null, model: null }
-  assert.deepEqual(syncFleetDocs(config).sort(), ['brain', 'personal', 'product'])
+  assert.deepEqual((await syncFleetDocs(config)).sort(), ['brain', 'personal', 'product'])
   assert.match(readFileSync(join(config.agents['product']!.workspacePath, FLEET_FILE), 'utf8'), /product/)
+})
+
+test('债务 H3 回归: manager 只提交 fleet.md——用户已 staged 的其他文件绝不进它的提交', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'fleet-commit-'))
+  execFileSync('git', ['init', '-q'], { cwd: root, stdio: 'ignore' })
+  execFileSync('git', ['config', 'user.email', 't@t'], { cwd: root, stdio: 'ignore' })
+  execFileSync('git', ['config', 'user.name', 't'], { cwd: root, stdio: 'ignore' })
+  // 用户自己的改动已暂存——manager 的提交不得捎带
+  writeFileSync(join(root, 'user-file.txt'), 'user data', 'utf8')
+  execFileSync('git', ['add', '--', 'user-file.txt'], { cwd: root, stdio: 'ignore' })
+
+  const config = configFor()
+  config.agents['brain']!.workspacePath = root
+  delete config.agents['personal']
+  await syncFleetDocs(config)
+
+  const subject = execFileSync('git', ['log', '--format=%s', '-1'], { cwd: root, encoding: 'utf8' }).trim()
+  assert.equal(subject, 'chore: 更新 fleet.md（manager 生成）')
+  const committed = execFileSync('git', ['show', '--name-only', '--format=', 'HEAD'], {
+    cwd: root,
+    encoding: 'utf8',
+  })
+    .trim()
+    .split(/\s+/)
+    .filter((f) => f !== '')
+  assert.ok(committed.includes('fleet.md'), 'fleet.md 应被提交')
+  assert.ok(!committed.includes('user-file.txt'), '用户 staged 的文件不得被捎带提交')
 })
