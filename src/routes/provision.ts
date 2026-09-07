@@ -1,9 +1,10 @@
 import { randomBytes } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type { FastifyInstance, preHandlerHookHandler } from 'fastify'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
+import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import type { AppConfig, ResolvedEndpoint, ResolvedSpawnSpec } from '../config.js'
 import type { Db } from '../db/index.js'
@@ -166,13 +167,20 @@ export const registerProvisionRoutes = (
     const nodeHomePath = join(nodesHome(), body.name)
     const keyRef = `GW_KEY_${body.name.toUpperCase()}`
     let createdHome: string | null = null
+    // 债务 H2:回滚台账——副作用按「准备 → DB → 真相文件 → 内存 → 进程」顺序推进,
+    // 每完成一步记一步;失败时按相反顺序撤销,绝不留下半开通的幽灵节点。
+    // envSnap 三态:undefined = mergeEnv 从未执行(.env 未被本请求碰过);
+    // null = 执行时文件不存在(本请求创建的,回滚应移除);string = 写前快照。
+    let dbRowInserted = false
+    let envSnap: string | null | undefined
+    let yamlSnap: string | null = null
+    let supervisorStarted: NodeSupervisor | null = null
 
     try {
       // 蜂群2计划 P6：容器模式分支——节点 = docker runner 工蜂（镜像 + 命名卷 +
       // 网络别名），不找 DSH bin、不做 profile/pnpm（运行时零安装）。
       if (dockerMode) {
         const key = 'apigw-' + randomBytes(24).toString('hex')
-        mergeEnv(ENV_PATH, { [keyRef]: key }, [keyRef])
 
         let workspaceWarning: string | null = null
         if (agentSpec !== null) {
@@ -193,7 +201,38 @@ export const registerProvisionRoutes = (
           named_volumes: { [`ohdsh-${body.name}`]: '/data' },
         }
 
-        const yaml = parseYaml(readFileSync(resolve(CONFIG_PATH), 'utf8')) as Record<string, Record<string, unknown>>
+        // 债务 H2：DB 先行——真相文件与内存都排在它后面，它失败时无任何外部副作用。
+        // 镜像进 DB registry：chat.run 等表的外键指向 agent 表，缺行会
+        // SQLITE_CONSTRAINT_FOREIGNKEY（容器模式分支首测踩坑）
+        if (agentSpec !== null) {
+          const row = db
+            .select({ id: schema.agent.id })
+            .from(schema.agent)
+            .all()
+            .find((a) => a.id === agentSpec.id)
+          if (row === undefined) {
+            db.insert(schema.agent)
+              .values({
+                id: agentSpec.id,
+                name: agentSpec.name,
+                workspacePath: agentSpec.workspace,
+                endpoint: body.name,
+                preset: agentSpec.preset,
+                gitRemote: null,
+                public: 0,
+                createdAt: Date.now(),
+              })
+              .run()
+            dbRowInserted = true
+          }
+        }
+        recordAudit(db, { actor: request.currentUser?.username ?? 'unknown', kind: 'node_create', detail: `节点 ${body.name}（docker 工蜂，端口 ${port}，工作区 ${agentSpec?.workspace ?? '—'}）` })
+
+        // 真相文件（带快照，失败可还原）:.env 密钥 → yaml
+        envSnap = existsSync(ENV_PATH) ? readFileSync(ENV_PATH, 'utf8') : null
+        mergeEnv(ENV_PATH, { [keyRef]: key }, [keyRef])
+        yamlSnap = readFileSync(resolve(CONFIG_PATH), 'utf8')
+        const yaml = parseYaml(yamlSnap) as Record<string, Record<string, unknown>>
         const endpoints = (yaml.endpoints ??= {}) as Record<string, unknown>
         const agents = (yaml.agents ??= {}) as Record<string, unknown>
         endpoints[body.name] = {
@@ -264,6 +303,7 @@ export const registerProvisionRoutes = (
         })
         supervisors.set(body.name, supervisor)
         supervisor.start(endpoint.spawn!)
+        supervisorStarted = supervisor
 
         if (agentSpec !== null) {
           config.agents[agentSpec.id] = {
@@ -278,31 +318,9 @@ export const registerProvisionRoutes = (
             provider: null,
             model: null,
           }
-          // 镜像进 DB registry：chat.run 等表的外键指向 agent 表，缺行会
-          // SQLITE_CONSTRAINT_FOREIGNKEY（容器模式分支首测踩坑）
-          const row = db
-            .select({ id: schema.agent.id })
-            .from(schema.agent)
-            .all()
-            .find((a) => a.id === agentSpec.id)
-          if (row === undefined) {
-            db.insert(schema.agent)
-              .values({
-                id: agentSpec.id,
-                name: agentSpec.name,
-                workspacePath: agentSpec.workspace,
-                endpoint: body.name,
-                preset: agentSpec.preset,
-                gitRemote: null,
-                public: 0,
-                createdAt: Date.now(),
-              })
-              .run()
-          }
         }
 
-        recordAudit(db, { actor: request.currentUser?.username ?? 'unknown', kind: 'node_create', detail: `节点 ${body.name}（docker 工蜂，端口 ${port}，工作区 ${agentSpec?.workspace ?? '—'}）` })
-        syncFleetDocs(config, (line) => app.log.info(line))
+        await syncFleetDocs(config, (line) => app.log.info(line))
         return reply.code(201).send({
           node: { id: body.name, port, home: `ohdsh-${body.name}` },
           workspace: agentSpec === null ? null : { id: agentSpec.id, path: agentSpec.workspace },
@@ -317,7 +335,6 @@ export const registerProvisionRoutes = (
       createdHome = nodeHomePath
       ensureNodeCredentials(join(userHome(), '.dsh'), nodeHomePath)
       const key = resolveGatewayKey(nodeHomePath, null)
-      mergeEnv(ENV_PATH, { [keyRef]: key }, [keyRef])
 
       // 2. 依赖安装（同步；pnpm store 命中时通常几十秒）
       // 蜂群2计划 P6：与 setup 同款——固定 npx pnpm@9（全局 pnpm ≥10 无视构建
@@ -340,8 +357,33 @@ export const registerProvisionRoutes = (
         workspaceWarning = git.warning
       }
 
-      // 4. 写回 manager.config.yaml（文件即真相；成功后才动内存）
-      const yaml = parseYaml(readFileSync(resolve(CONFIG_PATH), 'utf8')) as Record<string, Record<string, unknown>>
+      // 债务 H2：DB 先行——真相文件与内存都排在它后面，它失败时无任何外部副作用。
+      if (agentSpec !== null) {
+        const row = db.select({ id: schema.agent.id }).from(schema.agent).all().find((a) => a.id === agentSpec.id)
+        if (row === undefined) {
+          db.insert(schema.agent)
+            .values({
+              id: agentSpec.id,
+              name: agentSpec.name,
+              workspacePath: agentSpec.workspace,
+              endpoint: body.name,
+              preset: agentSpec.preset,
+              gitRemote: null,
+              public: 0,
+              createdAt: Date.now(),
+            })
+            .run()
+          dbRowInserted = true
+        }
+      }
+      // 蜂群2计划 P3：审计留痕（创建节点）
+      recordAudit(db, { actor: request.currentUser?.username ?? 'unknown', kind: 'node_create', detail: `节点 ${body.name}（端口 ${port}，工作区 ${agentSpec?.workspace ?? '—'}）` })
+
+      // 真相文件（带快照，失败可还原）:.env 密钥 → yaml
+      envSnap = existsSync(ENV_PATH) ? readFileSync(ENV_PATH, 'utf8') : null
+      mergeEnv(ENV_PATH, { [keyRef]: key }, [keyRef])
+      yamlSnap = readFileSync(resolve(CONFIG_PATH), 'utf8')
+      const yaml = parseYaml(yamlSnap) as Record<string, Record<string, unknown>>
       const endpoints = (yaml.endpoints ??= {}) as Record<string, unknown>
       const agents = (yaml.agents ??= {}) as Record<string, unknown>
       endpoints[body.name] = {
@@ -371,7 +413,7 @@ export const registerProvisionRoutes = (
       }
       writeFileSync(resolve(CONFIG_PATH), stringifyYaml(yaml), 'utf8')
 
-      // 5. 热加载：endpoint + 工作区进内存配置，监督器入册并拉起
+      // 热加载：endpoint + 工作区进内存配置，监督器入册并拉起
       const endpoint: ResolvedEndpoint = {
         id: body.name,
         url: `http://127.0.0.1:${port}`,
@@ -394,6 +436,7 @@ export const registerProvisionRoutes = (
       })
       supervisors.set(body.name, supervisor)
       supervisor.start(endpoint.spawn!)
+      supervisorStarted = supervisor
 
       if (agentSpec !== null) {
         config.agents[agentSpec.id] = {
@@ -408,35 +451,72 @@ export const registerProvisionRoutes = (
           provider: null,
           model: null,
         }
-        const row = db.select({ id: schema.agent.id }).from(schema.agent).all().find((a) => a.id === agentSpec.id)
-        if (row === undefined) {
-          db.insert(schema.agent)
-            .values({
-              id: agentSpec.id,
-              name: agentSpec.name,
-              workspacePath: agentSpec.workspace,
-              endpoint: body.name,
-              preset: agentSpec.preset,
-              gitRemote: null,
-              public: 0,
-              createdAt: Date.now(),
-            })
-            .run()
-        }
       }
 
-      // 蜂群2计划 P3：审计留痕（创建节点）
-      recordAudit(db, { actor: request.currentUser?.username ?? 'unknown', kind: 'node_create', detail: `节点 ${body.name}（端口 ${port}，工作区 ${agentSpec?.workspace ?? '—'}）` })
-      syncFleetDocs(config, (line) => app.log.info(line))
+      await syncFleetDocs(config, (line) => app.log.info(line))
       return reply.code(201).send({
         node: { id: body.name, port, home: nodeHomePath, state: supervisor.current.state },
         workspace: agentSpec === null ? null : { id: agentSpec.id, path: agentSpec.workspace },
         workspaceWarning,
       })
     } catch (error) {
-      // 回滚：yaml 写在最后，此前任何失败都不会有配置残留；删掉半成品目录即可。
-      if (createdHome !== null) rmSync(createdHome, { recursive: true, force: true })
-      app.log.error(`provision node ${body.name} failed: ${(error as Error).message}`)
+      // 债务 H2：全量回滚——按完成步骤反向撤销，绝不留下半开通的幽灵节点。
+      if (supervisorStarted !== null) {
+        try {
+          supervisorStarted.stop()
+        } catch {
+          // 停进程/容器失败不阻断回滚其余步骤
+        }
+        supervisors.delete(body.name)
+      }
+      if (config.endpoints[body.name] !== undefined) {
+        delete config.endpoints[body.name]
+        upstreamClients.delete(body.name)
+      }
+      if (agentSpec !== null && config.agents[agentSpec.id] !== undefined) delete config.agents[agentSpec.id]
+      if (dbRowInserted && agentSpec !== null) {
+        try {
+          db.delete(schema.agent).where(eq(schema.agent.id, agentSpec.id)).run()
+        } catch {
+          // DB 本身可能已不可用——不阻断其余回滚
+        }
+      }
+      if (yamlSnap !== null) {
+        try {
+          writeFileSync(resolve(CONFIG_PATH), yamlSnap, 'utf8')
+        } catch (rollbackError) {
+          app.log.warn(`provision rollback: restore config failed: ${(rollbackError as Error).message}`)
+        }
+      }
+      if (envSnap !== undefined) {
+        if (envSnap === null) {
+          // .env 在本请求之前不存在：它由 mergeEnv 创建且只含本节点的 key，直接移除。
+          try {
+            rmSync(ENV_PATH, { force: true })
+          } catch {
+            // 删不掉只影响卫生，不影响正确性
+          }
+        } else {
+          try {
+            writeFileSync(ENV_PATH, envSnap, 'utf8')
+          } catch (rollbackError) {
+            app.log.warn(`provision rollback: restore .env failed: ${(rollbackError as Error).message}`)
+          }
+        }
+      }
+      if (createdHome !== null) {
+        try {
+          rmSync(createdHome, { recursive: true, force: true })
+        } catch {
+          // 目录残留由下次 boot 的对账收敛
+        }
+      }
+      try {
+        recordAudit(db, { actor: request.currentUser?.username ?? 'unknown', kind: 'node_create', detail: `失败：${(error as Error).message}` })
+      } catch {
+        // 审计失败不影响回滚结果
+      }
+      app.log.error(`provision node ${body.name} failed (rolled back): ${(error as Error).message}`)
       return reply.code(500).send({ error: 'provision_failed', detail: (error as Error).message })
     }
   })
@@ -471,7 +551,7 @@ export const registerProvisionRoutes = (
     )
     // 蜂群2计划 P3：审计留痕（删除节点）
     recordAudit(db, { actor: request.currentUser?.username ?? 'unknown', kind: 'node_delete', detail: `节点 ${request.params.id} 删除（磁盘目录保留）` })
-    syncFleetDocs(config, (line) => app.log.info(line))
+    await syncFleetDocs(config, (line) => app.log.info(line))
     return reply.send({ ok: true, removedWorkspaces: bound.map((a) => a.id) })
   })
 }

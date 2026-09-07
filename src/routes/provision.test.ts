@@ -1,7 +1,7 @@
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import Fastify from 'fastify'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AppConfig } from '../config.js'
@@ -42,13 +42,19 @@ after(() => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-const boot = (): { app: ReturnType<typeof Fastify>; config: AppConfig; db: Db; supervisors: Map<string, NodeSupervisor> } => {
+const boot = (): {
+  app: ReturnType<typeof Fastify>
+  config: AppConfig
+  db: Db
+  sqlite: ReturnType<typeof openDb>['sqlite']
+  supervisors: Map<string, NodeSupervisor>
+} => {
   const config = configFor()
-  const { db } = openDb(':memory:')
+  const { db, sqlite } = openDb(':memory:')
   const supervisors = new Map<string, NodeSupervisor>()
   const app = Fastify()
   registerProvisionRoutes(app, config, async () => {}, { db, supervisors, clients: new Map(), upstreamClients: new Map() })
-  return { app, config, db, supervisors }
+  return { app, config, db, sqlite, supervisors }
 }
 
 test('蜂群 P5.5: provision creates a node (profile/key/config write-back/hot-load) and removes it', async () => {
@@ -231,4 +237,30 @@ test('蜂群2计划 P6 回归: 容器模式新建节点同步镜像进 DB（chat
   assert.equal(created.statusCode, 201, JSON.stringify(created.body))
   const row = db.select().from(schema.agent).all().find((a) => a.id === 'product')
   assert.ok(row !== undefined, 'agent 镜像进 DB registry（chat 外键依赖它）')
+})
+
+test('债务 H2 回归: DB 写入失败 → provision 全量回滚,无幽灵节点残留', async () => {
+  const { app, config, db, sqlite, supervisors } = await boot()
+  // 真实 DB 层注入:agent 表插入即抛（模拟磁盘满/约束冲突等真实失败路径）
+  sqlite.exec("CREATE TRIGGER boom_agent_insert BEFORE INSERT ON agent BEGIN SELECT RAISE(ABORT, 'boom'); END")
+
+  const res = await app.inject({
+    method: 'POST',
+    url: '/api/nodes',
+    payload: { name: 'boom-node', install: false, agent: { id: 'boom-agent', workspace: join(dir, 'ws-boom') } },
+  })
+  assert.equal(res.statusCode, 500)
+
+  // 全量回滚:内存 / 监督器 / yaml / .env / 节点目录 / DB 六面全部无残留
+  assert.equal(config.endpoints['boom-node'], undefined, '内存 endpoint 不得残留')
+  assert.equal(config.agents['boom-agent'], undefined, '内存 agent 不得残留')
+  assert.ok(!supervisors.has('boom-node'), '监督器不得残留')
+  assert.doesNotMatch(readFileSync(join(dir, 'manager.config.yaml'), 'utf8'), /boom-node/, 'yaml 不得残留')
+  assert.doesNotMatch(readFileSync(join(dir, '.env'), 'utf8'), /GW_KEY_BOOM_NODE/, '.env 密钥不得残留')
+  assert.ok(!existsSync(join(nodesRoot, 'boom-node')), '节点目录必须被清理')
+  assert.equal(
+    db.select().from(schema.agent).all().find((a) => a.id === 'boom-agent'),
+    undefined,
+    'DB agent 行不得残留',
+  )
 })
