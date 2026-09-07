@@ -145,10 +145,20 @@ const main = async () => {
     })
     check('forced password change succeeds', changed.status === 200)
 
+    // P1-5：改密吊销旧会话 + 换发当前会话（浏览器靠 Set-Cookie 自动续上）
+    const changedCookies = changed.headers.getSetCookie()
+    const cookie2 = changedCookies.map((c) => c.split(';')[0]).join('; ')
+    const csrf2Line = changedCookies.find((c) => c.startsWith('ohdsh_csrf='))
+    const csrf2 = csrf2Line === undefined ? '' : csrf2Line.split(';')[0]?.slice('ohdsh_csrf='.length)
+    check('password change reissues the session', cookie2 !== '' && cookie2 !== cookie)
+    const staleSession = await fetch(`${base}/api/status`, { headers: { cookie } })
+    check('old session is revoked after password change', staleSession.status === 401, `got ${staleSession.status}`)
+    const headers2 = { cookie: cookie2, ...(csrf2 === '' ? {} : { 'x-csrf-token': csrf2 }) }
+
     // 业务 API 放行 + 审计留痕
-    const status = await json(await fetch(`${base}/api/status`, { headers }))
+    const status = await json(await fetch(`${base}/api/status`, { headers: headers2 }))
     check('business API works after change', (status.agents ?? []).length === 1)
-    const audit = await json(await fetch(`${base}/api/audit`, { headers }))
+    const audit = await json(await fetch(`${base}/api/audit`, { headers: headers2 }))
     const kinds = (audit.entries ?? []).map((e) => e.kind)
     check('audit trail has login_success and password_change', kinds.includes('login_success') && kinds.includes('password_change'), kinds.join(','))
 
@@ -161,7 +171,7 @@ const main = async () => {
     check('old password no longer works', oldLogin.status === 401)
 
     // 登出
-    const logout = await fetch(`${base}/api/logout`, { method: 'POST', headers })
+    const logout = await fetch(`${base}/api/logout`, { method: 'POST', headers: headers2 })
     check('logout succeeds', logout.status === 200)
   } finally {
     await stop()

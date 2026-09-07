@@ -38,6 +38,7 @@ import { registerNotificationRoutes } from './routes/notifications.js'
 import { registerProvisionRoutes } from './routes/provision.js'
 import { Scheduler } from './cron/schedule.js'
 import { assetCacheHeaders, buildPages } from './pages.js'
+import { registerSecurityHeaders } from './security.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const publicDir = join(here, '..', 'public')
@@ -196,6 +197,9 @@ const main = async (): Promise<void> => {
   // never be sent back, making login appear broken.
   const secureCookies = process.env.NODE_ENV === 'production'
 
+  // P1-1：安全响应头（CSP 等）——在任何路由之前注册，页面与 API 一并覆盖。
+  // secure 同时决定 HSTS 是否下发：明文 HTTP 形态下发 HSTS 会把站点钉死。
+  await registerSecurityHeaders(app, secureCookies)
   await app.register(cookie, { secret: config.sessionSecret })
   await app.register(rateLimit, { global: false })
   // 蜂群2计划 P3：CSRF —— 非 GET 的 API 请求必须带与 cookie 一致的 X-CSRF-Token
