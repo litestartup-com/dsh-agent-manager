@@ -1,5 +1,5 @@
 // scripts/make-release.mjs — 生成发布包 ohdsh-compose.zip（纯镜像引用，剥离 build 段）。
-// 发布者用：OHDSH_VERSION=v1.0.1 DSH_NODE_IMAGE=... MANAGER_IMAGE=... node scripts/make-release.mjs
+// 发布者用：OHDSH_VERSION=v1.0.2 DSH_NODE_IMAGE=... MANAGER_IMAGE=... node scripts/make-release.mjs
 import { execFileSync } from 'node:child_process'
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const version = process.env.OHDSH_VERSION ?? 'v1.0.1'
+const version = process.env.OHDSH_VERSION ?? 'v1.0.2'
 const nodeImage = process.env.DSH_NODE_IMAGE ?? 'ohdsh/dsh-node:0.1.1-rc.2'
 const managerImage = process.env.MANAGER_IMAGE ?? `ohdsh/manager:${version.replace(/^v/, '')}`
 const releaseDir = join(root, 'dist-release')
