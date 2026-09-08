@@ -28,9 +28,12 @@ writeFileSync(join(stage, 'docker-compose.yml'), stringifyYaml(compose), 'utf8')
 cpSync(join(root, 'manager.config.container.example.yaml'), join(stage, 'manager.config.container.example.yaml'))
 cpSync(join(root, 'scripts', 'gen-env.sh'), join(stage, 'scripts', 'gen-env.sh'))
 mkdirSync(join(stage, 'deploy', 'nginx'), { recursive: true })
-for (const f of ['default.conf', 'tls-origin-ca.conf', 'tls-letsencrypt.conf', 'tls-none.conf']) {
+for (const f of ['default.conf.example', 'tls-origin-ca.conf', 'tls-letsencrypt.conf', 'tls-none.conf']) {
   cpSync(join(root, 'deploy', 'nginx', f), join(stage, 'deploy', 'nginx', f))
 }
+// 发布包开箱即用：运行时 default.conf 是生成物（gitignore），随包预生成 HTTP 直连形态；
+// 域名/TLS 用户用 install.sh 重跑即换模板（同线上行为）。
+cpSync(join(stage, 'deploy', 'nginx', 'default.conf.example'), join(stage, 'deploy', 'nginx', 'default.conf'))
 writeFileSync(
   join(stage, 'README.txt'),
   [

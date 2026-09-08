@@ -36,7 +36,7 @@ try {
     if (services[name] === undefined) failures.push(`docker-compose.yml: 缺少服务 ${name}`)
   }
   for (const rel of [
-    'deploy/nginx/default.conf',
+    'deploy/nginx/default.conf.example',
     'images/node/Dockerfile',
     'images/node/entrypoint.sh',
     'images/node/gen-node-profile.mjs',
@@ -65,7 +65,7 @@ try {
   const compose = readFileSync(join(root, 'docker-compose.yml'), 'utf8')
   if (!/group_add/.test(compose)) failures.push('docker-compose.yml: manager 缺少 group_add（docker.sock 经宿主 docker 组 GID 访问）')
   if (!/\$\{DOCKER_GID:/.test(compose)) failures.push('docker-compose.yml: group_add 应引用 DOCKER_GID（gen-env.sh 探测宿主 docker 组）')
-  for (const rel of ['deploy/nginx/default.conf', 'deploy/nginx/tls-none.conf', 'deploy/nginx/tls-origin-ca.conf', 'deploy/nginx/tls-letsencrypt.conf']) {
+  for (const rel of ['deploy/nginx/default.conf.example', 'deploy/nginx/tls-none.conf', 'deploy/nginx/tls-origin-ca.conf', 'deploy/nginx/tls-letsencrypt.conf']) {
     const conf = readFileSync(join(root, rel), 'utf8')
     if (!conf.includes('location /api/internal/')) failures.push(`${rel}: 缺少 /api/internal/ 反代块`)
     if (!conf.includes('deny all')) failures.push(`${rel}: /api/internal/ 缺少私网 ACL（deny all）`)

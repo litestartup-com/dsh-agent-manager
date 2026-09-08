@@ -38,3 +38,6 @@ docs/archive/
 
 # PowerShell 5.1 ModuleAnalysisCache（在本目录跑 PS5.1 脚本时产生）
 Microsoft/
+
+# nginx 运行时配置 = install.sh 生成的派生品（真相源是 *.conf.example 与 tls-*.conf 模板）
+deploy/nginx/default.conf

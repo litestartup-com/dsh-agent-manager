@@ -58,3 +58,25 @@ test('install.ps1 does not install a global pnpm', () => {
   const text = new TextDecoder('utf-8', { fatal: true }).decode(readFileSync(join(root, 'install.ps1')))
   assert.doesNotMatch(text, /npm install -g pnpm'/)
 })
+
+/**
+ * 蜂群2计划 P6 回归：nginx 运行时 default.conf 是生成物，绝不再进 git。
+ *
+ * 实测现场：线上 install.sh 在 TLS 模式下把模板 sed 进被跟踪的
+ * deploy/nginx/default.conf → git pull 永远报 modified（2026-09-07 用户上报）。
+ * 修法：模板改名 default.conf.example（跟踪），运行时 default.conf 由
+ * install.sh 每次重跑生成并 gitignore；compose 挂载路径不变。
+ */
+test('nginx runtime default.conf is generated from the example, never tracked', () => {
+  const installSh = readFileSync(join(root, 'install.sh'), 'utf8')
+  assert.match(installSh, /cp deploy\/nginx\/default\.conf\.example deploy\/nginx\/default\.conf/, 'install.sh 无域名模式必须从 example 生成运行时配置')
+  assert.match(installSh, /"deploy\/nginx\/\$SRC" > deploy\/nginx\/default\.conf/, 'install.sh 域名模式必须从 tls-*.conf 模板生成')
+
+  const gitignore = readFileSync(join(root, '.gitignore'), 'utf8')
+  assert.match(gitignore, /^deploy\/nginx\/default\.conf$/m, '运行时 default.conf 必须被 gitignore（否则线上改完又脏树）')
+
+  const example = readFileSync(join(root, 'deploy/nginx/default.conf.example'), 'utf8')
+  assert.match(example, /listen 80/, 'example 模板必须保留 HTTP 形态')
+  assert.match(example, /location \/api\/internal\//, 'example 模板必须保留 H1 内网 ACL 块')
+  assert.match(example, /deny all/, 'example 模板必须保留 deny all')
+})

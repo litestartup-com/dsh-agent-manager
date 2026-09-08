@@ -214,7 +214,16 @@ if [ -n "$APP_DOMAIN" ]; then
 
   if [ "$DRY_RUN" = "1" ]; then
     log "DRY: write deploy/nginx/default.conf"
-  else
+  fi
+fi
+
+# ---- nginx 运行时配置（生成物，不进 git）----
+# 真相源 = deploy/nginx/default.conf.example（无域名 HTTP）与 tls-*.conf（域名模板）；
+# default.conf 每次重跑都重新生成——线上改完不进 git，git pull 不再报 modified。
+if [ "$DRY_RUN" = "1" ]; then
+  log "DRY: write deploy/nginx/default.conf"
+else
+  if [ -n "$APP_DOMAIN" ]; then
     case "$TLS_MODE" in
       origin-ca) SRC=tls-origin-ca.conf ;;
       letsencrypt) SRC=tls-letsencrypt.conf ;;
@@ -225,8 +234,11 @@ if [ -n "$APP_DOMAIN" ]; then
         -e "s|__SSL_KEY_PATH__|$SSL_KEY_PATH|g" \
         "deploy/nginx/$SRC" > deploy/nginx/default.conf
     log "nginx config written ($SRC)"
-    NGINX_CONFIG_WRITTEN=1
+  else
+    cp deploy/nginx/default.conf.example deploy/nginx/default.conf
+    log "nginx config written (default.conf.example → default.conf，HTTP 直连)"
   fi
+  NGINX_CONFIG_WRITTEN=1
 fi
 
 # ---- up ----

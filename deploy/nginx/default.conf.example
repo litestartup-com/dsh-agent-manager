@@ -1,6 +1,9 @@
-# 蜂群2计划 P2：nginx 默认形态（HTTP 直连，无 TLS）。
-# 进阶（域名 + TLS）见 tls-origin-ca.conf / tls-letsencrypt.conf / tls-none.conf，
-# 由 install.sh 按 DEPLOY_ENV/TLS_MODE 选用后复制为 default.conf。
+# nginx 默认形态模板（HTTP 直连，无域名/无 TLS）。
+# 这是模板，不是运行时配置：运行时文件 deploy/nginx/default.conf 由 install.sh
+# 生成（无域名 → 复制本文件；域名 → 从 tls-*.conf 模板 sed 生成），且被
+# .gitignore 排除——线上 install.sh 重跑会改写它，绝不能进 git（否则 git pull
+# 永远报 modified，2026-09-07 实测坑）。
+# 手动使用（跳过 install.sh）：cp deploy/nginx/default.conf.example deploy/nginx/default.conf
 server {
     listen 80;
     server_name _;
