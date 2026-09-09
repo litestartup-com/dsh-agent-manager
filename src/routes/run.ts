@@ -5,7 +5,7 @@ import type { AppConfig } from '../config.js'
 import type { Db } from '../db/index.js'
 import { schema } from '../db/index.js'
 import type { GatewayClient } from '../gateway/client.js'
-import type { UpstreamClient } from '../upstream/client.js'
+import type { SessionDriver } from '../session-driver/port.js'
 import { activeRunCount, runAgent, runningRunId } from '../runner.js'
 
 const runBody = z.object({
@@ -18,7 +18,7 @@ export const registerRunRoutes = (
   db: Db,
   clients: Map<string, GatewayClient>,
   requireUser: preHandlerHookHandler,
-  upstreamClients?: Map<string, UpstreamClient>,
+  upstreamClients?: Map<string, SessionDriver>,
 ): void => {
   app.post<{ Params: { id: string }; Body: unknown }>(
     '/api/agents/:id/run',

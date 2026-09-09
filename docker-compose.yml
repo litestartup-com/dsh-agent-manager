@@ -58,7 +58,7 @@ services:
     build:
       context: images/node
       dockerfile: Dockerfile
-    image: ${DSH_NODE_IMAGE:-ohdsh/dsh-node:0.1.1-rc.2}
+    image: ${DSH_NODE_IMAGE:-ohdsh/dsh-node:0.1.2-rc.1}
     container_name: ohdsh-node-brain
     # 与宿主机部署用户同 uid：工作区 bind mount 两边读写一致（v0.1 同款约定）
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"

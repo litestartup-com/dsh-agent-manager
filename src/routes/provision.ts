@@ -4,13 +4,12 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { join, resolve } from 'node:path'
 import type { FastifyInstance, preHandlerHookHandler } from 'fastify'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
-import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import type { AppConfig, ResolvedEndpoint, ResolvedSpawnSpec } from '../config.js'
 import type { Db } from '../db/index.js'
 import { schema } from '../db/index.js'
 import type { GatewayClient } from '../gateway/client.js'
-import type { UpstreamClient } from '../upstream/client.js'
+import type { SessionDriver } from '../session-driver/port.js'
 import { buildUpstreamClients } from '../upstream/client.js'
 import type { NodeSupervisor } from '../nodes/supervisor.js'
 import type { DockerRunner } from '../nodes/docker-runner.js'
@@ -18,6 +17,8 @@ import { makeSupervisor } from '../nodes/registry.js'
 import { detectDshBin, ensureNodeCredentials, ensureNodeProfiles, mergeEnv, profileInstallCommand, resolveGatewayKey } from '../cli/setup.js'
 import { ensureWorkspaceGit } from '../workspace/init.js'
 import { syncFleetDocs } from '../workspace/fleet-doc.js'
+import { mirrorAgentRow, removeAgentRow } from '../reconcile/index.js'
+import { GATEWAY_REF } from '../dsh-version.js'
 import { recordAudit } from '../audit.js'
 
 /**
@@ -29,7 +30,7 @@ import { recordAudit } from '../audit.js'
  * 节点上没有 agent（迁移是后话）。
  */
 
-const GATEWAY_DEP = 'github:litestartup-com/dsh-api-gateway'
+const GATEWAY_DEP = GATEWAY_REF // 0.1.2 线：钉 next-012 commit（dsh-version 单一真相源）
 const CONFIG_PATH = 'manager.config.yaml'
 const ENV_PATH = '.env'
 
@@ -96,7 +97,7 @@ interface ProvisionDeps {
   db: Db
   supervisors: Map<string, NodeSupervisor>
   clients: Map<string, GatewayClient>
-  upstreamClients: Map<string, UpstreamClient>
+  upstreamClients: Map<string, SessionDriver>
   /** 蜂群2计划 P6：容器模式新增节点需要（docker runner 接线）。 */
   docker?: DockerRunner
 }
@@ -194,7 +195,7 @@ export const registerProvisionRoutes = (
         const hostKey = deriveHostWorkspacePath(config, body.name, agentSpec?.workspace)
 
         const dockerSpec = {
-          image: process.env.DSH_NODE_IMAGE ?? 'ohdsh/dsh-node:0.1.1-rc.2',
+          image: process.env.DSH_NODE_IMAGE ?? 'ohdsh/dsh-node:0.1.2-rc.1',
           network: 'ohdsh-hive',
           port,
           host_volumes: { [hostKey]: agentSpec?.workspace ?? workspaceDefault },
@@ -203,7 +204,8 @@ export const registerProvisionRoutes = (
 
         // 债务 H2：DB 先行——真相文件与内存都排在它后面，它失败时无任何外部副作用。
         // 镜像进 DB registry：chat.run 等表的外键指向 agent 表，缺行会
-        // SQLITE_CONSTRAINT_FOREIGNKEY（容器模式分支首测踩坑）
+        // SQLITE_CONSTRAINT_FOREIGNKEY（容器模式分支首测踩坑）。镜像逻辑 =
+        // src/reconcile 的 mirrorAgentRow（单一实现，A 清单 #2）。
         if (agentSpec !== null) {
           const row = db
             .select({ id: schema.agent.id })
@@ -211,18 +213,15 @@ export const registerProvisionRoutes = (
             .all()
             .find((a) => a.id === agentSpec.id)
           if (row === undefined) {
-            db.insert(schema.agent)
-              .values({
-                id: agentSpec.id,
-                name: agentSpec.name,
-                workspacePath: agentSpec.workspace,
-                endpoint: body.name,
-                preset: agentSpec.preset,
-                gitRemote: null,
-                public: 0,
-                createdAt: Date.now(),
-              })
-              .run()
+            mirrorAgentRow(db, {
+              id: agentSpec.id,
+              name: agentSpec.name,
+              workspacePath: agentSpec.workspace,
+              endpoint: body.name,
+              preset: agentSpec.preset,
+              gitRemote: null,
+              public: false,
+            })
             dbRowInserted = true
           }
         }
@@ -361,18 +360,15 @@ export const registerProvisionRoutes = (
       if (agentSpec !== null) {
         const row = db.select({ id: schema.agent.id }).from(schema.agent).all().find((a) => a.id === agentSpec.id)
         if (row === undefined) {
-          db.insert(schema.agent)
-            .values({
-              id: agentSpec.id,
-              name: agentSpec.name,
-              workspacePath: agentSpec.workspace,
-              endpoint: body.name,
-              preset: agentSpec.preset,
-              gitRemote: null,
-              public: 0,
-              createdAt: Date.now(),
-            })
-            .run()
+          mirrorAgentRow(db, {
+            id: agentSpec.id,
+            name: agentSpec.name,
+            workspacePath: agentSpec.workspace,
+            endpoint: body.name,
+            preset: agentSpec.preset,
+            gitRemote: null,
+            public: false,
+          })
           dbRowInserted = true
         }
       }
@@ -476,7 +472,7 @@ export const registerProvisionRoutes = (
       if (agentSpec !== null && config.agents[agentSpec.id] !== undefined) delete config.agents[agentSpec.id]
       if (dbRowInserted && agentSpec !== null) {
         try {
-          db.delete(schema.agent).where(eq(schema.agent.id, agentSpec.id)).run()
+          removeAgentRow(db, agentSpec.id)
         } catch {
           // DB 本身可能已不可用——不阻断其余回滚
         }

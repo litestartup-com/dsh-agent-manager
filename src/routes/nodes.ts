@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import type { FastifyInstance, preHandlerHookHandler } from 'fastify'
 import type { AppConfig } from '../config.js'
 import type { GatewayClient } from '../gateway/client.js'
-import type { UpstreamClient } from '../upstream/client.js'
+import type { SessionDriver } from '../session-driver/port.js'
 import type { NodeSupervisor } from '../nodes/supervisor.js'
 import type { AuditKind } from '../audit.js'
 import { probeEndpoint } from './status.js'
@@ -19,7 +19,7 @@ export const registerNodesRoutes = (
   config: AppConfig,
   supervisors: Map<string, NodeSupervisor>,
   clients: Map<string, GatewayClient>,
-  upstreamClients: Map<string, UpstreamClient>,
+  upstreamClients: Map<string, SessionDriver>,
   requireUser: preHandlerHookHandler,
   /** 蜂群2计划 P3：节点操作审计回调（wiring 层注入，测试可不传）。 */
   audit?: (actor: string, kind: AuditKind, detail: string) => void,

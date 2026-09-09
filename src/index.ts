@@ -4,7 +4,7 @@ import cookie from '@fastify/cookie'
 import rateLimit from '@fastify/rate-limit'
 import fastifyStatic from '@fastify/static'
 import Fastify, { type FastifyReply } from 'fastify'
-import { desc, eq, inArray, isNull } from 'drizzle-orm'
+import { desc, isNull } from 'drizzle-orm'
 import { loadConfig } from './config.js'
 import { openDb, schema } from './db/index.js'
 import { backupNow } from './backup.js'
@@ -13,16 +13,16 @@ import { pruneExpiredSessions } from './auth/session.js'
 import { makeRequirePage, makeRequireUser } from './auth/hooks.js'
 import { buildClients } from './gateway/client.js'
 import { buildUpstreamClients, closeAllMux } from './upstream/client.js'
-import { archiveOrphanChats } from './chat/store.js'
+import { reconcileAll, startPeriodicReconcile } from './reconcile/index.js'
 import { buildNodeSupervisors } from './nodes/registry.js'
-import { DockerRunner, NODE_LABEL } from './nodes/docker-runner.js'
+import { DockerRunner } from './nodes/docker-runner.js'
 import { recordAudit } from './audit.js'
 import { makeCsrfHook } from './routes/auth.js'
 import { registerAuditRoutes } from './routes/audit.js'
 import { collectNodeHomes, packNodeHomes } from './nodebackup.js'
 import { deriveBackupKey } from './crypt.js'
 import { seedEmptyWorkspaces } from './workspace/seed.js'
-import { provisionBrainToken, syncFleetDocs } from './workspace/fleet-doc.js'
+import { provisionBrainToken } from './workspace/fleet-doc.js'
 import { registerAuthRoutes } from './routes/auth.js'
 import { registerStatusRoutes } from './routes/status.js'
 import { registerWorkspaceRoutes } from './routes/workspace.js'
@@ -88,38 +88,8 @@ const main = async (): Promise<void> => {
 
   // Mirror configured agents into the registry so later stages (bootstrap,
   // runner) read one source of truth at runtime.
-  for (const agent of Object.values(config.agents)) {
-    const rows = db.select({ id: schema.agent.id }).from(schema.agent).where(eq(schema.agent.id, agent.id)).all()
-    const values = {
-      id: agent.id,
-      name: agent.name,
-      workspacePath: agent.workspacePath,
-      endpoint: agent.endpoint,
-      preset: agent.preset,
-      gitRemote: agent.gitRemote,
-      public: agent.public ? 1 : 0,
-      createdAt: Date.now(),
-    }
-    if (rows.length === 0) db.insert(schema.agent).values(values).run()
-    else {
-      const { createdAt: _ignored, ...rest } = values
-      db.update(schema.agent).set(rest).where(eq(schema.agent.id, agent.id)).run()
-    }
-  }
-
-  // A run only exists inside a manager process, so anything still marked live
-  // at boot died with the previous one. Left alone it would hold the
-  // one-live-run-per-agent index forever and no further run could start.
-  const stale = db
-    .update(schema.run)
-    .set({ state: 'failed', endedAt: Date.now(), error: 'manager restarted while this run was in flight' })
-    .where(inArray(schema.run.state, ['pending', 'running']))
-    .run()
-  if (stale.changes > 0) app.log.warn(`marked ${stale.changes} interrupted run(s) as failed`)
-
-  // 蜂群2计划 P6：孤儿会话归档（agent 已从配置删除的会话永远 409 agent_gone）
-  const orphanCount = archiveOrphanChats(db, new Set(Object.keys(config.agents)))
-  if (orphanCount > 0) app.log.info(`archived ${orphanCount} orphan chat(s) whose agent left the config`)
+  // ↓ 已收敛进 src/reconcile（A 清单 #2 单一化）：DB 镜像 / 遗留 run / 孤儿会话
+  //   / fleet 下发 / 节点认领统一走 reconcileAll，见下方调用点。
 
   const clients = buildClients(config.endpoints)
   const upstreamClients = buildUpstreamClients(config.endpoints)
@@ -139,9 +109,6 @@ const main = async (): Promise<void> => {
     (line) => app.log.info(line),
   )
   if (seededWorkspaces.length > 0) app.log.info(`workspaces seeded: ${seededWorkspaces.join(', ')}`)
-  // 蜂群2计划 P6：fleet.md 拓扑共享文档——每个工作区一份，随 config 自动同步
-  const syncedFleet = await syncFleetDocs(config, (line) => app.log.info(line))
-  if (syncedFleet.length > 0) app.log.info(`fleet.md synced: ${syncedFleet.join(', ')}`)
   // 裸机形态：主脑令牌写入节点用户 HOME（容器形态由节点 entrypoint 自己派生）。
   // DSH 工具沙箱洗 TOKEN 字样 env（DSH-FACTS §2），技能手册读 $HOME/.brain-auth。
   const brainAgent = config.agents['brain']
@@ -150,47 +117,20 @@ const main = async (): Promise<void> => {
     provisionBrainToken(undefined, (line) => app.log.info(line))
   }
 
-  // 蜂群 P1：被托管的节点随 manager 一起拉起。不托管（spawn 缺省/关闭）的节点
-  // 由外部管理，manager 只探活——用户手动起的 DSH 不会被抢管。
-  // 蜂群2计划 P2b：docker runner 走对账——认领在跑容器、补拉缺失；process 照旧。
-  for (const [id, supervisor] of nodeSupervisors) {
-    const spec = config.endpoints[id]?.spawn
-    if (spec === null || spec === undefined) continue
-    if (spec.runner === 'docker') {
-      if (dockerRunner === null) {
-        app.log.warn(`node ${id}: runner=docker 但 docker.sock 不可用，跳过拉起`)
-        continue
-      }
-      try {
-        const managed = await dockerRunner.listManaged()
-        const existing = managed.find((c) => c.labels[NODE_LABEL] === id && c.state === 'running')
-        if (existing !== undefined) {
-          // 蜂群2计划 P6：认领前核对运行时事实（GW_KEY/镜像 ID）与当前配置一致；
-          // 不一致（重装残留旧钥匙 / tag 同名重建旧镜像）→ 重建而不是认领。
-          const facts = await dockerRunner.runtimeFacts(existing.id)
-          const expectedImageId = spec.docker === null ? null : await dockerRunner.imageIdOf(spec.docker.image)
-          const expectedKey = config.endpoints[id]?.sandboxKey ?? ''
-          const matches = facts !== null && DockerRunner.matchesSpec(facts, expectedKey, expectedImageId)
-          if (!matches) {
-            app.log.warn(`node ${id}: container ${existing.name} 与当前配置不符（GW_KEY/镜像 ID），重建`)
-            await dockerRunner.stop(existing.id).catch(() => undefined)
-            supervisor.start(spec)
-            continue
-          }
-          app.log.info(`node ${id}: adopt container ${existing.name} (${existing.id.slice(0, 12)})`)
-          supervisor.adopt(spec, existing.id)
-        } else {
-          app.log.info(`node ${id}: managed (docker ${spec.docker?.image ?? '?'})`)
-          supervisor.start(spec)
-        }
-      } catch (error) {
-        app.log.warn(`node ${id}: docker 对账失败：${error instanceof Error ? error.message : String(error)}`)
-      }
-      continue
-    }
-    app.log.info(`node ${id}: managed (${spec.command} ${spec.args.join(' ')})`)
-    supervisor.start(spec)
-  }
+  // 对账单一化（A 清单 #2）：DB 注册表镜像、遗留 run 收敛、孤儿会话归档、
+  // fleet.md 派生下发、托管节点认领（docker 对账 / process 拉起）——
+  // boot 与配置变更（provision 路由）共用这一个入口，runHygiene 仅 boot 打开。
+  await reconcileAll(
+    { db, config, supervisors: nodeSupervisors, docker: dockerRunner, log: (line) => app.log.info(line) },
+    { runHygiene: true },
+  )
+  // 修路 A2：周期对账（间隔配置 reconcile_interval_minutes，0 = 关）。
+  // healOnly：人手动停的冷态节点不动，失败落 offline 的节点自愈。
+  const stopPeriodicReconcile = startPeriodicReconcile(
+    { db, config, supervisors: nodeSupervisors, docker: dockerRunner, log: (line) => app.log.info(line) },
+    config.reconcileIntervalMs ?? 10 * 60_000,
+  )
+  app.addHook('onClose', async () => { stopPeriodicReconcile() })
   const requireUser = makeRequireUser(db)
   const requirePage = makeRequirePage(db)
   // Secure cookies require HTTPS; on plain-HTTP localhost dev they would simply

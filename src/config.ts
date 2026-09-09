@@ -140,6 +140,9 @@ const fileSchema = z.object({
     })
     .default({ timeout_minutes: 15, silence_timeout_minutes: 5, max_consecutive_failures: 3 }),
   database: z.object({ path: z.string().min(1) }).default({ path: './data/manager.db' }),
+  // 蜂群2计划 修路 A2：周期对账间隔（分钟）。0 = 关闭（只 boot + 变更时对账）。
+  // 对账幂等且 healOnly（人手动停的冷态节点不动、失败的 offline 节点自愈）。
+  reconcile_interval_minutes: z.number().int().min(0).default(10),
   // 蜂群 P5.1：主脑派工（trigger=brain）的日预算熔断——超限拒绝并转述；
   // 人手动操作保持不拦。缺省 = 不设上限。
   brain: z
@@ -248,6 +251,8 @@ export interface AppConfig {
     dailyBudgetMicroUsd: number | null
   }
   databasePath: string
+  /** 修路 A2：周期对账间隔（毫秒）；0 = 关闭。loadConfig 恒有值；测试字面量可省略（读取方 ?? 默认）。 */
+  reconcileIntervalMs?: number
   /**
    * 蜂群 P5.1：主脑日派工预算（微美元），null = 不设上限。只拦 trigger=brain
    * 的派工；人工直连与手动派工不受影响。
@@ -292,7 +297,12 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
     if (driver === 'gateway' && key === '') {
       throw new Error(`endpoint "${id}": env var ${ep.key_ref} is empty; it must match one entry of the gateway's apiKeys`)
     }
-    const prefix = driver === 'apiproxy' ? '/api' : ep.prefix
+    // 0.1.2 起（v1.0.3）：apiproxy 显式配置的 prefix 必须生效——指向网关
+    // facade 时就是 `/api-gw/v1/proxy`（DSH-012-ASSESSMENT「只改 base URL +
+    // key 头」路线的先决条件）。未显式配置（沿用 schema 默认 '/api-gw/v1'）
+    // 才回退旧行为 '/api'（0.1.1 直连宿主原生 apiproxy）；现有配置全部显式
+    // 写了 prefix: /api，行为零变化。
+    const prefix = driver === 'apiproxy' && ep.prefix === '/api-gw/v1' ? '/api' : ep.prefix
     const sandboxBase = ep.sandbox_base === undefined ? null : ep.sandbox_base.replace(/\/+$/, '')
     const sandboxKey = ep.sandbox_key_ref !== '' ? (process.env[ep.sandbox_key_ref] ?? '') : ''
     if (sandboxBase !== null && sandboxKey === '') {
@@ -478,6 +488,7 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
         file.runner.daily_budget_usd === undefined ? null : Math.round(file.runner.daily_budget_usd * 1e6),
     },
     databasePath: resolve(file.database.path),
+    reconcileIntervalMs: file.reconcile_interval_minutes * 60_000,
     brainDailyBudgetMicroUsd:
       file.brain.daily_budget_usd === undefined ? null : Math.round(file.brain.daily_budget_usd * 1e6),
     pricing,

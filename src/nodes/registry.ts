@@ -11,11 +11,11 @@ import { NodeSupervisor, type NodeProbeResult } from './supervisor.js'
 import type { DockerRunner } from './docker-runner.js'
 import type { AppConfig, ResolvedEndpoint } from '../config.js'
 import type { GatewayClient } from '../gateway/client.js'
-import type { UpstreamClient } from '../upstream/client.js'
+import type { SessionDriver } from '../session-driver/port.js'
 
 export interface NodeRegistryDeps {
   gateway: (id: string) => GatewayClient | undefined
-  upstream: (id: string) => UpstreamClient | undefined
+  upstream: (id: string) => SessionDriver | undefined
   log?: (line: string) => void
   /** 蜂群2计划 P2b：docker runner（有 runner=docker 的 endpoint 才需要）。 */
   docker?: DockerRunner
@@ -27,7 +27,7 @@ export const makeSupervisor = (endpoint: ResolvedEndpoint, deps: NodeRegistryDep
     probe: async (): Promise<NodeProbeResult> => {
       try {
         if (endpoint.driver === 'apiproxy') {
-          const version = await deps.upstream(endpoint.id)?.hostVersion()
+          const version = await deps.upstream(endpoint.id)?.probeVersion()
           return version === undefined || version === 'unknown'
             ? { ok: false, detail: 'host.describe returned no version' }
             : { ok: true, detail: `host.describe ok (${version})` }

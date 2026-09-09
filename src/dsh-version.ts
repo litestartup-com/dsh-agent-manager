@@ -6,14 +6,16 @@
  * 官方出新版时只改这一处，配合冒烟通过后一起 bump。
  */
 export const COMPAT_DSH_PACKAGE = '@deepseek-ai/dsh'
-export const COMPAT_DSH_VERSION = '0.1.1-rc.2'
+export const COMPAT_DSH_VERSION = '0.1.2-rc.1'
 /** 安装命令：版本钉死，不追最新。 */
 export const DSH_INSTALL_COMMAND = `npm install -g ${COMPAT_DSH_PACKAGE}@${COMPAT_DSH_VERSION}`
 /**
- * dsh-api-gateway 固定引用。仓库尚无 tag，钉 main 上 v0.2.0 对应的 commit；
- * 打上 tag 后改 `github:litestartup-com/dsh-api-gateway#v0.2.0`。
+ * 0.1.2 线（切主路）：facade 插件包名 = ohdsh-api-facade（ohdsh- 前缀约定）。
+ * 仓库 URL 仍是 litestartup-com/dsh-api-gateway（钉版链暂不动），引用钉
+ * next-012 分支的最新 commit（eeb33d6 = 白名单全量迁移完成点）。
  */
-export const GATEWAY_REF = 'github:litestartup-com/dsh-api-gateway#db50fba2ffc9be4041742d1b4faf89cfcd708f31'
+export const GATEWAY_PACKAGE = 'ohdsh-api-facade'
+export const GATEWAY_REF = 'github:litestartup-com/dsh-api-gateway#eeb33d6bb821305f3d272b9d44541c5871439c4c'
 /** 版本比对：容忍 v 前缀；null = 未探测到。 */
 export const dshCompatible = (version: string | null): boolean =>
   version !== null && version.replace(/^v/, '') === COMPAT_DSH_VERSION

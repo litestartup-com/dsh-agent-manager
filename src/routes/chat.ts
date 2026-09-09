@@ -7,7 +7,7 @@ import type { Db } from '../db/index.js'
 import { schema } from '../db/index.js'
 import { GatewayError, type GatewayClient, type HistoryEvent, type QuestionAnswer } from '../gateway/client.js'
 import type { GatewayFrame } from '../gateway/stream.js'
-import type { UpstreamClient } from '../upstream/client.js'
+import type { SessionDriver } from '../session-driver/port.js'
 import { UpstreamError } from '../upstream/rpc.js'
 import { activeRunCount, runAgent, runningRunId, type RunOutcome } from '../runner.js'
 import { cancelQueuedTurn, cancelQueuedTurns, drainChatQueue, enqueueTurn } from '../chat/queue.js'
@@ -109,7 +109,7 @@ export const registerChatRoutes = (
   db: Db,
   clients: Map<string, GatewayClient>,
   requireUser: preHandlerHookHandler,
-  upstreamClients?: Map<string, UpstreamClient>,
+  upstreamClients?: Map<string, SessionDriver>,
 ): void => {
   const agentOf = (chatAgentId: string): ResolvedAgent | undefined => config.agents[chatAgentId]
 
@@ -120,7 +120,7 @@ export const registerChatRoutes = (
   const resolve = (
     chatId: string,
     reply: FastifyReply,
-  ): { chat: NonNullable<ReturnType<typeof getChat>>; agent: ResolvedAgent; client: GatewayClient; upstream: UpstreamClient | null; driver: 'gateway' | 'apiproxy' } | null => {
+  ): { chat: NonNullable<ReturnType<typeof getChat>>; agent: ResolvedAgent; client: GatewayClient; upstream: SessionDriver | null; driver: 'gateway' | 'apiproxy' } | null => {
     const chat = getChat(db, chatId)
     if (chat === null || chat.removedAt !== null) {
       void reply.code(404).send({ error: 'unknown_chat' })
@@ -477,7 +477,7 @@ export const registerChatRoutes = (
     chat: NonNullable<ReturnType<typeof getChat>>,
     agent: ResolvedAgent,
     client: GatewayClient,
-    upstream: UpstreamClient | null,
+    upstream: SessionDriver | null,
     driver: 'gateway' | 'apiproxy',
     text: string,
   ): Promise<RunOutcome> => {
@@ -546,7 +546,7 @@ export const registerChatRoutes = (
     chat: NonNullable<ReturnType<typeof getChat>>,
     agent: ResolvedAgent,
     client: GatewayClient,
-    upstream: UpstreamClient | null,
+    upstream: SessionDriver | null,
     driver: 'gateway' | 'apiproxy',
     text: string,
   ): Promise<unknown> => {

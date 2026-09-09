@@ -10,7 +10,7 @@ import { normalizeUsage, streamFrames, sumUsage, type GatewayFrame, type TokenUs
 import { computeCost, DEFAULT_PRICING, type PricingTable } from './pricing.js'
 import { withCommitLock } from './workspace/commit-lock.js'
 import { currentHead, snapshotAfter, snapshotBefore } from './workspace/snapshot.js'
-import type { UpstreamClient } from './upstream/client.js'
+import type { SessionDriver } from './session-driver/port.js'
 import { UpstreamError } from './upstream/rpc.js'
 
 /**
@@ -98,7 +98,7 @@ export interface RunInput {
   agent: ResolvedAgent
   client: GatewayClient
   /** The apiproxy client, set when driver is 'apiproxy'. */
-  upstream?: UpstreamClient
+  upstream?: SessionDriver
   /** Which driver the endpoint uses. Defaults to 'gateway'. */
   driver?: 'gateway' | 'apiproxy'
   prompt: string
@@ -610,7 +610,8 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
         // 蜂群 P0：在首次 prompt 之前把沙箱模式钉在会话上（sandbox/mode 日志
         // 事件，冷醒 replay 恢复，一次即持久）。续接路径的模式在创建时已设过。
         if (agent.sandboxMode !== null) {
-          await upstream.setSandboxMode(sessionId, agent.sandboxMode)
+          // 端口可选能力：无此能力的插头跳过（facade 插头必实现）。
+          await upstream.setSandboxMode?.(sessionId, agent.sandboxMode)
         }
       } else {
         sessionId = input.sessionId
