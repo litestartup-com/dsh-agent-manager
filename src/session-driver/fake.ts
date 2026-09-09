@@ -1,0 +1,123 @@
+/**
+ * FakeSessionDriver —— 拔插头验收的「插头三替身」（纯内存假翻译员）。
+ *
+ * 它只实现 SessionDriver 端口，不 import 任何 wire 模块（rpc/mux/respond 都不碰）。
+ * 用它驱动 runner/chat 全链路，证明上层在运行时也只依赖端口：
+ * 换插头 = 换这个实现，上层零改动（TRANSLATOR-OPTIONS §5 验收标准）。
+ *
+ * 脚本化：frames 按序泵给订阅者（prompt 时触发），其余操作只记录。
+ */
+import type { SessionDriver } from './port.js'
+import type { MuxListener } from '../upstream/mux.js'
+import type { UpstreamCreatedSession, UpstreamSessionHistory } from '../upstream/client.js'
+import type { RpcReceipt } from '../upstream/respond.js'
+import type { GatewayFrame } from '../gateway/stream.js'
+
+export interface FakeScript {
+  /** prompt 后按序泵给订阅者的帧。 */
+  frames: GatewayFrame[]
+  /** prompt 是否被接受（默认 true）。 */
+  promptAccepted?: boolean
+  /** createSession 的返回事实（默认 null = 用入参）。 */
+  preset?: string | null
+  provider?: string | null
+  model?: string | null
+  /** 非空 = createSession 抛出该错误（模拟上游 5xx）。 */
+  createError?: string
+  /** probeVersion 返回值；null = 抛出（不可达）。 */
+  probeVersion?: string | null
+}
+
+export class FakeSessionDriver implements SessionDriver {
+  readonly id: string
+  private seq = 0
+  readonly created: Array<{ cwd: string; preset: string | null }> = []
+  readonly prompts: string[] = []
+  cancels = 0
+  readonly sandboxPins: Array<{ sessionId: string; mode: string }> = []
+  readonly answered: Array<{ rpcId: string; sessionId: string; answer: unknown }> = []
+  readonly declined: Array<{ rpcId: string; sessionId: string }> = []
+  readonly decided: Array<{ rpcId: string; sessionId: string; approvalId: string; outcome: string }> = []
+  readonly released: string[] = []
+  private readonly listeners = new Map<string, Set<MuxListener>>()
+
+  constructor(id: string, private readonly script: FakeScript) {
+    this.id = id
+  }
+
+  async createSession(cwd: string, preset?: string | null): Promise<UpstreamCreatedSession> {
+    if (this.script.createError !== undefined) throw new Error(this.script.createError)
+    this.created.push({ cwd, preset: preset ?? null })
+    this.seq += 1
+    return {
+      sessionId: `fake-${this.seq}`,
+      preset: this.script.preset === undefined ? (preset ?? null) : this.script.preset,
+      provider: this.script.provider ?? null,
+      model: this.script.model ?? null,
+    }
+  }
+
+  async prompt(sessionId: string, text: string): Promise<{ accepted: boolean }> {
+    this.prompts.push(text)
+    if (this.script.promptAccepted === false) return { accepted: false }
+    // 异步泵帧：与真实插头的流式投递同序（订阅先于 prompt 已成立）。
+    queueMicrotask(() => {
+      for (const frame of this.script.frames) {
+        for (const listener of this.listeners.get(sessionId) ?? []) listener(sessionId, frame)
+      }
+    })
+    return { accepted: true }
+  }
+
+  subscribe(sessionId: string, listener: MuxListener): () => void {
+    const set = this.listeners.get(sessionId) ?? new Set()
+    set.add(listener)
+    this.listeners.set(sessionId, set)
+    return () => {
+      set.delete(listener)
+      if (set.size === 0) this.listeners.delete(sessionId)
+    }
+  }
+
+  async history(sessionId: string): Promise<UpstreamSessionHistory> {
+    return { sessionId, sessionState: 'cold', title: null, events: [] }
+  }
+
+  async cancel(_sessionId: string): Promise<void> {
+    this.cancels += 1
+  }
+
+  async answerQuestion(rpcId: string, sessionId: string, answer: unknown): Promise<RpcReceipt> {
+    this.answered.push({ rpcId, sessionId, answer })
+    return { accepted: true }
+  }
+
+  async declineQuestion(rpcId: string, sessionId: string): Promise<RpcReceipt> {
+    this.declined.push({ rpcId, sessionId })
+    return { accepted: true }
+  }
+
+  async decideApproval(
+    rpcId: string,
+    sessionId: string,
+    approvalId: string,
+    outcome: 'allowed-once' | 'rejected',
+  ): Promise<RpcReceipt> {
+    this.decided.push({ rpcId, sessionId, approvalId, outcome })
+    return { accepted: true }
+  }
+
+  async release(sessionId: string): Promise<void> {
+    this.released.push(sessionId)
+  }
+
+  async probeVersion(): Promise<string> {
+    const version = this.script.probeVersion
+    if (version === undefined || version === null) throw new Error('fake: upstream unreachable')
+    return version
+  }
+
+  async setSandboxMode(sessionId: string, mode: 'read-only' | 'workspace-write'): Promise<void> {
+    this.sandboxPins.push({ sessionId, mode })
+  }
+}
