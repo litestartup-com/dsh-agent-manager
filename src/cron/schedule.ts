@@ -5,7 +5,7 @@ import type { AppConfig } from '../config.js'
 import type { Db } from '../db/index.js'
 import { schema } from '../db/index.js'
 import type { GatewayClient } from '../gateway/client.js'
-import type { UpstreamClient } from '../upstream/client.js'
+import type { SessionDriver } from '../session-driver/port.js'
 import { runAgent, type RunInput, type RunOutcome, type RunnerDeps } from '../runner.js'
 import { currentDay, daySpend } from '../usage/store.js'
 import { notify } from '../notify.js'
@@ -46,7 +46,7 @@ export interface CronDeps {
   db: Db
   config: AppConfig
   clients: Map<string, GatewayClient>
-  upstreamClients?: Map<string, UpstreamClient>
+  upstreamClients?: Map<string, SessionDriver>
   log: CronLog
   clock?: () => number
   /** Swapped out in tests so the scheduler can be driven without a gateway. */

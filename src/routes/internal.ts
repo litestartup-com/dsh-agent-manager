@@ -7,7 +7,7 @@ import type { AppConfig } from '../config.js'
 import type { Db } from '../db/index.js'
 import { schema } from '../db/index.js'
 import type { GatewayClient } from '../gateway/client.js'
-import type { UpstreamClient } from '../upstream/client.js'
+import type { SessionDriver } from '../session-driver/port.js'
 import { listChats, getChat, bindSession, touchChat } from '../chat/store.js'
 import { publish } from './chat.js'
 import { readBoard } from '../board/store.js'
@@ -92,7 +92,7 @@ export const registerInternalRoutes = (
   config: AppConfig,
   db: Db,
   clients: Map<string, GatewayClient>,
-  upstreamClients: Map<string, UpstreamClient>,
+  upstreamClients: Map<string, SessionDriver>,
   scheduler: Scheduler,
 ): void => {
   const gated = { preHandler: brainGate }

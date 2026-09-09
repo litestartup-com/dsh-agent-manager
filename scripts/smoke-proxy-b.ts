@@ -55,7 +55,7 @@ await step('负例：白名单外 403 / 错 key 401 / health 开放', async () =
 })
 
 await step('host.describe（经代理）', async () => {
-  const version = await client.hostVersion()
+  const version = await client.probeVersion()
   log('DSH version (via proxy): ' + version)
 })
 

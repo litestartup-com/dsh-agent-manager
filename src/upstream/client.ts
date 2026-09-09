@@ -1,14 +1,15 @@
 /**
- * High-level client for the apiproxy driver.
+ * High-level client for the apiproxy driver — SessionDriver 插头一（facade）。
  *
- * Wraps rpc, mux, translate, and respond into an interface that the runner and
- * chat routes can consume without knowing the wire format. Deliberately does NOT
- * extend or implement the GatewayClient class — the two are separate branches,
- * and a common interface is deferred to S4.
+ * Wraps rpc, mux, translate, and respond into the SessionDriver port (修路阶段
+ * 第一项)：上层只见端口，不见 wire。Deliberately does NOT extend or implement
+ * the GatewayClient class — the legacy gateway driver is a separate branch and
+ * is not a SessionDriver plug (its slot/release model is pre-port).
  */
 
 import type { ResolvedEndpoint } from '../config.js'
 import type { HistoryEvent } from '../gateway/client.js'
+import type { SessionDriver } from '../session-driver/port.js'
 import { rpc, type UpstreamEndpoint, UpstreamError } from './rpc.js'
 import { respond, type RpcReceipt } from './respond.js'
 import { subscribe, closeAllMux, type MuxListener } from './mux.js'
@@ -34,7 +35,7 @@ export interface UpstreamCreatedSession {
   model: string | null
 }
 
-export class UpstreamClient {
+export class UpstreamClient implements SessionDriver {
   readonly id: string
   private readonly ep: UpstreamEndpoint
   private readonly sandboxBase: string | null
@@ -155,10 +156,10 @@ export class UpstreamClient {
   }
 
   /**
-   * Reads the DSH version through `host.describe` — the apiproxy contract has
-   * no `host.version` method.
+   * 探活（端口词汇）：读 DSH 版本串——apiproxy 契约里经 `host.describe`
+   * （无 `host.version` 方法）。失败抛出，上层 catch 判不可达。
    */
-  async hostVersion(): Promise<string> {
+  async probeVersion(): Promise<string> {
     const result = await rpc<{ version?: string }>(this.ep, 'host.describe', {}, { timeoutMs: 5_000 })
     return typeof result.result.value.version === 'string' ? result.result.value.version : 'unknown'
   }
@@ -211,13 +212,22 @@ export class UpstreamClient {
   ): Promise<RpcReceipt> {
     return respond(this.ep, rpcId, { ok: true, value: { sessionId, approvalId, outcome } })
   }
+
+  /**
+   * 释放（端口词汇）：插头一无槽位可还——会话由宿主持有，manager 不做
+   * 槽位管理（旧 gateway 驱动的 maxSessions 模型与端口无关）。no-op。
+   */
+  async release(_sessionId: string): Promise<void> {
+    // 无资源持有：宿主的会话存活与 manager 无关。
+  }
 }
 
 /**
- * Builds UpstreamClient instances for all apiproxy-mode endpoints.
+ * Builds SessionDriver plugs for all apiproxy-mode endpoints.
+ * 插头一 = UpstreamClient（facade 契约）。
  */
-export const buildUpstreamClients = (endpoints: Record<string, ResolvedEndpoint>): Map<string, UpstreamClient> => {
-  const map = new Map<string, UpstreamClient>()
+export const buildUpstreamClients = (endpoints: Record<string, ResolvedEndpoint>): Map<string, SessionDriver> => {
+  const map = new Map<string, SessionDriver>()
   for (const endpoint of Object.values(endpoints)) {
     if (endpoint.driver === 'apiproxy') {
       map.set(endpoint.id, new UpstreamClient(endpoint))

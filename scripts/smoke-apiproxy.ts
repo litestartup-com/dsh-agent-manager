@@ -56,7 +56,7 @@ const framesSeen: string[] = []
 const kinds = new Set<string>()
 
 await step('host.describe（版本探测）', async () => {
-  const version = await client.hostVersion()
+  const version = await client.probeVersion()
   if (version === 'unknown' || version === '') fail('host.describe returned no version')
   log('DSH version: ' + version)
 })

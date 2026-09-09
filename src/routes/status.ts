@@ -3,7 +3,7 @@ import { desc, eq } from 'drizzle-orm'
 import type { AppConfig } from '../config.js'
 import { schema, type Db } from '../db/index.js'
 import { GatewayError, type GatewayClient } from '../gateway/client.js'
-import type { UpstreamClient } from '../upstream/client.js'
+import type { SessionDriver } from '../session-driver/port.js'
 import { listArchivedChats, listChats } from '../chat/store.js'
 import { activeRunCount, runningRunId } from '../runner.js'
 import { currentMonth, monthByAgent } from '../usage/store.js'
@@ -34,7 +34,7 @@ export interface EndpointStatus {
 export const probeEndpoint = async (
   config: AppConfig,
   clients: Map<string, GatewayClient>,
-  upstreamClients: Map<string, UpstreamClient>,
+  upstreamClients: Map<string, SessionDriver>,
   endpointId: string,
 ): Promise<EndpointStatus> => {
   const endpoint = config.endpoints[endpointId]
@@ -59,7 +59,7 @@ export const probeEndpoint = async (
       return row
     }
     try {
-      const version = await upstream.hostVersion()
+      const version = await upstream.probeVersion()
       row.reachable = true
       if (version !== 'unknown') {
         // 注意（DSH-FACTS §6）：host.describe 的 version 字段恒为协议号（0.0.1），
@@ -100,7 +100,7 @@ export const registerStatusRoutes = (
   db: Db,
   clients: Map<string, GatewayClient>,
   requireUser: preHandlerHookHandler,
-  upstreamClients: Map<string, UpstreamClient>,
+  upstreamClients: Map<string, SessionDriver>,
 ): void => {
   /** Liveness for a supervisor. Intentionally unauthenticated and contentless. */
   app.get('/healthz', async (_request, reply) => reply.send({ ok: true }))

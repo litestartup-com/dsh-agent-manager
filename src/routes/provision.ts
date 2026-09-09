@@ -10,7 +10,7 @@ import type { AppConfig, ResolvedEndpoint, ResolvedSpawnSpec } from '../config.j
 import type { Db } from '../db/index.js'
 import { schema } from '../db/index.js'
 import type { GatewayClient } from '../gateway/client.js'
-import type { UpstreamClient } from '../upstream/client.js'
+import type { SessionDriver } from '../session-driver/port.js'
 import { buildUpstreamClients } from '../upstream/client.js'
 import type { NodeSupervisor } from '../nodes/supervisor.js'
 import type { DockerRunner } from '../nodes/docker-runner.js'
@@ -96,7 +96,7 @@ interface ProvisionDeps {
   db: Db
   supervisors: Map<string, NodeSupervisor>
   clients: Map<string, GatewayClient>
-  upstreamClients: Map<string, UpstreamClient>
+  upstreamClients: Map<string, SessionDriver>
   /** 蜂群2计划 P6：容器模式新增节点需要（docker runner 接线）。 */
   docker?: DockerRunner
 }
