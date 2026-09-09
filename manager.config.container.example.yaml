@@ -12,19 +12,21 @@ listen:
   port: 8080
 
 endpoints:
+  # 0.1.2 切主路接线清单：manager 走 facade（进程内门面 + key 鉴权），
+  # 不再直连宿主 /api（0.1.2 的 /api 是信任栅栏，loopback 也 401）。
   brain:
     url: http://node-brain:3082
     driver: apiproxy
-    prefix: /api
-    key_ref: ''
+    prefix: /api-gw/v1/proxy
+    key_ref: GW_KEY_B
     sandbox_base: http://node-brain:3082/api-gw/v1
     sandbox_key_ref: GW_KEY_B
 
   personal:
     url: http://node-personal:3081
     driver: apiproxy
-    prefix: /api
-    key_ref: ''
+    prefix: /api-gw/v1/proxy
+    key_ref: GW_KEY_A
     sandbox_base: http://node-personal:3081/api-gw/v1
     sandbox_key_ref: GW_KEY_A
     spawn:

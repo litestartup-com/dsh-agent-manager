@@ -62,9 +62,9 @@ services:
     container_name: ohdsh-node-brain
     # 与宿主机部署用户同 uid：工作区 bind mount 两边读写一致（v0.1 同款约定）
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
-    # --trusted-host：/api 浏览器信任栅栏——manager 经 hive 内网以 node-brain:3082 访问，
-    # 不在默认回环信任名单里会 403 forbidden（容器实测）
-    command: ["--port", "3082", "--trusted-host", "node-brain", "node-brain:3082"]
+    # 0.1.2：--trusted-host 已删（CLI 无此参数，传了直接启动失败）；
+    # /api 面不再用，manager 走 facade（/api-gw/v1/proxy + GW_KEY 鉴权）。
+    command: ["--port", "3082"]
     environment:
       DSH_HOME: /data
       GW_KEY: ${GW_KEY_B}
