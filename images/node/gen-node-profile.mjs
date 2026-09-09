@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 
 const DSH_VERSION = process.env.DSH_VERSION ?? '0.1.2-rc.1'
-const GATEWAY_REF = process.env.GATEWAY_REF ?? 'github:litestartup-com/dsh-api-gateway#eeb33d6bb821305f3d272b9d44541c5871439c4c'
+const GATEWAY_REF = process.env.GATEWAY_REF ?? 'github:litestartup-com/dsh-api-gateway#e6b3c5b6dfc8c1cb1226f2b391fcd9a1582dc050'
 const NPM_REGISTRY = process.env.NPM_REGISTRY ?? 'https://registry.npmjs.org'
 const out = process.env.PROFILE_DIR ?? '/opt/ohdsh-profile'
 
@@ -26,35 +26,9 @@ writeFileSync(`${out}/package.json`, JSON.stringify(
   null,
   2,
 ) + '\n', 'utf8')
-// pnpm ≥10 默认拒绝运行依赖构建脚本（ERR_PNPM_IGNORED_BUILDS）——
-// 显式批准 DSH 依赖链里必须构建的原生/后置脚本包。10 认顶层键、11 认 pnpm 嵌套键，
-// 两个形态都给（9 及以下直接忽略，按旧语义照跑）。
-writeFileSync(
-  `${out}/pnpm-workspace.yaml`,
-  [
-    'packages:',
-    '  - .',
-    '',
-    'nodeLinker: hoisted',
-    'autoInstallPeers: false',
-    'onlyBuiltDependencies:',
-    "  - '@deepseek-ai/dsh-subprocess-local'",
-    "  - '@google/genai'",
-    '  - koffi',
-    '  - node-pty',
-    '  - protobufjs',
-    'pnpm:',
-    '  onlyBuiltDependencies:',
-    "    - '@deepseek-ai/dsh-subprocess-local'",
-    "    - '@google/genai'",
-    '    - koffi',
-    '    - node-pty',
-    '    - protobufjs',
-    '',
-  ].join('\n'),
-  'utf8',
-)
-writeFileSync(`${out}/cordis.yml`, '# dsh profile root — empty entry list; edit cordis.patch.yml\n[]\n', 'utf8')
+// profile 依赖安装已改 npm（见下方 execFileSync）：pnpm@9 对 0.1.2-rc.1 的内层
+// 预发布区间解析失败、pnpm@11 的 onlyBuiltDependencies 白名单失效——服务器构建两次实锤；
+// npm 同版本集实证可解析且按旧语义跑原生构建脚本。
 // 端口用动态表达式透传 CLI --port（写死 3080 会盖掉 --port，节点全听 3080，
 // manager 探 3081/3082 全 fetch failed——容器实测踩坑）。
 const patchYaml = "- id: webserver\n  config:\n    host: '0.0.0.0'\n    port: !!js ctx.webStartup.port ?? 3080\n"
@@ -66,5 +40,5 @@ writeFileSync(
   'utf8',
 )
 
-execFileSync('pnpm', ['install', `--registry=${NPM_REGISTRY}`], { cwd: out, stdio: 'inherit' })
+execFileSync('npm', ['install', '--no-audit', '--no-fund', `--registry=${NPM_REGISTRY}`], { cwd: out, stdio: 'inherit', shell: process.platform === 'win32' })
 console.log(`[gen-node-profile] ${out} ready (DSH ${DSH_VERSION}, gateway ${GATEWAY_REF})`)
