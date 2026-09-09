@@ -25,7 +25,7 @@ if [[ -n "${GW_KEY:-}" ]]; then
   fi
   if [ "$NEED_WRITE" = "1" ]; then
     cat > "$DSH_HOME/settings.yaml" <<EOF
-dsh-api-gw:
+ohdsh-api-facade:
   apiKeys: ['$GW_KEY']
 EOF
     chmod 600 "$DSH_HOME/settings.yaml"

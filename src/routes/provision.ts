@@ -18,6 +18,7 @@ import { detectDshBin, ensureNodeCredentials, ensureNodeProfiles, mergeEnv, prof
 import { ensureWorkspaceGit } from '../workspace/init.js'
 import { syncFleetDocs } from '../workspace/fleet-doc.js'
 import { mirrorAgentRow, removeAgentRow } from '../reconcile/index.js'
+import { GATEWAY_REF } from '../dsh-version.js'
 import { recordAudit } from '../audit.js'
 
 /**
@@ -29,7 +30,7 @@ import { recordAudit } from '../audit.js'
  * 节点上没有 agent（迁移是后话）。
  */
 
-const GATEWAY_DEP = 'github:litestartup-com/dsh-api-gateway'
+const GATEWAY_DEP = GATEWAY_REF // 0.1.2 线：钉 next-012 commit（dsh-version 单一真相源）
 const CONFIG_PATH = 'manager.config.yaml'
 const ENV_PATH = '.env'
 
@@ -194,7 +195,7 @@ export const registerProvisionRoutes = (
         const hostKey = deriveHostWorkspacePath(config, body.name, agentSpec?.workspace)
 
         const dockerSpec = {
-          image: process.env.DSH_NODE_IMAGE ?? 'ohdsh/dsh-node:0.1.1-rc.2',
+          image: process.env.DSH_NODE_IMAGE ?? 'ohdsh/dsh-node:0.1.2-rc.1',
           network: 'ohdsh-hive',
           port,
           host_volumes: { [hostKey]: agentSpec?.workspace ?? workspaceDefault },

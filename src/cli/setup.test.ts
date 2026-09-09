@@ -62,8 +62,8 @@ test('ensureNodeProfiles writes one isolated DSH_HOME per node, idempotently', (
         dsh: { profile: { bundles: string[] } }
         dependencies: Record<string, string>
       }
-      assert.ok(pkg.dsh.profile.bundles.includes('dsh-api-gateway'))
-      assert.equal(pkg.dependencies['dsh-api-gateway'], GATEWAY_REF, 'gateway 引用钉死 commit，不再追 master')
+      assert.ok(pkg.dsh.profile.bundles.includes('ohdsh-api-facade'))
+      assert.equal(pkg.dependencies['ohdsh-api-facade'], GATEWAY_REF, 'gateway 引用钉死 commit，不再追 master')
       // 蜂群2计划 P1：bundle 钉版本 = COMPAT_DSH_VERSION，根治安装漂移
       assert.equal(pkg.dependencies['@deepseek-ai/dsh-base'], COMPAT_DSH_VERSION)
       assert.equal(pkg.dependencies['@deepseek-ai/dsh-web-app'], COMPAT_DSH_VERSION)
@@ -86,7 +86,7 @@ test('ensureNodeProfiles writes a file: dependency when given a local gateway pa
     const pkg = JSON.parse(readFileSync(join(nodesHome, 'ohdsh-personal', 'profiles', 'ohdsh-personal', 'package.json'), 'utf8')) as {
       dependencies: Record<string, string>
     }
-    assert.equal(pkg.dependencies['dsh-api-gateway'], 'file:C:/src/dsh-api-gateway')
+    assert.equal(pkg.dependencies['ohdsh-api-facade'], 'file:C:/src/dsh-api-gateway')
   } finally {
     rmSync(nodesHome, { recursive: true, force: true })
   }

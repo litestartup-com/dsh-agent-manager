@@ -14,8 +14,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 ARG NPM_REGISTRY=https://registry.npmjs.org
 # 与 src/dsh-version.ts 保持一致的钉死版本（官方出新版时一起 bump）
-ARG DSH_VERSION=0.1.1-rc.2
-ARG GATEWAY_REF=github:litestartup-com/dsh-api-gateway#db50fba2ffc9be4041742d1b4faf89cfcd708f31
+ARG DSH_VERSION=0.1.2-rc.1
+ARG GATEWAY_REF=github:litestartup-com/dsh-api-gateway#eeb33d6bb821305f3d272b9d44541c5871439c4c
 # pnpm@9（不是 11）：9 按旧语义运行依赖构建脚本，与裸机 setup 的既有验证一致；
 # pnpm ≥10 的构建脚本白名单键语义在 11 又变过（实测 ERR_PNPM_IGNORED_BUILDS 仍触发），
 # 构建期工具没必要追新。

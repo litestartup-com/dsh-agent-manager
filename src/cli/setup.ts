@@ -6,7 +6,7 @@ import net from 'node:net'
 import { pathToFileURL } from 'node:url'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { initWorkspace } from '../workspace/init.js'
-import { COMPAT_DSH_VERSION, DSH_INSTALL_COMMAND, GATEWAY_REF, dshCompatible } from '../dsh-version.js'
+import { COMPAT_DSH_VERSION, DSH_INSTALL_COMMAND, GATEWAY_PACKAGE, GATEWAY_REF, dshCompatible } from '../dsh-version.js'
 
 /**
  * `npm run setup -- [选项]` — 蜂群 P4：默认安装。
@@ -56,8 +56,8 @@ const profileFiles = (spec: ProfileSpec, gatewayDep: string): Record<string, str
   const pkg = {
     name: `dsh-profile-${spec.name}`,
     private: true,
-    dsh: { profile: { bundles: [...Object.keys(PROFILE_BUNDLES), 'dsh-api-gateway'] } },
-    dependencies: { ...PROFILE_BUNDLES, 'dsh-api-gateway': gatewayDep },
+    dsh: { profile: { bundles: [...Object.keys(PROFILE_BUNDLES), GATEWAY_PACKAGE] } },
+    dependencies: { ...PROFILE_BUNDLES, [GATEWAY_PACKAGE]: gatewayDep },
   }
   const patch = [
     {

@@ -5,8 +5,8 @@ import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 
-const DSH_VERSION = process.env.DSH_VERSION ?? '0.1.1-rc.2'
-const GATEWAY_REF = process.env.GATEWAY_REF ?? 'github:litestartup-com/dsh-api-gateway#db50fba2ffc9be4041742d1b4faf89cfcd708f31'
+const DSH_VERSION = process.env.DSH_VERSION ?? '0.1.2-rc.1'
+const GATEWAY_REF = process.env.GATEWAY_REF ?? 'github:litestartup-com/dsh-api-gateway#eeb33d6bb821305f3d272b9d44541c5871439c4c'
 const NPM_REGISTRY = process.env.NPM_REGISTRY ?? 'https://registry.npmjs.org'
 const out = process.env.PROFILE_DIR ?? '/opt/ohdsh-profile'
 
@@ -16,11 +16,11 @@ writeFileSync(`${out}/package.json`, JSON.stringify(
   {
     name: 'dsh-profile-ohdsh-node',
     private: true,
-    dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-api-gateway'] } },
+    dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'ohdsh-api-facade'] } },
     dependencies: {
       '@deepseek-ai/dsh-base': DSH_VERSION,
       '@deepseek-ai/dsh-web-app': DSH_VERSION,
-      'dsh-api-gateway': GATEWAY_REF,
+      'ohdsh-api-facade': GATEWAY_REF,
     },
   },
   null,
