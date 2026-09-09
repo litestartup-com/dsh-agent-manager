@@ -13,7 +13,7 @@ import { pruneExpiredSessions } from './auth/session.js'
 import { makeRequirePage, makeRequireUser } from './auth/hooks.js'
 import { buildClients } from './gateway/client.js'
 import { buildUpstreamClients, closeAllMux } from './upstream/client.js'
-import { reconcileAll } from './reconcile/index.js'
+import { reconcileAll, startPeriodicReconcile } from './reconcile/index.js'
 import { buildNodeSupervisors } from './nodes/registry.js'
 import { DockerRunner } from './nodes/docker-runner.js'
 import { recordAudit } from './audit.js'
@@ -124,6 +124,13 @@ const main = async (): Promise<void> => {
     { db, config, supervisors: nodeSupervisors, docker: dockerRunner, log: (line) => app.log.info(line) },
     { runHygiene: true },
   )
+  // 修路 A2：周期对账（间隔配置 reconcile_interval_minutes，0 = 关）。
+  // healOnly：人手动停的冷态节点不动，失败落 offline 的节点自愈。
+  const stopPeriodicReconcile = startPeriodicReconcile(
+    { db, config, supervisors: nodeSupervisors, docker: dockerRunner, log: (line) => app.log.info(line) },
+    config.reconcileIntervalMs ?? 10 * 60_000,
+  )
+  app.addHook('onClose', async () => { stopPeriodicReconcile() })
   const requireUser = makeRequireUser(db)
   const requirePage = makeRequirePage(db)
   // Secure cookies require HTTPS; on plain-HTTP localhost dev they would simply

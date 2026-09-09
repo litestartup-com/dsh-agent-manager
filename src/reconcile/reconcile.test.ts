@@ -4,14 +4,16 @@
  * 这里锁「一个真相源」的语义：insert/update/delete 全部由配置驱动。
  */
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, statSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { test } from 'node:test'
 import { stringify } from 'yaml'
 import { loadConfig } from '../config.js'
 import { openDb, schema } from '../db/index.js'
-import { convergeRuns, mirrorAgentRow, mirrorAgents } from './index.js'
+import type { NodeSupervisor } from '../nodes/supervisor.js'
+import { convergeNodes, convergeRuns, mirrorAgentRow, mirrorAgents, startPeriodicReconcile } from './index.js'
+import { FLEET_FILE } from '../workspace/fleet-doc.js'
 
 if (process.env.SESSION_SECRET === undefined) process.env.SESSION_SECRET = 'x'.repeat(32)
 
@@ -74,4 +76,56 @@ test('convergeRuns: 上一个进程遗留的 pending/running 行收敛为 failed
   assert.deepEqual(rows.filter((r) => r.state === 'failed').map((r) => r.id).sort(), ['r1', 'r2'])
   assert.equal(rows.find((r) => r.id === 'r3')?.state, 'done', '已终态行不动')
   assert.match(rows.find((r) => r.id === 'r1')?.error ?? '', /manager restarted/)
+})
+
+test('修路 A2: convergeNodes healOnly——冷态（人停）不动、offline（失败）自愈', async () => {
+  const starts: string[] = []
+  const spec = {
+    managed: true, command: 'node', args: [], cwd: null, readyTimeoutMs: 1000, detached: false, logFile: null,
+    env: {}, restart: { maxAttempts: 3, baseDelayMs: 100, maxDelayMs: 1000 }, runner: 'process' as const, docker: null,
+  }
+  const mk = (id: string, state: string): NodeSupervisor =>
+    ({ id, current: { state }, start: () => { starts.push(id) }, adopt: () => {} }) as unknown as NodeSupervisor
+  const config = configOf({ personal: {} })
+  config.endpoints['A'] = { id: 'A', url: 'http://x', driver: 'apiproxy', prefix: '/api', key: '', sandboxBase: null, sandboxKey: '', spawn: spec }
+
+  // boot 形态：冷态 = 从未启动 → 拉起
+  const cold = new Map([['A', mk('A', 'cold')]])
+  await convergeNodes(cold, config, null, () => {}, false)
+  assert.deepEqual(starts, ['A'])
+
+  // 周期形态：人停的冷态不动；失败的 offline 自愈；live 不动
+  starts.length = 0
+  const mixed = new Map([
+    ['cold-manual', mk('cold-manual', 'cold')],
+    ['offline-node', mk('offline-node', 'offline')],
+    ['live-node', mk('live-node', 'live')],
+  ])
+  config.endpoints['cold-manual'] = config.endpoints['A']!
+  config.endpoints['offline-node'] = config.endpoints['A']!
+  config.endpoints['live-node'] = config.endpoints['A']!
+  await convergeNodes(mixed, config, null, () => {}, true)
+  assert.deepEqual(starts, ['offline-node'], 'healOnly：冷态（手动停）绝不抢拉，offline 自愈')
+})
+
+test('修路 A2: startPeriodicReconcile 周期收敛，stop 后停摆', async () => {
+  const ws = mkdtempSync(join(tmpdir(), 'reconcile-ws-'))
+  const config = configOf({ personal: { workspace: ws } })
+  const deps = { db: makeDb(), config, supervisors: new Map() as Map<string, NodeSupervisor>, docker: null, log: () => {} }
+  const stop = startPeriodicReconcile(deps, 40)
+  await new Promise((resolve) => setTimeout(resolve, 150))
+  stop()
+  const fleetPath = join(config.agents['personal']!.workspacePath, FLEET_FILE)
+  assert.ok(existsSync(fleetPath), '周期 tick 收敛了 fleet 派生品')
+  const at = statSync(fleetPath).mtimeMs
+  await new Promise((resolve) => setTimeout(resolve, 120))
+  const after = statSync(fleetPath).mtimeMs
+  assert.equal(at, after, 'stop 后不再收敛（mtime 不动）')
+})
+
+test('修路 A2: 间隔 0 = 关闭，返回 no-op 停止器', () => {
+  const deps = { db: makeDb(), config: configOf({ personal: {} }), supervisors: new Map() as Map<string, NodeSupervisor>, docker: null, log: () => {} }
+  const stop = startPeriodicReconcile(deps, 0)
+  assert.equal(typeof stop, 'function')
+  stop()
 })

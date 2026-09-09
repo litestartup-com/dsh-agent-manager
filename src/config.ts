@@ -140,6 +140,9 @@ const fileSchema = z.object({
     })
     .default({ timeout_minutes: 15, silence_timeout_minutes: 5, max_consecutive_failures: 3 }),
   database: z.object({ path: z.string().min(1) }).default({ path: './data/manager.db' }),
+  // 蜂群2计划 修路 A2：周期对账间隔（分钟）。0 = 关闭（只 boot + 变更时对账）。
+  // 对账幂等且 healOnly（人手动停的冷态节点不动、失败的 offline 节点自愈）。
+  reconcile_interval_minutes: z.number().int().min(0).default(10),
   // 蜂群 P5.1：主脑派工（trigger=brain）的日预算熔断——超限拒绝并转述；
   // 人手动操作保持不拦。缺省 = 不设上限。
   brain: z
@@ -248,6 +251,8 @@ export interface AppConfig {
     dailyBudgetMicroUsd: number | null
   }
   databasePath: string
+  /** 修路 A2：周期对账间隔（毫秒）；0 = 关闭。loadConfig 恒有值；测试字面量可省略（读取方 ?? 默认）。 */
+  reconcileIntervalMs?: number
   /**
    * 蜂群 P5.1：主脑日派工预算（微美元），null = 不设上限。只拦 trigger=brain
    * 的派工；人工直连与手动派工不受影响。
@@ -483,6 +488,7 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
         file.runner.daily_budget_usd === undefined ? null : Math.round(file.runner.daily_budget_usd * 1e6),
     },
     databasePath: resolve(file.database.path),
+    reconcileIntervalMs: file.reconcile_interval_minutes * 60_000,
     brainDailyBudgetMicroUsd:
       file.brain.daily_budget_usd === undefined ? null : Math.round(file.brain.daily_budget_usd * 1e6),
     pricing,

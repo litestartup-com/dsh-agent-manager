@@ -114,16 +114,25 @@ export const convergeFleet = async (config: AppConfig, log: (line: string) => vo
 /**
  * 托管节点认领：docker runner 走对账（认领在跑 / 补拉缺失 / 规格不符重建），
  * process runner 直接拉起。幂等：对已认领的节点重复执行不产生第二个容器。
+ *
+ * healOnly（周期对账用）：**只治 offline**——人手动停的节点（nodes/down）
+ * 落在 cold，周期 tick 绝不抢拉（「用户手动起的 DSH 不会被抢管」同理）；
+ * 失败落 offline 的节点经 start() 自愈；live/starting/restarting 一概不动。
+ * 已知缺口（A3）：docker 容器被手杀而 supervisor 仍记 live 时，周期 tick
+ * 不感知（supervisor 只在 starting 期间探活）——需要 supervisor 层运行时
+ * 健康对账，另行立项。boot 走 healOnly=false（冷态 = 从未启动，需要拉起）。
  */
 export const convergeNodes = async (
   supervisors: Map<string, NodeSupervisor>,
   config: AppConfig,
   docker: DockerRunnerType | null,
   log: (line: string) => void,
+  healOnly = false,
 ): Promise<void> => {
   for (const [id, supervisor] of supervisors) {
     const spec = config.endpoints[id]?.spawn
     if (spec === null || spec === undefined) continue
+    if (healOnly && supervisor.current.state !== 'offline') continue
     if (spec.runner === 'docker') {
       if (docker === null) {
         log(`node ${id}: runner=docker 但 docker.sock 不可用，跳过拉起`)
@@ -160,7 +169,10 @@ export const convergeNodes = async (
 }
 
 /** 唯一对账入口。runHygiene 只在 boot 打开（变更事件路径不需要收敛历史行）。 */
-export const reconcileAll = async (deps: ReconcileContext, opts: { runHygiene?: boolean } = {}): Promise<void> => {
+export const reconcileAll = async (
+  deps: ReconcileContext,
+  opts: { runHygiene?: boolean; healOnly?: boolean } = {},
+): Promise<void> => {
   const { db, config, supervisors, docker, log } = deps
   const mirror = mirrorAgents(db, config)
   if (mirror.inserted + mirror.updated + mirror.deleted > 0) {
@@ -174,5 +186,20 @@ export const reconcileAll = async (deps: ReconcileContext, opts: { runHygiene?: 
   }
   const fleet = await convergeFleet(config, log)
   if (fleet.length > 0) log(`fleet.md synced: ${fleet.join(', ')}`)
-  await convergeNodes(supervisors, config, docker, log)
+  await convergeNodes(supervisors, config, docker, log, opts.healOnly === true)
+}
+
+/**
+ * 修路 A2：周期对账。intervalMs <= 0 时不开（返回 no-op 停止器）。
+ * 返回停止函数（测试与 onClose 用它拆定时器）；timer unref 不挡进程退出。
+ */
+export const startPeriodicReconcile = (deps: ReconcileContext, intervalMs: number): (() => void) => {
+  if (intervalMs <= 0) return () => {}
+  const timer = setInterval(() => {
+    void reconcileAll(deps, { healOnly: true }).catch((error: unknown) => {
+      deps.log(`periodic reconcile failed: ${error instanceof Error ? error.message : String(error)}`)
+    })
+  }, intervalMs)
+  timer.unref()
+  return () => clearInterval(timer)
 }
