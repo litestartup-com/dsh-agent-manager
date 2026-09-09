@@ -144,6 +144,28 @@ test('蜂群 P5.1: brain daily budget defaults off and parses when set', () => {
   assert.equal(capped.brainDailyBudgetMicroUsd, 1_500_000)
 })
 
+test('v1.0.3: apiproxy prefix — explicit config wins, legacy default only when omitted', () => {
+  // 老配置（显式 /api）与省略 prefix 的配置行为不变。
+  const legacyExplicit = loadFrom(baseConfig({
+    endpoints: { A: { url: 'http://127.0.0.1:3080', driver: 'apiproxy', prefix: '/api' } },
+  }))
+  assert.equal(legacyExplicit.endpoints['A']?.prefix, '/api')
+  const legacyOmitted = loadFrom(baseConfig())
+  assert.equal(legacyOmitted.endpoints['A']?.prefix, '/api', '省略 prefix 沿用 0.1.1 旧默认')
+  // 0.1.2 新线：显式指向网关 facade 的 prefix 不再被钉死覆盖。
+  const facade = loadFrom(baseConfig({
+    endpoints: { A: { url: 'http://127.0.0.1:3091', driver: 'apiproxy', prefix: '/api-gw/v1/proxy' } },
+  }))
+  assert.equal(facade.endpoints['A']?.prefix, '/api-gw/v1/proxy')
+  // gateway 驱动的 prefix 行为保持原样（显式优先）。
+  withEnv({ GW_KEY_A: 'test-gw-key' }, () => {
+    const gw = loadFrom(baseConfig({
+      endpoints: { A: { url: 'http://127.0.0.1:3080', driver: 'gateway', prefix: '/api-gw/v1', key_ref: 'GW_KEY_A' } },
+    }))
+    assert.equal(gw.endpoints['A']?.prefix, '/api-gw/v1')
+  })
+})
+
 test('no spawn block resolves to null (externally managed node)', () => {  const cfg = loadFrom(baseConfig())
   assert.equal(cfg.endpoints['A']?.spawn, null)
 })

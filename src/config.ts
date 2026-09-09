@@ -292,7 +292,12 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
     if (driver === 'gateway' && key === '') {
       throw new Error(`endpoint "${id}": env var ${ep.key_ref} is empty; it must match one entry of the gateway's apiKeys`)
     }
-    const prefix = driver === 'apiproxy' ? '/api' : ep.prefix
+    // 0.1.2 起（v1.0.3）：apiproxy 显式配置的 prefix 必须生效——指向网关
+    // facade 时就是 `/api-gw/v1/proxy`（DSH-012-ASSESSMENT「只改 base URL +
+    // key 头」路线的先决条件）。未显式配置（沿用 schema 默认 '/api-gw/v1'）
+    // 才回退旧行为 '/api'（0.1.1 直连宿主原生 apiproxy）；现有配置全部显式
+    // 写了 prefix: /api，行为零变化。
+    const prefix = driver === 'apiproxy' && ep.prefix === '/api-gw/v1' ? '/api' : ep.prefix
     const sandboxBase = ep.sandbox_base === undefined ? null : ep.sandbox_base.replace(/\/+$/, '')
     const sandboxKey = ep.sandbox_key_ref !== '' ? (process.env[ep.sandbox_key_ref] ?? '') : ''
     if (sandboxBase !== null && sandboxKey === '') {
