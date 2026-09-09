@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { NodeSupervisor, backoffDelayMs, decideAfterExit } from './supervisor.js'
+import { NodeSupervisor, backoffDelayMs, decideAfterExit, LIVE_PROBE_THRESHOLD } from './supervisor.js'
 import type { DockerRunner } from './docker-runner.js'
 import type { ResolvedSpawnSpec } from '../config.js'
 
@@ -67,6 +67,51 @@ const waitFor = async (fn: () => boolean, timeoutMs: number, what: string): Prom
 }
 
 const keepAliveScript = 'console.log("hello-node"); setInterval(() => {}, 1000)'
+
+test('修路 A3: probeLive——live 态连续失败转 offline（进程仍在 = 僵节点场景），成功归零', async () => {
+  let probeOk = true
+  const node = new NodeSupervisor('E', { probe: async () => ({ ok: probeOk, detail: 'down' }) })
+  node.start(spec())
+  await waitFor(() => node.current.state === 'live', 5_000, 'node live')
+  assert.equal(node.current.state, 'live')
+
+  probeOk = false
+  await node.probeLive()
+  assert.equal(node.current.state, 'live', '1 次失败不转')
+  await node.probeLive()
+  assert.equal(node.current.state, 'live', `${LIVE_PROBE_THRESHOLD - 1} 次失败不转`)
+  await node.probeLive()
+  assert.equal(node.current.state, 'offline', `${LIVE_PROBE_THRESHOLD} 次连续失败转 offline`)
+  assert.match(node.current.lastError ?? '', new RegExp(`${LIVE_PROBE_THRESHOLD}/${LIVE_PROBE_THRESHOLD}`))
+  node.stop()
+
+  // 成功一次即归零
+  const node2 = new NodeSupervisor('E2', { probe: async () => ({ ok: true, detail: '' }) })
+  node2.start(spec())
+  await waitFor(() => node2.current.state === 'live', 5_000, 'node2 live')
+  for (let i = 0; i < 10; i += 1) await node2.probeLive()
+  assert.equal(node2.current.state, 'live', '成功的探活永不转离线')
+  node2.stop()
+})
+
+test('修路 A3: probeLive——docker 分支转 offline 时清 containerId，restart 直接重建（不 stop 死容器）', async () => {
+  let probeOk = true
+  const { runner, calls } = stubDocker()
+  const node = new NodeSupervisor('D', { probe: async () => ({ ok: probeOk, detail: 'down' }), docker: runner })
+  node.start(dockerSpec())
+  await waitFor(() => node.current.state === 'live', 5_000, 'docker node live')
+
+  probeOk = false
+  for (let i = 0; i < LIVE_PROBE_THRESHOLD; i += 1) await node.probeLive()
+  assert.equal(node.current.state, 'offline')
+
+  const startsBefore = calls.start
+  node.restart(dockerSpec())
+  await waitFor(() => calls.start > startsBefore, 5_000, 'recreate started')
+  assert.equal(calls.stop, 0, 'containerId 已清：restart 走直接 start，不去 stop 已死的容器')
+  node.stop()
+  await waitFor(() => node.current.state === 'cold', 5_000, 'node stopped')
+})
 
 test('backoffDelayMs: exponential, capped, and sane below attempt 1', () => {
   assert.equal(backoffDelayMs(1, 1_000, 30_000), 1_000)

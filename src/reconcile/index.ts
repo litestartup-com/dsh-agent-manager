@@ -115,12 +115,12 @@ export const convergeFleet = async (config: AppConfig, log: (line: string) => vo
  * 托管节点认领：docker runner 走对账（认领在跑 / 补拉缺失 / 规格不符重建），
  * process runner 直接拉起。幂等：对已认领的节点重复执行不产生第二个容器。
  *
- * healOnly（周期对账用）：**只治 offline**——人手动停的节点（nodes/down）
- * 落在 cold，周期 tick 绝不抢拉（「用户手动起的 DSH 不会被抢管」同理）；
- * 失败落 offline 的节点经 start() 自愈；live/starting/restarting 一概不动。
- * 已知缺口（A3）：docker 容器被手杀而 supervisor 仍记 live 时，周期 tick
- * 不感知（supervisor 只在 starting 期间探活）——需要 supervisor 层运行时
- * 健康对账，另行立项。boot 走 healOnly=false（冷态 = 从未启动，需要拉起）。
+ * healOnly（周期对账用）：**只治 offline + live 态探活**——人手动停的节点
+ * （nodes/down）落在 cold，周期 tick 绝不抢拉（「用户手动起的 DSH 不会被
+ * 抢管」同理）；live 态经 supervisor.probeLive() 健康对账（修路 A3：连续
+ * 失败转 offline），发现即经 restart() 同 tick 自愈（restart 对已死进程/
+ * 已清 containerId 的 docker = 直接 start；对僵进程 = stop→重拉）。
+ * boot 走 healOnly=false（冷态 = 从未启动，需要拉起 + 完整 docker 认领）。
  */
 export const convergeNodes = async (
   supervisors: Map<string, NodeSupervisor>,
@@ -132,7 +132,21 @@ export const convergeNodes = async (
   for (const [id, supervisor] of supervisors) {
     const spec = config.endpoints[id]?.spawn
     if (spec === null || spec === undefined) continue
-    if (healOnly && supervisor.current.state !== 'offline') continue
+    if (healOnly) {
+      const state = supervisor.current.state
+      if (state === 'live') {
+        await supervisor.probeLive()
+        if (supervisor.current.state === 'offline') {
+          log(`node ${id}: live probe failed → restarting (heal)`)
+          supervisor.restart(spec)
+        }
+        continue
+      }
+      if (state !== 'offline') continue
+      log(`node ${id}: offline → restarting (heal)`)
+      supervisor.restart(spec)
+      continue
+    }
     if (spec.runner === 'docker') {
       if (docker === null) {
         log(`node ${id}: runner=docker 但 docker.sock 不可用，跳过拉起`)

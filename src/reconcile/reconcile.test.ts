@@ -78,34 +78,47 @@ test('convergeRuns: 上一个进程遗留的 pending/running 行收敛为 failed
   assert.match(rows.find((r) => r.id === 'r1')?.error ?? '', /manager restarted/)
 })
 
-test('修路 A2: convergeNodes healOnly——冷态（人停）不动、offline（失败）自愈', async () => {
-  const starts: string[] = []
+test('修路 A2/A3: convergeNodes healOnly——cold 不动、offline restart 自愈、live 探活翻转后同 tick 自愈', async () => {
+  const restarts: string[] = []
   const spec = {
     managed: true, command: 'node', args: [], cwd: null, readyTimeoutMs: 1000, detached: false, logFile: null,
     env: {}, restart: { maxAttempts: 3, baseDelayMs: 100, maxDelayMs: 1000 }, runner: 'process' as const, docker: null,
   }
-  const mk = (id: string, state: string): NodeSupervisor =>
-    ({ id, current: { state }, start: () => { starts.push(id) }, adopt: () => {} }) as unknown as NodeSupervisor
+  const mk = (id: string, state: string, opts: { liveProbeFlips?: boolean } = {}): NodeSupervisor => {
+    const current = { state }
+    return {
+      id,
+      get current() { return { ...current } },
+      restart: () => { restarts.push(id) },
+      start: () => { restarts.push(id) },
+      adopt: () => {},
+      probeLive: async () => {
+        if (opts.liveProbeFlips === true && current.state === 'live') current.state = 'offline'
+      },
+    } as unknown as NodeSupervisor
+  }
   const config = configOf({ personal: {} })
   config.endpoints['A'] = { id: 'A', url: 'http://x', driver: 'apiproxy', prefix: '/api', key: '', sandboxBase: null, sandboxKey: '', spawn: spec }
 
-  // boot 形态：冷态 = 从未启动 → 拉起
+  // boot 形态：冷态 = 从未启动 → 拉起（走完整路径）
   const cold = new Map([['A', mk('A', 'cold')]])
   await convergeNodes(cold, config, null, () => {}, false)
-  assert.deepEqual(starts, ['A'])
+  assert.deepEqual(restarts, ['A'])
 
-  // 周期形态：人停的冷态不动；失败的 offline 自愈；live 不动
-  starts.length = 0
+  // 周期形态：人停的冷态不动；offline restart 自愈；live 探活失败同 tick 自愈；live 健康不动
+  restarts.length = 0
   const mixed = new Map([
     ['cold-manual', mk('cold-manual', 'cold')],
     ['offline-node', mk('offline-node', 'offline')],
-    ['live-node', mk('live-node', 'live')],
+    ['live-ok', mk('live-ok', 'live')],
+    ['live-dead', mk('live-dead', 'live', { liveProbeFlips: true })],
   ])
   config.endpoints['cold-manual'] = config.endpoints['A']!
   config.endpoints['offline-node'] = config.endpoints['A']!
-  config.endpoints['live-node'] = config.endpoints['A']!
+  config.endpoints['live-ok'] = config.endpoints['A']!
+  config.endpoints['live-dead'] = config.endpoints['A']!
   await convergeNodes(mixed, config, null, () => {}, true)
-  assert.deepEqual(starts, ['offline-node'], 'healOnly：冷态（手动停）绝不抢拉，offline 自愈')
+  assert.deepEqual(restarts, ['offline-node', 'live-dead'], 'healOnly：冷态（手动停）绝不抢拉；offline 与 live 探活翻转的节点 restart 自愈')
 })
 
 test('修路 A2: startPeriodicReconcile 周期收敛，stop 后停摆', async () => {

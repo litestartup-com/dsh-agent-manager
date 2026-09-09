@@ -69,6 +69,8 @@ export const decideAfterExit = (attempts: number, maxAttempts: number, manual: b
 const PROBE_POLL_MS = 1_000
 /** A node's captured output is kept as lines, bounded to roughly this many bytes. */
 const LOG_BUFFER_BYTES = 64 * 1024
+/** 修路 A3：live 态探活连续失败多少次转 offline（交给周期对账自愈）。 */
+export const LIVE_PROBE_THRESHOLD = 3
 
 export class NodeSupervisor {
   readonly id: string
@@ -89,6 +91,8 @@ export class NodeSupervisor {
   private pidFile: string | null = null
   private logLines: string[] = []
   private logBytes = 0
+  /** 修路 A3：live 态探活连续失败计数（非 live 态归零）。 */
+  private liveProbeFailures = 0
   private status: NodeStatus
 
   constructor(id: string, deps: SupervisorDeps) {
@@ -187,6 +191,30 @@ export class NodeSupervisor {
   /** Buffered stdout/stderr of the current (or last) child, as text. */
   logs(): string {
     return this.logLines.join('')
+  }
+
+  /**
+   * 修路 A3：live 态健康探活（周期对账调用）。只在 state==='live' 时探测；
+   * 连续 LIVE_PROBE_THRESHOLD 次失败 → 转 offline 交给对账自愈。
+   * docker 分支同时清 containerId——容器已被外部杀掉时 stop(旧 id) 会失败
+   * 而卡死 restart 链，清掉后 restart 走「直接 start」重建。
+   */
+  async probeLive(): Promise<void> {
+    if (this.status.state !== 'live') {
+      this.liveProbeFailures = 0
+      return
+    }
+    const result = await this.deps.probe(this.id)
+    if (result.ok) {
+      this.liveProbeFailures = 0
+      return
+    }
+    this.liveProbeFailures += 1
+    this.lastError = `live probe failed (${this.liveProbeFailures}/${LIVE_PROBE_THRESHOLD}): ${result.detail}`
+    if (this.liveProbeFailures < LIVE_PROBE_THRESHOLD) return
+    if (this.lastSpec?.runner === 'docker') this.containerId = null
+    this.status = { ...this.status, state: 'offline', pid: null, attempts: 1, lastError: this.lastError, stateSince: Date.now() }
+    this.deps.log?.(`node ${this.id}: offline after ${this.liveProbeFailures} consecutive live probe failures`)
   }
 
   /** 蜂群2计划 P2b：docker 模式的日志走 docker logs；不可用返回 null（调用方回退缓冲）。 */
