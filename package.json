@@ -28,6 +28,7 @@
     "update": "tsx src/cli/update.ts"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "^1.4.0",
     "@fastify/cookie": "^11.0.2",
     "@fastify/helmet": "^13.1.1",
     "@fastify/rate-limit": "^10.2.2",
