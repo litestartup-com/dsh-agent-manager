@@ -16,12 +16,15 @@ if [ ! -d "$DSH_HOME/profiles/ohdsh-node" ] || [ "$SEED_CUR" != "$SEED_NEW" ]; t
 fi
 
 # 2) gateway 静态密钥：环境变量是真相（A 清单：派生文件不可手改）。
-#    文件缺失或不含当前 GW_KEY 一律重写——卷里可能残留上一版的旧钥匙
-#    （重装/换钥匙场景实测：容器重建了，旧 settings.yaml 还在卷里）。
+#    文件缺失、或不在本插件的命名空间、或不含当前 GW_KEY 一律重写——
+#    卷里可能残留上一版的旧钥匙/旧命名空间（0.1.1→0.1.2 升级实测：
+#    旧 settings.yaml 的 dsh-api-gw 段含同一 key 串，光 grep key 会误判
+#    「已写好」跳过重写 → facade 新命名空间空、apiKeySet:false）。
 if [[ -n "${GW_KEY:-}" ]]; then
   NEED_WRITE=1
   if [ -f "$DSH_HOME/settings.yaml" ]; then
-    if grep -q "$GW_KEY" "$DSH_HOME/settings.yaml" 2>/dev/null; then NEED_WRITE=0; fi
+    if grep -q '^ohdsh-api-facade:' "$DSH_HOME/settings.yaml" 2>/dev/null \
+       && grep -q "$GW_KEY" "$DSH_HOME/settings.yaml" 2>/dev/null; then NEED_WRITE=0; fi
   fi
   if [ "$NEED_WRITE" = "1" ]; then
     cat > "$DSH_HOME/settings.yaml" <<EOF
