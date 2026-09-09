@@ -24,12 +24,15 @@ COPY --from=build /app/package.json ./package.json
 COPY public ./public
 # 工作区模板：容器路径没有 setup 步骤，manager 启动时对空工作区自动播种
 COPY templates ./templates
-# 债务 H1：manager 容器非 root。docker.sock 的访问靠 compose 的 group_add
+# 债务 H1：manager 容器非 root。node 基础镜像自带 1000:1000 的 node 用户/组，
+# 直接复用（名字无关紧要，bind mount 权限只认数值；getent 查数值命中即跳过，
+# 否则才创建——直接 groupadd -g 1000 会在自带 node 组的镜像上撞
+# "GID '1000' already exists"）。docker.sock 的访问靠 compose 的 group_add
 # 注入宿主 docker 组 GID（镜像内不需要存在同名组）。/app/data 的宿主侧属主
 # 由 install.sh 按 HOST_UID 放行（compose 里是 bind mount，以宿主权限为准）。
 RUN mkdir -p /app/data \
-    && groupadd -g 1000 ohdsh \
-    && useradd -u 1000 -g ohdsh -s /bin/sh ohdsh \
+    && (getent group 1000 >/dev/null || groupadd -g 1000 ohdsh) \
+    && (getent passwd 1000 >/dev/null || useradd -u 1000 -g 1000 -s /bin/sh ohdsh) \
     && chown -R 1000:1000 /app/data
 EXPOSE 8080
 USER 1000:1000
