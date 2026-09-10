@@ -12,6 +12,7 @@ import { UpstreamError } from '../upstream/rpc.js'
 import { activeRunCount, runAgent, runningRunId, type RunOutcome } from '../runner.js'
 import { cancelQueuedTurn, cancelQueuedTurns, drainChatQueue, enqueueTurn } from '../chat/queue.js'
 import { compactHistory } from '../chat/replay.js'
+import { HistoryCache } from '../chat/history-cache.js'
 import {
   bindSession,
   chatRuns,
@@ -152,10 +153,11 @@ export const registerChatRoutes = (
   }
 
   // ---- history cache (avoids re-reading the same session log on every page open) ----
+  // 债务 B2(半项):容量上限 LRU + 惰性 TTL——旧裸 Map 无上限,大量
+  // 「读过一次不再跑」的会话会让最贵的对象(整段历史数组)单调增长。
 
-  interface CachedHistory { events: HistoryEvent[]; sessionState: string; title: string | null; at: number }
-  const historyCache = new Map<string, CachedHistory>()
-  const HISTORY_TTL_MS = 30_000  // cold sessions don't change; 30s is safe
+  interface CachedHistory { events: HistoryEvent[]; sessionState: string; title: string | null }
+  const historyCache = new HistoryCache<CachedHistory>({ max: 200, ttlMs: 30_000 }) // cold sessions don't change; 30s is safe
 
   const invalidateHistory = (sessionId: string): void => { historyCache.delete(sessionId) }
 
@@ -283,7 +285,7 @@ export const registerChatRoutes = (
 
     // Check cache first — DSH session log reads are expensive (~6s for large sessions).
     const cached = historyCache.get(chat.dshSessionId)
-    if (cached !== undefined && Date.now() - cached.at < HISTORY_TTL_MS) {
+    if (cached !== null) {
       events = cached.events
       sessionState = cached.sessionState
       if (cached.title !== null && cached.title !== '') renameChat(db, chat.id, cached.title)
@@ -297,7 +299,7 @@ export const registerChatRoutes = (
           events = history.events
           sessionState = history.sessionState
           if (history.title !== null && history.title !== '') renameChat(db, chat.id, history.title)
-          historyCache.set(chat.dshSessionId, { events, sessionState, title: history.title, at: Date.now() })
+          historyCache.set(chat.dshSessionId, { events, sessionState, title: history.title })
         } else {
           // Read-only and does not wake the session, so opening an old chat costs
           // nothing on the gateway.
@@ -309,7 +311,7 @@ export const registerChatRoutes = (
           // The gateway names sessions itself; prefer its title over our guess.
           const title = history.header?.title
           if (typeof title === 'string' && title !== '') renameChat(db, chat.id, title)
-          historyCache.set(chat.dshSessionId, { events, sessionState, title: title ?? null, at: Date.now() })
+          historyCache.set(chat.dshSessionId, { events, sessionState, title: title ?? null })
         }
         app.log.info(`GET /api/chats/${chat.id}: history ${driver} ${Date.now() - t0}ms, ${events.length} events`)
       } catch (error) {
