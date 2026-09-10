@@ -76,7 +76,8 @@ export const PAGES: Record<string, PageDef> = {
   chat: {
     file: 'chat.html',
     title: '对话 · Oh! dsh',
-    css: ['chat.css'],
+    // dsw-theme.css 先于 chat.css：DSH web 的整套主题 token（对齐基准）。
+    css: ['dsw-theme.css', 'chat.css'],
     script: 'chat.js',
     contentClass: 'content-flush',
   },

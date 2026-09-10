@@ -677,7 +677,8 @@ waitNode.innerHTML = `<div class="turn-who"><span class="who-avatar" aria-hidden
     <span class="wait-what" role="status"></span>
     <span class="wait-time" aria-hidden="true"></span>
     <span class="wait-note" aria-hidden="true"></span>
-  </div>`
+  </div>
+  <div class="wait-shimmer" aria-hidden="true"></div>`
 
 const waitParts = {
   who: waitNode.querySelector('.turn-who'),
@@ -785,7 +786,9 @@ const trackAsks = (frame) => {
 const askNode = document.createElement('div')
 askNode.className = 'asks'
 
-const optionRow = (qid, option) => `<button type="button" class="ask-opt" data-q="${esc(qid)}" data-label="${esc(option.label)}">
+// DSH 的 QuestionComposer 选项语义：单选 radiogroup/radio、多选 group/checkbox，
+// 状态经 aria-checked 暴露（选中态仍由 .on 类驱动视觉）。
+const optionRow = (qid, option, multi) => `<button type="button" class="ask-opt" data-q="${esc(qid)}" data-label="${esc(option.label)}" role="${multi ? 'checkbox' : 'radio'}" aria-checked="false">
     <span class="ask-opt-label">${esc(option.label)}</span>
     ${option.description === undefined ? '' : `<span class="ask-opt-desc">${esc(option.description)}</span>`}
   </button>`
@@ -795,7 +798,7 @@ const questionCard = (ask) => {
       ${q.header === undefined ? '' : `<div class="ask-q-head">${esc(q.header)}</div>`}
       <div class="ask-q-text">${esc(q.question)}</div>
       ${q.detail === undefined ? '' : `<div class="ask-q-detail prose">${mdOnce(q.detail)}</div>`}
-      ${(q.options ?? []).length === 0 ? '' : `<div class="ask-opts${q.multiSelect === true ? ' multi' : ''}">${q.options.map((o) => optionRow(q.id, o)).join('')}</div>`}
+      ${(q.options ?? []).length === 0 ? '' : `<div class="ask-opts${q.multiSelect === true ? ' multi' : ''}" role="${q.multiSelect === true ? 'group' : 'radiogroup'}">${q.options.map((o) => optionRow(q.id, o, q.multiSelect === true)).join('')}</div>`}
       <input class="ask-custom" data-q="${esc(q.id)}" type="text" placeholder="${(q.options ?? []).length === 0 ? '写下你的回答' : '或者自己写一个'}">
     </div>`).join('')
   // DSH's decision-card grammar: amber strip on top, white card, body, and the
@@ -902,10 +905,17 @@ askNode.addEventListener('click', (event) => {
     const group = option.parentElement
     // Single-select behaves like radios; multi-select toggles. Enforced here as
     // well as in the gateway, so the shape of the card matches what it accepts.
+    // aria-checked follows the visual state (DSH QuestionComposer 语义).
     if (!group.classList.contains('multi')) {
-      for (const sibling of group.querySelectorAll('.ask-opt.on')) if (sibling !== option) sibling.classList.remove('on')
+      for (const sibling of group.querySelectorAll('.ask-opt.on')) {
+        if (sibling !== option) {
+          sibling.classList.remove('on')
+          sibling.setAttribute('aria-checked', 'false')
+        }
+      }
     }
     option.classList.toggle('on')
+    option.setAttribute('aria-checked', option.classList.contains('on') ? 'true' : 'false')
     return
   }
 
@@ -1103,6 +1113,22 @@ el.log.addEventListener(
 // data on every frame, so a listener on a per-turn control would be attached to
 // a node that no longer exists.
 el.log.addEventListener('click', (event) => {
+  // Code block copy (DSH CodeBlock banner button). Delegated: the transcript is
+  // rebuilt from data on every frame, so a listener per block would be attached
+  // to a node that no longer exists.
+  const copy = event.target.closest('.md-copy')
+  if (copy !== null) {
+    const code = copy.closest('.md-code-block')?.querySelector('pre code')
+    const text = code === null || code === undefined ? '' : code.textContent
+    if (text !== '') {
+      void navigator.clipboard.writeText(text).then(() => {
+        copy.textContent = '已复制'
+        setTimeout(() => { copy.textContent = '复制' }, 1500)
+      }).catch(() => {})
+    }
+    return
+  }
+
   const act = event.target.closest('.turn-act')
   if (act === null) return
 

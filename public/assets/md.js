@@ -71,7 +71,10 @@ const inline = (escaped) => {
 /** A fenced code block, with the language kept for styling only. */
 const codeBlock = (lang, lines) => {
   const cls = /^[\w+-]{1,20}$/.test(lang) ? ` class="lang-${esc(lang)}"` : ''
-  return `<pre${cls}><code>${esc(lines.join('\n'))}</code></pre>`
+  // DSH's CodeBlock grammar (stable class md-code-block): a banner carrying the
+  // language and a copy button above the code. `md-copy` is wired in chat.js;
+  // the code text itself stays escape-first (see the safety note above).
+  return `<div class="md-code-block"><div class="md-code-banner"><span class="md-code-lang">${esc(lang || 'text')}</span><button type="button" class="md-copy">复制</button></div><pre${cls}><code>${esc(lines.join('\n'))}</code></pre></div>`
 }
 
 const TABLE_DIVIDER = /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$/
@@ -163,7 +166,7 @@ export const md = (text) => {
         i += 1
       }
       out.push(
-        `<table><thead><tr>${head.map((c) => `<th>${c}</th>`).join('')}</tr></thead>` +
+        `<table class="md-table-wide"><thead><tr>${head.map((c) => `<th>${c}</th>`).join('')}</tr></thead>` +
           `<tbody>${body.join('')}</tbody></table>`,
       )
       continue

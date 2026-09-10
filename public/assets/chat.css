@@ -20,28 +20,31 @@
  */
 
 .content-flush:has(.chat-log) {
-  /* DSH conversation palette, scoped to this page so the rest of manager keeps
-     its own tokens. */
-  --chat-bg: #fff;
-  --chat-text: #0f1115;
-  --chat-text-2: #61666b;
-  --chat-text-3: #81858c;
-  --chat-caption: #adb2b8;
-  --chat-bubble: #edf3fe;
-  --chat-send: #4176e6;
-  --chat-send-hover: #679efe;
-  --chat-line: rgba(0, 0, 0, 0.1);
-  --chat-hover: rgba(38, 49, 72, 0.06);
-  --chat-hover-strong: rgba(38, 49, 72, 0.14);
-  --chat-shadow: 0 4px 12px rgba(0, 0, 0, 0.02), 0 2px 8px rgba(0, 0, 0, 0.04);
-  --chat-col: 748px;
-  --chat-composer-w: 780px;
+  /* DSH web 主题 token 接线（dsw-theme.css，0.1.2-rc.1 编译产物整段提取）：
+     视觉与 DSH 完全同源，不再硬编码近似值。--chat-* 别名保留给下方规则
+     零散引用，值一律取自 token。 */
+  --chat-bg: var(--dsw-alias-bg-base);
+  --chat-text: var(--dsw-alias-label-primary);
+  --chat-text-2: var(--dsw-alias-label-secondary);
+  --chat-text-3: var(--dsw-alias-label-tertiary);
+  --chat-caption: var(--dsw-alias-label-caption);
+  --chat-bubble: var(--dsw-specific-bubble);
+  --chat-send: var(--dsw-static-deepseek-500);
+  --chat-send-hover: var(--dsw-static-deepseek-400);
+  --chat-line: var(--dsw-alias-border-l2);
+  --chat-hover: var(--dsw-alias-interactive-bg-hover);
+  --chat-hover-strong: var(--dsw-alias-interactive-bg-hover-accent);
+  --chat-shadow: var(--dsw-shadow-lv2);
+  --chat-col: var(--dsh-chat-content-width);
+  --chat-composer-w: var(--dsh-composer-card-max-width);
   --chat-input-max-h: 336px;
-  /* DSH's decision-card amber: strip bg / ink / border, from its own
-     state-warn tokens. */
-  --chat-ask-strip: #fef5e7;
-  --chat-ask-ink: #f59e0b;
-  --chat-ask-border: #f7ad31;
+  /* DSH 决策卡的琥珀三件套，直接取自 state-warn token。 */
+  --chat-ask-strip: var(--dsw-static-amber-100);
+  --chat-ask-ink: var(--dsw-static-amber-500);
+  --chat-ask-border: var(--dsw-static-amber-400);
+  /* 代码字体栈（DSH 的 --ds-font-family-code），只作用于本页。 */
+  --mono: var(--ds-font-family-code);
+  font-family: var(--dsw-font-family);
 
   display: flex;
   flex-direction: column;
@@ -192,13 +195,27 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
-  /* The transcript's scrollbar is invisible; position is carried by the
-     to-bottom control and by content itself. */
-  scrollbar-width: none;
+  /* DSH 的细滚动条（--dsh-scrollbar-* token），不再隐藏。 */
+  scrollbar-width: thin;
+  scrollbar-color: var(--dsh-scrollbar-thumb) transparent;
 }
 
 .chat-log::-webkit-scrollbar {
-  display: none;
+  width: 8px;
+  height: 8px;
+}
+
+.chat-log::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-log::-webkit-scrollbar-thumb {
+  background: var(--dsh-scrollbar-thumb);
+  border-radius: 4px;
+}
+
+.chat-log::-webkit-scrollbar-thumb:hover {
+  background: var(--dsh-scrollbar-thumb-hover);
 }
 
 /* ---- scroll-to-bottom (DSH ChatView toBottom) ---- */
@@ -470,6 +487,41 @@
   }
 }
 
+/* DSH 的 running 态流光条（turnStatus shimmer：@keyframes 1.8s linear，
+   --dsw-state-ongoing 语义），挂在等待行下方。 */
+.wait-shimmer {
+  height: 2px;
+  border-radius: 1px;
+  overflow: hidden;
+  background: var(--chat-hover);
+}
+
+.wait-shimmer::after {
+  content: '';
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, var(--dsw-static-deepseek-400), transparent);
+  background-size: 200% 100%;
+  animation: wait-shimmer 1.8s linear infinite;
+}
+
+@keyframes wait-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wait-shimmer::after {
+    animation: none;
+    background: var(--dsw-static-deepseek-300);
+  }
+}
+
 /* ---- asks: what the agent is blocked on ---- */
 
 /* Copied from DSH's decision cards (ApprovalPanel / PlanReviewPanel): a white
@@ -710,6 +762,8 @@
    and double every gap. */
 .prose {
   white-space: normal;
+  /* DSH 排版 token：正文 16/28（AssistantMarkdown 同款）。 */
+  font: var(--dsw-font-markdown-base);
 }
 
 /* First and last margins are dropped so a bubble is not padded twice — once by
@@ -726,6 +780,7 @@
   margin: 0 0 0.75em;
 }
 
+/* DSH 标题阶梯：h1 24/34、h2 22/32、h3 20/30、h4 16/28（--dsw-font-markdown-*）。 */
 .prose h1,
 .prose h2,
 .prose h3,
@@ -738,21 +793,24 @@
 }
 
 .prose h1 {
-  font-size: 1.28em;
+  font: var(--dsw-font-markdown-h1);
 }
 
 .prose h2 {
-  font-size: 1.16em;
+  font: var(--dsw-font-markdown-h2);
 }
 
 .prose h3 {
-  font-size: 1.06em;
+  font: var(--dsw-font-markdown-h3);
 }
 
-.prose h4,
+.prose h4 {
+  font: var(--dsw-font-markdown-h4);
+}
+
 .prose h5,
 .prose h6 {
-  font-size: 1em;
+  font: var(--dsw-font-markdown-h4);
   color: var(--chat-text-3);
 }
 
@@ -780,30 +838,81 @@
 .prose code {
   font-family: var(--mono);
   font-size: 0.9em;
-  background: var(--surface-sunken);
+  background: var(--dsw-alias-markdown-inline-code);
   border: 1px solid var(--chat-line);
   border-radius: var(--r-sm);
   padding: 0.1em 0.34em;
   overflow-wrap: anywhere;
 }
 
-.prose pre {
+/* ---- code blocks: DSH's md-code-block grammar (stable class) ---- */
+
+/* DSH 的 CodeBlock：外层 md-code-block（稳定类名），顶部 banner（语言名 + 复制按钮），
+   下面是代码本体。banner 底色与代码区同源 token。 */
+.md-code-block {
   margin: 0 0 0.75em;
-  padding: 10px 12px;
-  background: var(--surface-sunken);
+  background: var(--dsw-alias-markdown-code-block);
   border: 1px solid var(--chat-line);
   border-radius: 12px;
+  overflow: hidden;
+}
+
+.md-code-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--dsw-alias-markdown-code-block-banner);
+  border-bottom: 1px solid var(--chat-line);
+  font-size: 12px;
+  color: var(--chat-text-3);
+}
+
+.md-code-lang {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.md-copy {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--chat-text-3);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition:
+    background-color var(--motion),
+    color var(--motion);
+}
+
+.md-copy:hover {
+  background: var(--chat-hover);
+  color: var(--chat-text);
+}
+
+.md-code-block pre {
+  margin: 0;
+  padding: 10px 12px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
   /* Code is the one thing that must not be re-wrapped: a broken line changes
      what it says. Scroll instead. */
   overflow-x: auto;
 }
 
-.prose pre code {
+.md-code-block pre code {
   background: none;
   border: 0;
   padding: 0;
-  font-size: 12px;
-  line-height: 1.55;
+  /* DSH 代码块排版 token：13/22。 */
+  font: var(--dsw-font-markdown-code-block);
   white-space: pre;
   overflow-wrap: normal;
 }
@@ -816,7 +925,8 @@
   border-spacing: 0;
   border: 1px solid var(--chat-line);
   border-radius: 10px;
-  font-size: 13.5px;
+  /* DSH 表格排版 token：15/25（md-table-wide 同款）。 */
+  font: var(--dsw-font-markdown-table);
   display: block;
   overflow: auto;
 }

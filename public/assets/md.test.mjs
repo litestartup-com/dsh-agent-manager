@@ -17,6 +17,16 @@ test('escapes markup in prose, code and headings alike', () => {
   assert.equal(md('`<b>x</b>`'), '<p><code>&lt;b&gt;x&lt;/b&gt;</code></p>')
 })
 
+test('code blocks carry the DSH banner: language label + copy button, code escaped', () => {
+  const html = md('```js\nalert(1)\n```')
+  assert.match(html, /<div class="md-code-block">/)
+  assert.match(html, /<span class="md-code-lang">js<\/span>/)
+  assert.match(html, /<button type="button" class="md-copy">复制<\/button>/)
+  assert.match(html, /<pre class="lang-js"><code>alert\(1\)<\/code><\/pre>/)
+  // No language: the banner still names it "text" -- a bare fence is a text block.
+  assert.match(md('```\nhi\n```'), /<span class="md-code-lang">text<\/span>/)
+})
+
 test('refuses link schemes that can execute', () => {
   // The label still renders; only the link is withheld, so the reader sees the
   // text the agent wrote and cannot be navigated by it.
@@ -56,7 +66,6 @@ test('treats an unterminated fence as running to the end', () => {
   assert.match(html, /<p>here:<\/p>/)
   assert.match(html, /<pre class="lang-js"><code>const a = 1<\/code><\/pre>/)
 })
-
 test('renders lists, including wrapped items', () => {
   assert.equal(md('- one\n- two'), '<ul><li>one</li><li>two</li></ul>')
   assert.equal(md('1. first\n2. second'), '<ol><li>first</li><li>second</li></ol>')
@@ -65,7 +74,7 @@ test('renders lists, including wrapped items', () => {
 
 test('renders a table only when a divider row follows the header', () => {
   const html = md('| a | b |\n| --- | --- |\n| 1 | 2 |')
-  assert.match(html, /<table><thead><tr><th>a<\/th><th>b<\/th><\/tr><\/thead>/)
+  assert.match(html, /<table class="md-table-wide"><thead><tr><th>a<\/th><th>b<\/th><\/tr><\/thead>/)
   assert.match(html, /<tbody><tr><td>1<\/td><td>2<\/td><\/tr><\/tbody>/)
   // Pipes without a divider are prose, not a one-row table.
   assert.equal(md('a | b'), '<p>a | b</p>')
