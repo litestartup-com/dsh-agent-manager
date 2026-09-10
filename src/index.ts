@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url'
+import { randomUUID } from 'node:crypto'
 import { dirname, join } from 'node:path'
 import cookie from '@fastify/cookie'
 import rateLimit from '@fastify/rate-limit'
@@ -34,6 +35,7 @@ import { registerInternalRoutes } from './routes/internal.js'
 import { registerNodesRoutes } from './routes/nodes.js'
 import { registerSkillsRoutes } from './routes/skills.js'
 import { registerNotificationRoutes } from './routes/notifications.js'
+import { registerMetricsRoutes } from './metrics.js'
 import { registerProvisionRoutes } from './routes/provision.js'
 import { Scheduler } from './cron/schedule.js'
 import { assetCacheHeaders, buildPages } from './pages.js'
@@ -47,6 +49,9 @@ const main = async (): Promise<void> => {
   const { db, applied } = openDb(config.databasePath)
 
   const app = Fastify({
+    // 债务 B6:每请求一枚 requestId,日志与排障按请求贯通
+    genReqId: (request) =>
+      (request.headers['x-request-id'] as string | undefined) ?? randomUUID().slice(0, 8),
     logger: {
       level: process.env.LOG_LEVEL ?? 'info',
       ...(process.env.NODE_ENV === 'production'
@@ -237,6 +242,8 @@ const main = async (): Promise<void> => {
   registerProvisionRoutes(app, config, requireUser, { db, supervisors: nodeSupervisors, clients, upstreamClients, docker: dockerRunner ?? undefined })
   registerSkillsRoutes(app, config, requireUser)
   registerNotificationRoutes(app, db, requireUser)
+  // 债务 B6:/metrics 快照端点(受保护)
+  registerMetricsRoutes(app, db, requireUser)
 
   const close = async (signal: string): Promise<void> => {
     app.log.info(`${signal} received, shutting down`)

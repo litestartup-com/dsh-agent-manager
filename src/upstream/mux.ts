@@ -60,6 +60,10 @@ interface MuxConnection {
 
 const connections = new Map<string, MuxConnection>()
 
+/** 债务 B6:重连累计计数(metrics 展示;每次断线重连 +1)。 */
+let reconnectCount = 0
+export const getMuxReconnects = (): number => reconnectCount
+
 const RECONNECT_BASE_MS = 3_000
 const RECONNECT_MAX_MS = 30_000
 
@@ -200,6 +204,7 @@ const attach = (conn: MuxConnection): void => {
     // Auto-reconnect if there are still listeners.
     if (conn.listeners.size > 0 || conn.globalListeners.size > 0) {
       conn.wasConnected = true
+      reconnectCount += 1
       if (conn.reconnectTimer === null) {
         const delay = nextReconnectDelay(conn.reconnectAttempt)
         conn.reconnectAttempt += 1
