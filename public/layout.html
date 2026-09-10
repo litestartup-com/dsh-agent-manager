@@ -70,6 +70,12 @@
           <circle cx="8" cy="8" r="1.5" />
           <circle cx="13.1" cy="8" r="1.5" />
         </g>
+        <!-- ⋮ 溢出菜单入口：竖排三点（与行菜单的横排 #i-more 区分语义）。 -->
+        <g id="i-more-v" fill="currentColor">
+          <circle cx="8" cy="2.9" r="1.5" />
+          <circle cx="8" cy="8" r="1.5" />
+          <circle cx="8" cy="13.1" r="1.5" />
+        </g>
         <!-- A gateway endpoint: a DSH process, drawn as the two-bay box that
              every ops UI uses for "a server". The shape says *what* the control
              reports on; the state dot layered over it says how it is doing. A
@@ -258,7 +264,7 @@
                复用 #i-more（行级「更多」同一个字形）。 -->
           <button id="side-more" class="icon-btn" type="button" aria-label="更多" title="更多"
             aria-haspopup="menu" aria-expanded="false" aria-controls="side-more-menu">
-            <svg width="15" height="15" aria-hidden="true"><use href="#i-more" /></svg>
+            <svg width="15" height="15" aria-hidden="true"><use href="#i-more-v" /></svg>
           </button>
         </div>
       </aside>
