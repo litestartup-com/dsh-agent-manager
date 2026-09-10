@@ -1,10 +1,11 @@
 import { randomBytes } from 'node:crypto'
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import net from 'node:net'
 import { pathToFileURL } from 'node:url'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
+import { writeFileAtomic } from '../config-store.js'
 import { initWorkspace } from '../workspace/init.js'
 import { COMPAT_DSH_VERSION, DSH_INSTALL_COMMAND, GATEWAY_PACKAGE, GATEWAY_REF, dshCompatible } from '../dsh-version.js'
 
@@ -267,33 +268,43 @@ export const checkPortFree = (port: number): Promise<boolean> =>
   })
 
 /** .env 合并：已有的值绝不覆盖（用户手改优先）；forceKeys 例外——setup 自己
- * 拥有这些密钥（必须与刚生成的节点 settings 一致），一律以新值为准。 */
+ * 拥有这些密钥（必须与刚生成的节点 settings 一致），一律以新值为准。
+ * 债务 A3：.env 也是真相源——注释与行序保留、原子写（.tmp+rename）、0600。 */
 export const mergeEnv = (path: string, values: Record<string, string>, forceKeys: string[] = []): Record<string, string> => {
   const existing: Record<string, string> = {}
-  if (existsSync(path)) {
-    for (const line of readFileSync(path, 'utf8').split(/\r?\n/)) {
-      const match = /^([A-Z_][A-Z0-9_]*)=(.*)$/.exec(line.trim())
-      if (match !== null && match[1] !== undefined && match[2] !== undefined && match[2] !== '') {
-        existing[match[1]] = match[2]
-      }
+  const lines = existsSync(path) ? readFileSync(path, 'utf8').split(/\r?\n/) : []
+  for (const line of lines) {
+    const match = /^([A-Z_][A-Z0-9_]*)=(.*)$/.exec(line.trim())
+    if (match !== null && match[1] !== undefined && match[2] !== undefined && match[2] !== '') {
+      existing[match[1]] = match[2]
     }
   }
   const merged = { ...values, ...existing }
   for (const key of forceKeys) {
     if (values[key] !== undefined) merged[key] = values[key]
   }
-  const content = Object.entries(merged)
-    .map(([key, value]) => `${key}=${value}`)
-    .join('\n')
-  writeFileSync(path, content + '\n', 'utf8')
-  // 蜂群2计划 P3：.env 含密钥，POSIX 上收紧为 owner-only（Windows 无此语义）
-  if (process.platform !== 'win32') {
-    try {
-      chmodSync(path, 0o600)
-    } catch {
-      // best effort：权限收不紧不阻断安装，但值得在文档里说明
+  const handled = new Set<string>()
+  const out: string[] = []
+  for (const line of lines) {
+    const match = /^([A-Z_][A-Z0-9_]*)=(.*)$/.exec(line.trim())
+    if (match === null || match[1] === undefined) {
+      out.push(line) // 注释/空行原样保留
+      continue
+    }
+    const value = merged[match[1]]
+    if (value !== undefined && value !== '') {
+      out.push(`${match[1]}=${value}`)
+      handled.add(match[1])
+    } else {
+      out.push(line) // 空值行保留原样
     }
   }
+  for (const [key, value] of Object.entries(merged)) {
+    if (handled.has(key) || value === '') continue
+    out.push(`${key}=${value}`)
+  }
+  const content = out.join('\n')
+  writeFileAtomic(path, content.endsWith('\n') ? content : `${content}\n`, 0o600)
   return merged
 }
 
@@ -629,7 +640,7 @@ const main = async (): Promise<void> => {
     brainHome: nodeHomes.get('ohdsh-brain')!,
     brainToken: envValues.BRAIN_TOKEN ?? '',
   })
-  writeFileSync(configPath, stringifyYaml(managerConfig), 'utf8')
+  writeFileAtomic(configPath, stringifyYaml(managerConfig))
 
   console.log('')
   console.log('完成。下一步：')

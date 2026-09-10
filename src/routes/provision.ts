@@ -1,10 +1,10 @@
 import { randomBytes } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type { FastifyInstance, preHandlerHookHandler } from 'fastify'
-import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { z } from 'zod'
+import { mutateYamlFile, writeFileAtomic } from '../config-store.js'
 import type { AppConfig, ResolvedEndpoint, ResolvedSpawnSpec } from '../config.js'
 import type { Db } from '../db/index.js'
 import { schema } from '../db/index.js'
@@ -227,38 +227,41 @@ export const registerProvisionRoutes = (
         }
         recordAudit(db, { actor: request.currentUser?.username ?? 'unknown', kind: 'node_create', detail: `节点 ${body.name}（docker 工蜂，端口 ${port}，工作区 ${agentSpec?.workspace ?? '—'}）` })
 
-        // 真相文件（带快照，失败可还原）:.env 密钥 → yaml
+        // 真相文件（带快照，失败可还原）:.env 密钥 → yaml（债务 A3:原子写 + 保注释;syntax 校验
+        // 防磁盘级损坏——loadConfig 依赖 process.env 快照,写后立即 full 校验会误报,语义完整性
+        // 由 H2 快照回滚 + 下次 boot fail-loud 兜底）
         envSnap = existsSync(ENV_PATH) ? readFileSync(ENV_PATH, 'utf8') : null
         mergeEnv(ENV_PATH, { [keyRef]: key }, [keyRef])
         yamlSnap = readFileSync(resolve(CONFIG_PATH), 'utf8')
-        const yaml = parseYaml(yamlSnap) as Record<string, Record<string, unknown>>
-        const endpoints = (yaml.endpoints ??= {}) as Record<string, unknown>
-        const agents = (yaml.agents ??= {}) as Record<string, unknown>
-        endpoints[body.name] = {
-          url: `http://node-${body.name}:${port}`,
-          driver: 'apiproxy',
-          prefix: '/api',
-          key_ref: '',
-          sandbox_base: `http://node-${body.name}:${port}/api-gw/v1`,
-          sandbox_key_ref: keyRef,
-          spawn: {
-            managed: true,
-            runner: 'docker',
-            ready_timeout_ms: 30_000,
-            docker: dockerSpec,
+        mutateYamlFile(
+          resolve(CONFIG_PATH),
+          (doc) => {
+            doc.setIn(['endpoints', body.name], {
+              url: `http://node-${body.name}:${port}`,
+              driver: 'apiproxy',
+              prefix: '/api',
+              key_ref: '',
+              sandbox_base: `http://node-${body.name}:${port}/api-gw/v1`,
+              sandbox_key_ref: keyRef,
+              spawn: {
+                managed: true,
+                runner: 'docker',
+                ready_timeout_ms: 30_000,
+                docker: dockerSpec,
+              },
+            })
+            if (agentSpec !== null) {
+              doc.setIn(['agents', agentSpec.id], {
+                name: agentSpec.name,
+                endpoint: body.name,
+                workspace: agentSpec.workspace,
+                public: false,
+                preset: agentSpec.preset,
+                sandbox_mode: agentSpec.sandboxMode,
+              })
+            }
           },
-        }
-        if (agentSpec !== null) {
-          agents[agentSpec.id] = {
-            name: agentSpec.name,
-            endpoint: body.name,
-            workspace: agentSpec.workspace,
-            public: false,
-            preset: agentSpec.preset,
-            sandbox_mode: agentSpec.sandboxMode,
-          }
-        }
-        writeFileSync(resolve(CONFIG_PATH), stringifyYaml(yaml), 'utf8')
+        )
 
         const spawn: ResolvedSpawnSpec = {
           managed: true,
@@ -375,39 +378,40 @@ export const registerProvisionRoutes = (
       // 蜂群2计划 P3：审计留痕（创建节点）
       recordAudit(db, { actor: request.currentUser?.username ?? 'unknown', kind: 'node_create', detail: `节点 ${body.name}（端口 ${port}，工作区 ${agentSpec?.workspace ?? '—'}）` })
 
-      // 真相文件（带快照，失败可还原）:.env 密钥 → yaml
+      // 真相文件（带快照，失败可还原）:.env 密钥 → yaml（债务 A3:原子写 + 保注释 + full 校验,失败自动还原）
       envSnap = existsSync(ENV_PATH) ? readFileSync(ENV_PATH, 'utf8') : null
       mergeEnv(ENV_PATH, { [keyRef]: key }, [keyRef])
       yamlSnap = readFileSync(resolve(CONFIG_PATH), 'utf8')
-      const yaml = parseYaml(yamlSnap) as Record<string, Record<string, unknown>>
-      const endpoints = (yaml.endpoints ??= {}) as Record<string, unknown>
-      const agents = (yaml.agents ??= {}) as Record<string, unknown>
-      endpoints[body.name] = {
-        url: `http://127.0.0.1:${port}`,
-        driver: 'apiproxy',
-        prefix: '/api',
-        key_ref: '',
-        sandbox_base: `http://127.0.0.1:${port}/api-gw/v1`,
-        sandbox_key_ref: keyRef,
-        spawn: {
-          managed: true,
-          command: 'node',
-          args: [dshBin, '--profile', body.name, '--no-open'],
-          ready_timeout_ms: 30_000,
-          env: { DSH_HOME: nodeHomePath },
+      mutateYamlFile(
+        resolve(CONFIG_PATH),
+        (doc) => {
+          doc.setIn(['endpoints', body.name], {
+            url: `http://127.0.0.1:${port}`,
+            driver: 'apiproxy',
+            prefix: '/api',
+            key_ref: '',
+            sandbox_base: `http://127.0.0.1:${port}/api-gw/v1`,
+            sandbox_key_ref: keyRef,
+            spawn: {
+              managed: true,
+              command: 'node',
+              args: [dshBin, '--profile', body.name, '--no-open'],
+              ready_timeout_ms: 30_000,
+              env: { DSH_HOME: nodeHomePath },
+            },
+          })
+          if (agentSpec !== null) {
+            doc.setIn(['agents', agentSpec.id], {
+              name: agentSpec.name,
+              endpoint: body.name,
+              workspace: agentSpec.workspace,
+              public: false,
+              preset: agentSpec.preset,
+              sandbox_mode: agentSpec.sandboxMode,
+            })
+          }
         },
-      }
-      if (agentSpec !== null) {
-        agents[agentSpec.id] = {
-          name: agentSpec.name,
-          endpoint: body.name,
-          workspace: agentSpec.workspace,
-          public: false,
-          preset: agentSpec.preset,
-          sandbox_mode: agentSpec.sandboxMode,
-        }
-      }
-      writeFileSync(resolve(CONFIG_PATH), stringifyYaml(yaml), 'utf8')
+      )
 
       // 热加载：endpoint + 工作区进内存配置，监督器入册并拉起
       const endpoint: ResolvedEndpoint = {
@@ -479,7 +483,7 @@ export const registerProvisionRoutes = (
       }
       if (yamlSnap !== null) {
         try {
-          writeFileSync(resolve(CONFIG_PATH), yamlSnap, 'utf8')
+          writeFileAtomic(resolve(CONFIG_PATH), yamlSnap)
         } catch (rollbackError) {
           app.log.warn(`provision rollback: restore config failed: ${(rollbackError as Error).message}`)
         }
@@ -494,7 +498,7 @@ export const registerProvisionRoutes = (
           }
         } else {
           try {
-            writeFileSync(ENV_PATH, envSnap, 'utf8')
+            writeFileAtomic(ENV_PATH, envSnap, 0o600)
           } catch (rollbackError) {
             app.log.warn(`provision rollback: restore .env failed: ${(rollbackError as Error).message}`)
           }
@@ -535,12 +539,14 @@ export const registerProvisionRoutes = (
     delete config.endpoints[request.params.id]
     for (const a of bound) delete config.agents[a.id]
 
-    const yaml = parseYaml(readFileSync(resolve(CONFIG_PATH), 'utf8')) as Record<string, Record<string, unknown>>
-    if (yaml.endpoints !== undefined) delete yaml.endpoints[request.params.id]
-    for (const a of bound) {
-      if (yaml.agents !== undefined) delete yaml.agents[a.id]
-    }
-    writeFileSync(resolve(CONFIG_PATH), stringifyYaml(yaml), 'utf8')
+    // 债务 A3:删除也走原子写(syntax 校验,防磁盘级损坏)
+    mutateYamlFile(
+      resolve(CONFIG_PATH),
+      (doc) => {
+        doc.deleteIn(['endpoints', request.params.id])
+        for (const a of bound) doc.deleteIn(['agents', a.id])
+      },
+    )
 
     app.log.info(
       `node ${request.params.id}: unmanaged (${bound.length} workspace binding(s) removed from config; files on disk kept)`,
