@@ -34,6 +34,8 @@ export const registerNodesRoutes = (
         const probe = await probeEndpoint(config, clients, upstreamClients, id)
         if (supervisor !== undefined) {
           const s = supervisor.current
+          // 容器形态：镜像标签就是节点 DSH 版本的真相（镜像 tag 即 DSH 版本）。
+          const image = await supervisor.containerImage()
           return {
             id,
             managed: true,
@@ -44,6 +46,7 @@ export const registerNodesRoutes = (
             agents: agentIds,
             dshVersion: probe.dshVersion,
             dshCompatible: probe.dshCompatible,
+            ...(image === null ? {} : { image }),
           }
         }
         return {

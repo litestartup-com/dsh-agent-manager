@@ -917,6 +917,16 @@ const panelBody = (data) => {
         ? `可达 · ${endpoint.sessions ?? '?'} 个会话${endpoint.apiKeySet === false ? ' · <span class="warn">未设密钥</span>' : ''}`
         : `<span class="error">不可达：${esc(endpoint.error ?? '未知原因')}</span>`,
     ),
+    // 容器形态：镜像标签即节点 DSH 版本的真相，先于版本行展示。
+    ...(typeof endpoint.image === 'string' && endpoint.image !== ''
+      ? [kv('节点镜像', `<code>${esc(endpoint.image)}</code>`)]
+      : []),
+    kv(
+      'DSH 版本',
+      typeof endpoint.dshVersion === 'string' && endpoint.dshVersion !== ''
+        ? `<code>${esc(endpoint.dshVersion)}</code>${endpoint.dshCompatible === false ? ' <span class="warn">与验证版本不符</span>' : ''}`
+        : '<span class="muted">未知</span>',
+    ),
     kv('工作区', `<code>${esc(agent.workspacePath)}</code>`),
     kv('preset', agent.preset === null ? '<span class="muted">跟随 DSH 进程默认</span>' : `<code>${esc(agent.preset)}</code>`),
     kv(

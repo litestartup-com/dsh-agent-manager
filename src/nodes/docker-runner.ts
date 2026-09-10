@@ -49,6 +49,19 @@ export class DockerRunner {
   }
 
   /**
+   * 容器当前使用的镜像标签（Config.Image，即启动时传入的镜像名含 tag）。
+   * 查不到/容器已消失返回 null——调用方按「未知」展示。
+   */
+  async containerImage(id: string): Promise<string | null> {
+    try {
+      const info = await this.docker.getContainer(id).inspect()
+      return typeof info.Config?.Image === 'string' && info.Config.Image !== '' ? info.Config.Image : null
+    } catch {
+      return null
+    }
+  }
+
+  /**
    * 创建并启动节点容器，返回容器 id。
    * 同名残留容器先强制清掉（重启/重建场景幂等）。
    */

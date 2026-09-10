@@ -210,7 +210,7 @@ const main = async (): Promise<void> => {
   // 单一来源收进 AppConfig 是 P2-5 的事）。
   registerAuthRoutes(app, db, secureCookies, join(here, '..', '.env'))
   registerAuditRoutes(app, db, requireUser)
-  registerStatusRoutes(app, config, db, clients, requireUser, upstreamClients)
+  registerStatusRoutes(app, config, db, clients, requireUser, upstreamClients, nodeSupervisors)
   registerWorkspaceRoutes(app, config, requireUser)
   registerRunRoutes(app, config, db, clients, requireUser, upstreamClients)
   registerBoardRoutes(app, config, requireUser)

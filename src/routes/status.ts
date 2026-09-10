@@ -2,6 +2,7 @@ import type { FastifyInstance, preHandlerHookHandler } from 'fastify'
 import { desc, eq } from 'drizzle-orm'
 import type { AppConfig } from '../config.js'
 import { schema, type Db } from '../db/index.js'
+import { COMPAT_DSH_VERSION } from '../dsh-version.js'
 import { GatewayError, type GatewayClient } from '../gateway/client.js'
 import type { SessionDriver } from '../session-driver/port.js'
 import { listArchivedChats, listChats } from '../chat/store.js'
@@ -62,9 +63,10 @@ export const probeEndpoint = async (
       const version = await upstream.probeVersion()
       row.reachable = true
       if (version !== 'unknown') {
-        // 注意（DSH-FACTS §6）：host.describe 的 version 字段恒为协议号（0.0.1），
-        // 不是 DSH 版本——只作信息展示，绝不用于兼容性告警。
+        // 0.1.2 起 host.describe 由 facade 合成，version 返回宿主树的真实 DSH
+        // 版本（读不到回退协议号 '0.0.1'）——展示用，且据此给兼容性信号。
         row.dshVersion = version
+        row.dshCompatible = version === COMPAT_DSH_VERSION
       }
       return row
     } catch (error) {
@@ -101,6 +103,8 @@ export const registerStatusRoutes = (
   clients: Map<string, GatewayClient>,
   requireUser: preHandlerHookHandler,
   upstreamClients: Map<string, SessionDriver>,
+  /** 节点监督器（agent 详情面板取容器镜像标签用；无 docker 形态则为空或查不到）。 */
+  supervisors: Map<string, import('../nodes/supervisor.js').NodeSupervisor> = new Map(),
 ): void => {
   /** Liveness for a supervisor. Intentionally unauthenticated and contentless. */
   app.get('/healthz', async (_request, reply) => reply.send({ ok: true }))
@@ -145,6 +149,9 @@ export const registerStatusRoutes = (
 
     const health = await probeEndpoint(config, clients, upstreamClients, agent.endpoint)
 
+    // 容器形态：节点镜像标签（镜像 tag 即 DSH 版本）——详情面板优先展示它。
+    const image = await supervisors.get(agent.endpoint)?.containerImage() ?? null
+
     // Sharing an endpoint is the fact most worth surfacing here: a DSH sandbox
     // root is per process, not per session, so these agents can read and write
     // each other's workspaces no matter what manager asks for.
@@ -175,7 +182,7 @@ export const registerStatusRoutes = (
         model: agent.model,
         gitRemote: agent.gitRemote,
       },
-      endpoint: health,
+      endpoint: { ...health, ...(image === null ? {} : { image }) },
       sharedWith,
       busyRunId: runningRunId(agent.id),
       activeRuns: activeRunCount(agent.id),

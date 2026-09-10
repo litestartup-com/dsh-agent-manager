@@ -24,7 +24,7 @@ const { parse: parseYaml, stringify: stringifyYaml } = require('yaml')
 const COMPAT_DSH_PACKAGE = '@deepseek-ai/dsh'
 const COMPAT_DSH_VERSION = '0.1.2-rc.1'
 const GATEWAY_PACKAGE = 'ohdsh-api-facade'
-const GATEWAY_REF = 'github:litestartup-com/dsh-api-gateway#9dd41f92e93a14ddb06595383ac890d292a92fd8'
+const GATEWAY_REF = 'github:litestartup-com/dsh-api-gateway#91e53c1'
 
 const args = process.argv.slice(2)
 const dryRun = args.includes('--dry-run')

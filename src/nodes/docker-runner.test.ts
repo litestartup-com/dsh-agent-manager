@@ -5,7 +5,7 @@ import { DockerRunner } from './docker-runner.js'
 import type { ResolvedSpawnSpec } from '../config.js'
 
 /** 测试用假 dockerode：只实现 DockerRunner 用到的面，调用全部留痕。 */
-const fake = (options: { imageExists?: boolean; leftovers?: Array<{ Id: string }> } = {}) => {
+const fake = (options: { imageExists?: boolean; leftovers?: Array<{ Id: string }>; inspectThrows?: boolean; inspectImage?: string } = {}) => {
   const state = {
     pulls: [] as string[],
     created: [] as Array<Record<string, unknown>>,
@@ -50,6 +50,10 @@ const fake = (options: { imageExists?: boolean; leftovers?: Array<{ Id: string }
       logs: async () => {
         state.logRequests.push(id)
         return Buffer.from(`logs-of-${id}\n`)
+      },
+      inspect: async () => {
+        if (options.inspectThrows === true) throw new Error('no such container')
+        return { Config: { Image: options.inspectImage ?? 'ohdsh/dsh-node:0.1.2-rc.1' } }
       },
     }),
   }
@@ -118,6 +122,15 @@ test('蜂群2计划 P2b: stop = stop + remove；logs 收集容器输出', async 
   assert.deepEqual(f.state.stopped, ['cid-9'])
   assert.deepEqual(f.state.removed, ['cid-9'])
   assert.equal(await runner.logs('cid-9', 100), 'logs-of-cid-9\n')
+})
+
+test('节点版本展示: containerImage 返回容器的镜像标签，查不到返回 null', async () => {
+  const f = fake()
+  const runner = new DockerRunner({ docker: f.docker })
+  assert.equal(await runner.containerImage('cid-1'), 'ohdsh/dsh-node:0.1.2-rc.1')
+  const gone = fake({ inspectThrows: true })
+  const goneRunner = new DockerRunner({ docker: gone.docker })
+  assert.equal(await goneRunner.containerImage('cid-missing'), null, '容器已消失按未知处理')
 })
 
 test('蜂群2计划 P2b: listManaged 只回 managed 标签容器并归一化字段', async () => {
