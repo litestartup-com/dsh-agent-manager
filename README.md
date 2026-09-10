@@ -10,15 +10,15 @@
 **Linux server (containers, recommended):**
 
 ```bash
-curl -fsSL https://get.ohdsh.com/install.sh -o install.sh && bash install.sh
-# pros: curl -fsSL https://get.ohdsh.com/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/litestartup-com/dsh-agent-manager/v1.0.3/install.sh -o install.sh && bash install.sh
+# pros: curl -fsSL https://raw.githubusercontent.com/litestartup-com/dsh-agent-manager/v1.0.3/install.sh | bash
 ```
 
 **Windows (bare metal):**
 
 ```powershell
-irm https://get.ohdsh.com/install.ps1 -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File .\install.ps1
-# pros: irm https://get.ohdsh.com/install.ps1 | iex
+irm https://raw.githubusercontent.com/litestartup-com/dsh-agent-manager/v1.0.3/install.ps1 -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File .\install.ps1
+# pros: irm https://raw.githubusercontent.com/litestartup-com/dsh-agent-manager/v1.0.3/install.ps1 | iex
 ```
 
 The scripts are idempotent: already-installed components are skipped, and re-runs never overwrite config or data.

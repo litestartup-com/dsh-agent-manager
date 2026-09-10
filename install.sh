@@ -3,8 +3,8 @@
 # nginx + manager + 主脑 spine; the 个人 worker is created by the manager).
 #
 # Usage:
-#   curl -fsSL https://get.ohdsh.com/install.sh -o install.sh && bash install.sh
-#   # one-liner for the impatient: curl -fsSL https://get.ohdsh.com/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/litestartup-com/dsh-agent-manager/v1.0.3/install.sh -o install.sh && bash install.sh
+#   # one-liner for the impatient: curl -fsSL https://raw.githubusercontent.com/litestartup-com/dsh-agent-manager/v1.0.3/install.sh | bash
 #
 # Idempotent: Docker present → skipped; .env existing → never overwritten.
 # Non-interactive: DEEPSEEK_API_KEY / MANAGER_PASSWORD / MANAGER_PORT / APP_DOMAIN /

@@ -1,10 +1,10 @@
 # Oh! dsh — Windows 一键安装（裸机形态：manager + 主脑 + 个人，本机直跑）。
 #
 # 推荐（先下载查看再执行）：
-#   irm https://get.ohdsh.com/install.ps1 -OutFile install.ps1
+#   irm https://raw.githubusercontent.com/litestartup-com/dsh-agent-manager/v1.0.3/install.ps1 -OutFile install.ps1
 #   powershell -ExecutionPolicy Bypass -File .\install.ps1
 # 熟手一行（直接执行，参数不可传）：
-#   irm https://get.ohdsh.com/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/litestartup-com/dsh-agent-manager/v1.0.3/install.ps1 | iex
 #
 # 幂等：Node/git/pnpm/DSH 已装且版本对 = 跳过；仓库/配置已存在 = 不覆盖。
 # 计划先行：DRY_RUN=1 只看不执行；-Yes 跳过确认。唯一人肉输入 = DeepSeek API key
