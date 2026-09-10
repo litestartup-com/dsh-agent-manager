@@ -25,8 +25,10 @@ const COMPAT_DSH_VERSION = '0.1.2-rc.1'
 const GATEWAY_PACKAGE = 'ohdsh-api-facade'
 const GATEWAY_REF = 'github:litestartup-com/dsh-api-gateway#e6b3c5b6dfc8c1cb1226f2b391fcd9a1582dc050'
 
-const configPath = process.argv[2] ?? 'manager.config.yaml'
-const dryRun = process.argv.includes('--dry-run')
+const args = process.argv.slice(2)
+const dryRun = args.includes('--dry-run')
+const positional = args.filter((a) => !a.startsWith('--'))
+const configPath = positional[0] ?? 'manager.config.yaml'
 const log = (line) => console.log(`[upgrade-012-win] ${line}`)
 
 const cfg = parseYaml(readFileSync(configPath, 'utf8'))
