@@ -615,15 +615,6 @@ code {
   letter-spacing: -0.02em;
 }
 
-/* Pinned to the bottom of the sidebar as a group, so the agent list above keeps
-   whatever height it needs. */
-.side-links {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-top: auto;
-}
-
 .side-link {
   display: flex;
   align-items: center;
@@ -2095,6 +2086,64 @@ select.text-input {
   z-index: 60;
   overflow: hidden;
 }
+
+/* ⋮ 溢出菜单：底部导航（节点→改密）+ 退出登录。与通知面板同一浮层语言
+   （fixed 定位 + body 挂载 + rect 定位，抽屉/rail 下不裁剪不错位）。 */
+.side-more-menu {
+  position: fixed;
+  width: 224px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--sh-2);
+  z-index: 60;
+}
+
+.side-more-menu[hidden] {
+  display: none;
+}
+
+.side-more-menu .side-link {
+  min-height: 36px;
+  padding: 6px 10px;
+}
+
+.side-more-menu .more-divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
+  flex: 0 0 auto;
+}
+
+/* 退出登录：与导航视觉分离的危险操作（红线 hover，同仓库 danger 惯例）。 */
+.side-more-menu .more-logout {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 14px;
+  line-height: 22px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--motion);
+}
+
+.side-more-menu .more-logout:hover {
+  background: var(--bad-bg);
+  color: var(--bad);
+}
 .notify-head {
   display: flex;
   align-items: center;
@@ -2236,9 +2285,7 @@ select.text-input {
   body.nav-rail #nodes-hint,
   body.nav-rail .side-endpoints,
   body.nav-rail .side-avatar,
-  body.nav-rail .side-foot,
-  body.nav-rail #who,
-  body.nav-rail #logout {
+  body.nav-rail #who {
     display: none;
   }
 
@@ -2252,6 +2299,14 @@ select.text-input {
     justify-content: center;
     padding-left: 0;
     padding-right: 0;
+  }
+
+  /* rail 态用户名栏只留铃铛与 ⋮ 两个图标（竖排居中）；底部菜单全靠 ⋮ 弹窗。 */
+  body.nav-rail .side-foot {
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 0 0;
+    justify-content: center;
   }
 
   /* The health dot loses its `margin-left: auto` here: with the label gone there

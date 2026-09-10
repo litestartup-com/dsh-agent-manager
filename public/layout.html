@@ -237,41 +237,9 @@
           <div class="skeleton w40"></div>
         </nav>
 
-        <div class="side-links">
-          <a class="side-link" href="/nodes" data-nav="nodes" id="nodes-link">
-            <svg width="14" height="14"><use href="#i-server" /></svg>
-            <span class="grow">节点</span>
-            <span id="nodes-hint" class="muted small"></span>
-          </a>
-          <a class="side-link" href="/skills" data-nav="skills">
-            <svg width="14" height="14"><use href="#i-spark" /></svg>
-            <span class="grow">技能</span>
-          </a>
-          <a class="side-link" href="/crons" data-nav="crons">
-            <svg width="14" height="14"><use href="#i-clock" /></svg>
-            <span class="grow">定时任务</span>
-            <span id="cron-hint" class="muted small"></span>
-          </a>
-          <a class="side-link" href="/archive" data-nav="archive">
-            <svg width="14" height="14"><use href="#i-archive" /></svg>
-            <span class="grow">已归档</span>
-            <span id="archive-hint" class="muted small"></span>
-          </a>
-          <a class="side-link" href="/spend" data-nav="spend">
-            <svg width="14" height="14"><use href="#i-coin" /></svg>
-            <span class="grow">花费</span>
-            <span id="spend-hint" class="muted small"></span>
-          </a>
-          <!-- 蜂群2计划 P3：审计留痕 + 改密 -->
-          <a class="side-link" href="/audit" data-nav="audit">
-            <svg width="14" height="14"><use href="#i-shield" /></svg>
-            <span class="grow">审计</span>
-          </a>
-          <a class="side-link" href="/password" data-nav="password">
-            <svg width="14" height="14"><use href="#i-pencil" /></svg>
-            <span class="grow">改密</span>
-          </a>
-        </div>
+        <!-- 底部菜单（节点/技能/定时/归档/花费/审计/改密/退出登录）已收进
+             左下角 ⋮ 弹窗（shell.js 动态构建，锚定 side-more 按钮向上打开）。
+             侧栏本体只留 agent 树 + 端点状态，任务区最大。 -->
 
         <!-- Endpoint health and session counts: standing facts, one quiet line
              per endpoint. They used to live on the home page inside a collapsible
@@ -286,8 +254,11 @@
             <svg width="15" height="15" aria-hidden="true"><use href="#i-bell" /></svg>
             <span id="notify-badge" class="notify-badge" hidden></span>
           </button>
-          <button id="logout" class="icon-btn" type="button" aria-label="退出登录" title="退出登录">
-            <svg width="15" height="15" aria-hidden="true"><use href="#i-logout" /></svg>
+          <!-- 溢出菜单入口：底部导航（节点→改密）与退出登录收在向上打开的弹窗里。
+               复用 #i-more（行级「更多」同一个字形）。 -->
+          <button id="side-more" class="icon-btn" type="button" aria-label="更多" title="更多"
+            aria-haspopup="menu" aria-expanded="false" aria-controls="side-more-menu">
+            <svg width="15" height="15" aria-hidden="true"><use href="#i-more" /></svg>
           </button>
         </div>
       </aside>

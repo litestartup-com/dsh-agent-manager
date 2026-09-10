@@ -1090,11 +1090,6 @@ $('agent-nav').addEventListener('click', async (event) => {
   }
 })
 
-$('logout').addEventListener('click', async () => {
-  await apiFetch('/api/logout', { method: 'POST' })
-  window.location.href = '/login'
-})
-
 // ---------------------------------------------------------------------------
 // 蜂群 P5.3：站内通知（铃铛 + 面板）
 // ---------------------------------------------------------------------------
@@ -1104,6 +1099,87 @@ const notifyPanel = document.createElement('div')
 notifyPanel.className = 'notify-panel'
 notifyPanel.hidden = true
 document.body.appendChild(notifyPanel)
+
+// ---------------------------------------------------------------------------
+// ⋮ 溢出菜单：底部导航（节点→改密）+ 退出登录（原 side-links 收进弹窗）。
+// 与通知面板同一浮层语言：body 挂载 + fixed rect 定位（抽屉/rail 不裁剪）。
+// markActive() 在下方执行，菜单必须在它之前入 DOM 才能吃到高亮。
+// ---------------------------------------------------------------------------
+
+const MORE_NAV = [
+  { href: '/nodes', nav: 'nodes', icon: 'server', label: '节点', hint: 'nodes-hint', id: 'nodes-link' },
+  { href: '/skills', nav: 'skills', icon: 'spark', label: '技能', hint: null },
+  { href: '/crons', nav: 'crons', icon: 'clock', label: '定时任务', hint: 'cron-hint' },
+  { href: '/archive', nav: 'archive', icon: 'archive', label: '已归档', hint: 'archive-hint' },
+  { href: '/spend', nav: 'spend', icon: 'coin', label: '花费', hint: 'spend-hint' },
+  { href: '/audit', nav: 'audit', icon: 'shield', label: '审计', hint: null },
+  { href: '/password', nav: 'password', icon: 'pencil', label: '改密', hint: null },
+]
+
+const moreMenu = document.createElement('div')
+moreMenu.id = 'side-more-menu'
+moreMenu.className = 'side-more-menu'
+moreMenu.setAttribute('aria-label', '更多功能')
+moreMenu.hidden = true
+moreMenu.innerHTML = `${MORE_NAV.map(
+  (item) => `<a class="side-link"${item.id === undefined ? '' : ` id="${item.id}"`} href="${item.href}" data-nav="${item.nav}">
+      <svg width="14" height="14" aria-hidden="true"><use href="#i-${item.icon}" /></svg>
+      <span class="grow">${item.label}</span>
+      ${item.hint === null ? '' : `<span id="${item.hint}" class="muted small"></span>`}
+    </a>`,
+).join('')}
+  <div class="more-divider"></div>
+  <button id="logout" class="more-logout" type="button">
+    <svg width="14" height="14" aria-hidden="true"><use href="#i-logout" /></svg>
+    <span class="grow">退出登录</span>
+  </button>`
+document.body.appendChild(moreMenu)
+
+// 登出绑定在菜单入 DOM 之后（id 是同一套，绑定时机决定成败）。
+$('logout')?.addEventListener('click', async () => {
+  await apiFetch('/api/logout', { method: 'POST' })
+  window.location.href = '/login'
+})
+
+const moreBtn = $('side-more')
+
+const closeMoreMenu = () => {
+  moreMenu.hidden = true
+  moreBtn?.setAttribute('aria-expanded', 'false')
+}
+
+const openMoreMenu = () => {
+  closeNotifyPanel()
+  const rect = moreBtn?.getBoundingClientRect()
+  if (rect !== undefined) {
+    // 菜单右下角对齐按钮，向左上方展开；视口边缘钳制，不越界。
+    moreMenu.style.bottom = `${window.innerHeight - rect.top + 8}px`
+    moreMenu.style.left = `${Math.min(Math.max(rect.right - 224, 8), window.innerWidth - 232)}px`
+  }
+  moreMenu.hidden = false
+  moreBtn?.setAttribute('aria-expanded', 'true')
+  // 菜单打开焦点进首项（标准菜单行为）；Esc 关闭时归还按钮。
+  moreMenu.querySelector('a')?.focus()
+}
+
+moreBtn?.addEventListener('click', (event) => {
+  event.stopPropagation()
+  if (moreMenu.hidden) openMoreMenu()
+  else closeMoreMenu()
+})
+
+document.addEventListener('click', (event) => {
+  if (moreMenu.hidden) return
+  if (event.target.closest('#side-more') !== null) return
+  if (!moreMenu.contains(event.target)) closeMoreMenu()
+})
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !moreMenu.hidden) {
+    closeMoreMenu()
+    moreBtn?.focus()
+  }
+})
 
 const setNotifyBadge = (unread) => {
   if (notifyBadge === null) return
@@ -1145,6 +1221,7 @@ $('notify-bell')?.addEventListener('click', async (event) => {
     closeNotifyPanel()
     return
   }
+  closeMoreMenu()
   try {
     const response = await apiFetch('/api/notifications')
     if (!response.ok) return
