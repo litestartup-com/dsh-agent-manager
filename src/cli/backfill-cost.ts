@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url'
 import { loadConfig } from '../config.js'
 import { openDb } from '../db/index.js'
 import { computeCost, formatMicroUsd } from '../pricing.js'
@@ -18,11 +19,20 @@ import { computeCost, formatMicroUsd } from '../pricing.js'
  *
  * Dry run unless `--apply` is passed. Writing money figures is not something to
  * do as a side effect of curiosity.
+ *
+ * 债务 C2:main 体抽成可注入 configPath 的纯函数(写钱逻辑必须有测试);
+ * 顶层只在直接执行时运行(与 setup.ts 同模式)。
  */
 
-const main = (): void => {
-  const apply = process.argv.includes('--apply')
-  const config = loadConfig()
+export interface BackfillResult {
+  rows: number
+  priced: number
+  stillUnpriced: number
+  total: number
+}
+
+export const backfillCosts = (configPath: string, apply: boolean): BackfillResult => {
+  const config = loadConfig(configPath)
   const { db, sqlite } = openDb(config.databasePath)
 
   const rows = sqlite
@@ -43,7 +53,8 @@ const main = (): void => {
 
   if (rows.length === 0) {
     console.log('no unpriced usage records; nothing to do')
-    return
+    db.$client.close()
+    return { rows: 0, priced: 0, stillUnpriced: 0, total: 0 }
   }
 
   const update = sqlite.prepare('UPDATE usage_record SET cost = ?, peak_cost = ? WHERE id = ?')
@@ -89,6 +100,8 @@ const main = (): void => {
   if (!apply) console.log('\ndry run -- pass --apply to write these values')
 
   db.$client.close()
+  return { rows: rows.length, priced, stillUnpriced, total }
 }
 
-main()
+const isDirect = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href
+if (isDirect) backfillCosts('manager.config.yaml', process.argv.includes('--apply'))
