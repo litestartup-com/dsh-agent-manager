@@ -4,8 +4,7 @@
  * 全部在临时目录中进行，绝不碰真实数据；跑一次约几秒。CI 每次跑（npm run drill），
  * 发布门槛要求「恢复过才算备份过」。
  */
-import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { backupNow, restoreSnapshot } from '../src/backup.js'

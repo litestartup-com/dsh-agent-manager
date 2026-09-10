@@ -12,7 +12,7 @@
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.scripts.json",
     "nodes": "tsx src/cli/node.ts",
     "setup": "tsx src/cli/setup.ts",
     "backup": "tsx src/cli/backup.ts",
@@ -22,7 +22,7 @@
     "backfill-cost": "tsx src/cli/backfill-cost.ts",
     "test": "tsx --test \"src/**/*.test.ts\"",
     "test:web": "node --test \"public/assets/*.test.mjs\"",
-    "lint": "eslint src",
+    "lint": "eslint src scripts",
     "smoke": "node scripts/smoke.mjs",
     "service": "tsx src/cli/service.ts",
     "update": "tsx src/cli/update.ts"

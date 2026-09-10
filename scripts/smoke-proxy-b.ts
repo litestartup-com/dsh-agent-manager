@@ -22,7 +22,7 @@ import type { GatewayFrame } from '../src/gateway/stream.js'
 const baseArg = process.argv[2] ?? 'http://127.0.0.1:3999/api-gw/v1/proxy'
 const key = process.env.SMOKE_KEY ?? 'smoke-key'
 const url = baseArg.replace(/\/api-gw\/v1\/proxy\/?$/, '')
-const ep: ResolvedEndpoint = { id: 'proxy-smoke', url, driver: 'apiproxy', prefix: '/api-gw/v1/proxy', key }
+const ep: ResolvedEndpoint = { id: 'proxy-smoke', url, driver: 'apiproxy', prefix: '/api-gw/v1/proxy', key, sandboxBase: null, sandboxKey: '', spawn: null }
 const client = new UpstreamClient(ep)
 
 const log = (msg: string): void => console.log('[smoke-b] ' + msg)
