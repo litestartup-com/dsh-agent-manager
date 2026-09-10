@@ -21,6 +21,7 @@
 //   turn_done   { runId, state, error }     (manager's)
 
 import { md } from './md.js'
+import { classifyTool, toolBody, toolSummary, toolTitle } from './tool-cards.js'
 import { $, esc, icon, money, apiFetch } from './ui.js'
 
 const el = {
@@ -277,6 +278,7 @@ const reduce = (list, frame) => {
         write: isWrite(name),
         failed: false,
         done: false,
+        resultText: '',
       })
       return list
     }
@@ -288,6 +290,7 @@ const reduce = (list, frame) => {
       if (pending !== undefined) {
         pending.done = true
         pending.failed = frame.isError === true
+        pending.resultText = typeof frame.text === 'string' ? frame.text : ''
       }
       return list
     }
@@ -392,15 +395,26 @@ const toolsBlock = (tools, index) => {
   if (tools.length === 0) return ''
   const failed = tools.filter((t) => t.failed).length
   const summary = failed > 0 ? `工具调用 ×${tools.length} · ${failed} 个失败` : `工具调用 ×${tools.length}`
+  // DSH web 的工具卡推导（tool-cards.js）：名字→variant 分类、标题、
+  // 摘要、正文（code/JSON）、结果文本——与 DSH 的 GenericToolCard 同源规则。
   const rows = tools
     .map((tool) => {
-      // The raw argument string, trimmed. Enough to tell two calls to the same
-      // tool apart, which is what this fold is for.
-      const detail = tool.path !== null ? tool.path : tool.raw.slice(0, 120)
-      return `<div class="tool-row${tool.failed ? ' failed' : ''}">
-        <span class="name">${esc(tool.name === '' ? '(未命名工具)' : tool.name)}</span>
-        <span class="args">${esc(detail)}</span>
+      const variant = classifyTool(tool.name)
+      const title = toolTitle(tool.name)
+      const head = `<div class="tool-head">
+        <span class="tool-variant v-${esc(variant)}">${esc(title)}</span>
+        <span class="tool-summary">${esc(toolSummary(tool.name, tool.raw))}</span>
+        <span class="tool-state${tool.failed ? ' bad' : tool.done ? '' : ' running'}">${tool.failed ? '失败' : tool.done ? '完成' : '…'}</span>
       </div>`
+      const body = toolBody(tool.name, tool.raw)
+      const bodyHtml = body === null
+        ? ''
+        : `<details class="tool-body"><summary>${variant === 'code' ? '代码' : '参数'}</summary><pre>${esc(body)}</pre></details>`
+      // 失败的调用默认展开结果（这是出错时唯一要紧的东西）；成功的默认折叠。
+      const resultHtml = tool.done && tool.resultText !== ''
+        ? `<details class="tool-result"${tool.failed ? ' open' : ''}><summary>结果</summary><pre>${esc(tool.resultText)}</pre></details>`
+        : ''
+      return `<div class="tool-call${tool.failed ? ' failed' : ''}" data-variant="${esc(variant)}">${head}${bodyHtml}${resultHtml}</div>`
     })
     .join('')
   return `<details class="tools" data-fold="${index}"${openTools.has(index) ? ' open' : ''}>

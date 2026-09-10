@@ -1053,27 +1053,107 @@
   transform: rotate(90deg);
 }
 
-.tool-row {
+/* DSH 工具卡（GenericToolCard 语法移植）：variant 徽标 + 单行摘要 +
+   可折叠的参数/代码正文与结果。工具名→variant 分类在 tool-cards.js。 */
+.tool-call {
+  margin: 0 0 6px 19px;
+  border: 1px solid var(--chat-line);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1);
+  overflow: hidden;
+}
+
+.tool-head {
   display: flex;
+  align-items: center;
   gap: 8px;
-  padding: 3px 0 3px 19px;
-  font-family: var(--mono);
-  font-size: 11.5px;
+  padding: 7px 12px;
+  min-width: 0;
 }
 
-.tool-row .name {
-  color: var(--chat-text);
+.tool-variant {
+  flex: 0 0 auto;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--dsw-specific-bubble);
+  color: var(--dsw-static-deepseek-600);
+  font-size: 11px;
+  font-weight: 600;
 }
 
-.tool-row .args {
-  color: var(--chat-caption);
+.tool-variant.v-bash {
+  background: var(--dsw-static-neutral-bluish-100);
+  color: var(--dsw-static-neutral-bluish-700);
+}
+
+.tool-variant.v-write,
+.tool-variant.v-edit {
+  background: var(--dsw-static-amber-100);
+  color: var(--dsw-static-amber-600);
+}
+
+.tool-variant.v-code {
+  background: var(--dsw-static-green-100);
+  color: var(--dsw-static-green-900);
+}
+
+.tool-summary {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--chat-text);
 }
 
-.tool-row.failed .name {
-  color: var(--bad);
+.tool-state {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--chat-caption);
+}
+
+.tool-state.running {
+  color: var(--dsw-static-deepseek-500);
+}
+
+.tool-call.failed .tool-state.bad {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.tool-body,
+.tool-result {
+  border-top: 1px solid var(--chat-line);
+  padding: 6px 12px;
+}
+
+.tool-body > summary,
+.tool-result > summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: 11.5px;
+  color: var(--chat-text-3);
+}
+
+.tool-body > summary::-webkit-details-marker,
+.tool-result > summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-body pre,
+.tool-result pre {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  background: var(--dsw-alias-markdown-code-block);
+  border-radius: 8px;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--chat-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* ---- written files ---- */
