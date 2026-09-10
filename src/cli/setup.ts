@@ -178,14 +178,17 @@ export const detectDshBin = (dshHome: string, override: string | null): string =
 }
 
 /**
- * 解析 gateway 密钥：优先 settings.yaml 里 dsh-api-gw 的 provisionedKey；
+ * 解析 gateway 密钥：优先 settings.yaml 里 facade 命名空间的 provisionedKey；
  * 没有则生成一个并追加到 apiKeys（gateway 的静态密钥数组，settings live 生效）。
+ * 命名空间 = GATEWAY_PACKAGE（0.1.2 切主路起 ohdsh-api-facade；旧 dsh-api-gw
+ * 段的钥匙不会被新 facade 读取——容器路径同款坑，别再踩）。
  */
 export const resolveGatewayKey = (dshHome: string, settingsPath: string | null): string => {
+  const ns = GATEWAY_PACKAGE
   const path = settingsPath ?? join(dshHome, 'settings.yaml')
   if (existsSync(path)) {
-    const parsed = parseYaml(readFileSync(path, 'utf8')) as { 'dsh-api-gw'?: { provisionedKey?: string; apiKeys?: string[] } }
-    const section = parsed['dsh-api-gw']
+    const parsed = parseYaml(readFileSync(path, 'utf8')) as Record<string, { provisionedKey?: string; apiKeys?: string[] } | undefined>
+    const section = parsed[ns]
     if (typeof section?.provisionedKey === 'string' && section.provisionedKey !== '') return section.provisionedKey
     const keys = Array.isArray(section?.apiKeys) ? section.apiKeys.filter((k) => k !== '') : []
     const first = keys[0]
@@ -193,9 +196,9 @@ export const resolveGatewayKey = (dshHome: string, settingsPath: string | null):
   }
   const minted = 'apigw-' + randomBytes(24).toString('hex')
   const parsed = existsSync(path) ? (parseYaml(readFileSync(path, 'utf8')) as Record<string, unknown>) : {}
-  const section = (parsed['dsh-api-gw'] ?? {}) as Record<string, unknown>
+  const section = (parsed[ns] ?? {}) as Record<string, unknown>
   const apiKeys = Array.isArray(section.apiKeys) ? [...section.apiKeys, minted] : [minted]
-  parsed['dsh-api-gw'] = { ...section, apiKeys }
+  parsed[ns] = { ...section, apiKeys }
   writeFileSync(path, stringifyYaml(parsed), 'utf8')
   return minted
 }

@@ -110,18 +110,22 @@ test('ensureNodeCredentials copies the model key once, never overwriting', () =>
   }
 })
 
-test('resolveGatewayKey reuses the provisioned key, else mints and appends apiKeys', () => {
+test('resolveGatewayKey reuses the provisioned key, else mints and appends apiKeys（facade 命名空间）', () => {
   const home = mkdtempSync(join(tmpdir(), 'setup-key-'))
   const settings = join(home, 'settings.yaml')
   try {
-    writeFileSync(settings, stringifyYaml({ 'dsh-api-gw': { enabled: true, provisionedKey: 'apigw-existing' } }), 'utf8')
+    writeFileSync(settings, stringifyYaml({ 'ohdsh-api-facade': { enabled: true, provisionedKey: 'apigw-existing' } }), 'utf8')
     assert.equal(resolveGatewayKey(home, settings), 'apigw-existing')
 
     rmSync(settings)
     const minted = resolveGatewayKey(home, settings)
     assert.match(minted, /^apigw-[0-9a-f]{48}$/)
-    const parsed = parseYaml(readFileSync(settings, 'utf8')) as { 'dsh-api-gw': { apiKeys: string[] } }
-    assert.deepEqual(parsed['dsh-api-gw'].apiKeys, [minted])
+    const parsed = parseYaml(readFileSync(settings, 'utf8')) as { 'ohdsh-api-facade': { apiKeys: string[] } }
+    assert.deepEqual(parsed['ohdsh-api-facade'].apiKeys, [minted])
+    // 旧命名空间的钥匙不被新 facade 读取（容器路径同款坑回归）
+    writeFileSync(settings, stringifyYaml({ 'dsh-api-gw': { provisionedKey: 'apigw-stale' } }), 'utf8')
+    const fresh = resolveGatewayKey(home, settings)
+    assert.notEqual(fresh, 'apigw-stale', 'dsh-api-gw 段对 0.1.2 facade 无效，必须重新铸钥')
   } finally {
     rmSync(home, { recursive: true, force: true })
   }
