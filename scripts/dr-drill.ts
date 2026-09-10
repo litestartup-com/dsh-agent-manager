@@ -11,7 +11,6 @@ import { join } from 'node:path'
 import { backupNow, restoreSnapshot } from '../src/backup.js'
 import { openDb } from '../src/db/index.js'
 import { packNodeHomes, restoreNodeHome, type NodeHomeEntry } from '../src/nodebackup.js'
-import { deriveBackupKey } from '../src/crypt.js'
 
 const SECRET = 'drill-secret-0123456789abcdef0123456789abcdef'
 const fail = (message: string): never => {
@@ -26,7 +25,6 @@ const dbPath = join(dataDir, 'manager.db')
 const configPath = join(root, 'manager.config.yaml')
 const envPath = join(root, '.env')
 const nodeHome = join(root, 'node-home')
-const key = deriveBackupKey(SECRET)
 
 console.log(`DR 演练目录：${root}`)
 
@@ -51,7 +49,7 @@ try {
   const result = await backupNow(dbPath, configPath, envPath, backupDir)
   console.log(`备份：${result.snapshot.file}`)
   const entry: NodeHomeEntry = { nodeId: 'personal', kind: 'dir', home: nodeHome }
-  const packed = await packNodeHomes([entry], backupDir, key, undefined)
+  const packed = await packNodeHomes([entry], backupDir, SECRET, undefined)
   if (packed.length !== 1) fail('节点 home 未打包')
   console.log(`节点 home 归档：${packed[0]}`)
 
@@ -63,7 +61,7 @@ try {
   // ---- 4. 恢复 ----
   const restored = restoreSnapshot(dbPath, backupDir, 'latest', () => false)
   if (!restored.ok) fail(restored.detail)
-  await restoreNodeHome(entry, packed[0] ?? '', backupDir, key, undefined)
+  await restoreNodeHome(entry, packed[0] ?? '', backupDir, SECRET, undefined)
 
   // ---- 5. 断言 ----
   const { db, sqlite: sqlite2 } = openDb(dbPath)

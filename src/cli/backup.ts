@@ -5,7 +5,6 @@ import { createInterface } from 'node:readline/promises'
 import { backupNow, listSnapshots, restoreSnapshot } from '../backup.js'
 import { loadConfig } from '../config.js'
 import { collectNodeHomes, lastNodeHomeArchive, packNodeHomes, restoreNodeHome } from '../nodebackup.js'
-import { deriveBackupKey } from '../crypt.js'
 import { DockerRunner } from '../nodes/docker-runner.js'
 
 /**
@@ -32,16 +31,15 @@ const probe8080 = (): Promise<boolean> =>
   })
 
 /** 配置可读时收集节点 home + 必要的 docker runner；配置损坏则返回空（备份/恢复主体不受阻）。 */
-const nodeContext = (): { entries: ReturnType<typeof collectNodeHomes>; runner: DockerRunner | undefined; key: Buffer | null } => {
+const nodeContext = (): { entries: ReturnType<typeof collectNodeHomes>; runner: DockerRunner | undefined; secret: string | null } => {
   try {
     const config = loadConfig()
     const entries = collectNodeHomes(config)
     const runner = entries.some((e) => e.kind === 'docker') ? new DockerRunner({}) : undefined
-    const key = deriveBackupKey(config.sessionSecret)
-    return { entries, runner, key }
+    return { entries, runner, secret: config.sessionSecret }
   } catch (error) {
     console.warn(`节点 home 备份/恢复跳过（配置不可读）：${(error as Error).message}`)
-    return { entries: [], runner: undefined, key: null }
+    return { entries: [], runner: undefined, secret: null }
   }
 }
 
@@ -65,7 +63,7 @@ const main = async (): Promise<void> => {
 
     // 蜂群2计划 P4：节点 home 一并恢复（各节点取最新归档）。
     // 评审 B4：目录形态恢复会清空目标——先列出将清空的目录，要求确认。
-    const { entries, runner, key } = nodeContext()
+    const { entries, runner, secret } = nodeContext()
     const dirTargets = entries.filter((e) => e.kind === 'dir').map((e) => e.home)
     if (dirTargets.length > 0) {
       console.log('将清空并还原以下节点 home 目录：')
@@ -86,9 +84,9 @@ const main = async (): Promise<void> => {
         console.warn(`节点 ${entry.nodeId}：没有 home 归档，跳过。`)
         continue
       }
-      if (key === null) continue
+      if (secret === null) continue
       try {
-        await restoreNodeHome(entry, last.file, dir, key, runner)
+        await restoreNodeHome(entry, last.file, dir, secret, runner)
         console.log(`节点 ${entry.nodeId}：home 已从 ${last.file} 恢复。`)
       } catch (error) {
         console.error(`节点 ${entry.nodeId}：home 恢复失败：${(error as Error).message}`)
@@ -122,9 +120,9 @@ const main = async (): Promise<void> => {
   console.log(`快照完成：${result.snapshot.file}（${(result.snapshot.bytes / 1024).toFixed(0)} KB），配置副本已更新。`)
   if (result.pruned.length > 0) console.log(`按保留策略清理了 ${result.pruned.length} 个旧快照。`)
 
-  const { entries, runner, key } = nodeContext()
-  if (entries.length > 0 && key !== null) {
-    const packed = await packNodeHomes(entries, dir, key, runner)
+  const { entries, runner, secret } = nodeContext()
+  if (entries.length > 0 && secret !== null) {
+    const packed = await packNodeHomes(entries, dir, secret, runner)
     if (packed.length === 0) console.log('节点 home：6 小时内已有归档，跳过。')
     else console.log(`节点 home 归档（加密）：${packed.join(', ')}`)
   }

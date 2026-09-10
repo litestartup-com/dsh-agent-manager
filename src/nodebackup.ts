@@ -6,7 +6,8 @@
  * - 容器（docker runner）→ 命名卷经一次性 alpine 工具容器打 tar.gz；
  * - compose 脊柱的主脑卷等无 spawn 段 → `backup.docker_volumes` 声明。
  *
- * 归档统一加密落盘（AES-256-CBC，密钥派生自 SESSION_SECRET），保留策略与
+ * 归档统一加密落盘（AES-256-GCM，债务 A1：密钥 = `BACKUP_KEY` 或 HKDF 派生自
+ * SESSION_SECRET；旧 CBC 归档兼容读），保留策略与
  * DB 快照一致（24h 全留 → 每日 30 天 → 每周 12 周）；每节点 6 小时内已有
  * 归档则跳过（会话数据重，15 分钟级全量打包不划算）。
  */
@@ -126,11 +127,12 @@ export const pruneNodeHomeArchives = (dir: string, now = Date.now()): string[] =
 /**
  * 打包一个节点 home 到加密归档。返回归档文件名；跳过/失败语义由调用方处理。
  * docker 卷经一次性 alpine 工具容器（镜像缺失自动拉取）。
+ * `sessionSecret` 交给 crypt 层按格式派生（v2 = HKDF/`BACKUP_KEY`;v1 兼容读 = legacy）。
  */
 export const packNodeHome = async (
   entry: NodeHomeEntry,
   backupDir: string,
-  key: Buffer,
+  sessionSecret: string,
   dockerRunner: DockerRunner | undefined,
   now = Date.now(),
 ): Promise<string> => {
@@ -152,7 +154,7 @@ export const packNodeHome = async (
         ],
       )
     }
-    await encryptFile(tarball, archive, key)
+    await encryptFile(tarball, archive, sessionSecret)
     return basename(archive)
   } finally {
     rmSync(tarball, { force: true })
@@ -163,7 +165,7 @@ export const packNodeHome = async (
 export const packNodeHomes = async (
   entries: NodeHomeEntry[],
   backupDir: string,
-  key: Buffer,
+  sessionSecret: string,
   dockerRunner: DockerRunner | undefined,
   now = Date.now(),
 ): Promise<string[]> => {
@@ -171,7 +173,7 @@ export const packNodeHomes = async (
   for (const entry of entries) {
     const last = lastNodeHomeArchive(backupDir, entry.nodeId)
     if (last !== null && now - last.at < RECENT_MS) continue
-    packed.push(await packNodeHome(entry, backupDir, key, dockerRunner, now))
+    packed.push(await packNodeHome(entry, backupDir, sessionSecret, dockerRunner, now))
   }
   pruneNodeHomeArchives(backupDir, now)
   return packed
@@ -202,7 +204,7 @@ export const restoreNodeHome = async (
   entry: NodeHomeEntry,
   archiveFile: string,
   backupDir: string,
-  key: Buffer,
+  sessionSecret: string,
   dockerRunner: DockerRunner | undefined,
 ): Promise<void> => {
   // 评审 B4：先守卫后动刀——目标路径危险时在解密/删除任何东西之前就拒绝
@@ -211,7 +213,7 @@ export const restoreNodeHome = async (
   if (!existsSync(archive)) throw new Error(`找不到节点 home 归档：${archiveFile}`)
   const tarball = join(backupDir, `restore-${entry.nodeId}-${Date.now()}.tar.gz`)
   try {
-    await decryptFile(archive, tarball, key)
+    await decryptFile(archive, tarball, sessionSecret)
     if (entry.kind === 'dir') {
       rmSync(entry.home, { recursive: true, force: true })
       mkdirSync(entry.home, { recursive: true })

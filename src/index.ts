@@ -20,7 +20,6 @@ import { recordAudit } from './audit.js'
 import { makeCsrfHook } from './routes/auth.js'
 import { registerAuditRoutes } from './routes/audit.js'
 import { collectNodeHomes, packNodeHomes } from './nodebackup.js'
-import { deriveBackupKey } from './crypt.js'
 import { seedEmptyWorkspaces } from './workspace/seed.js'
 import { provisionBrainToken } from './workspace/fleet-doc.js'
 import { registerAuthRoutes } from './routes/auth.js'
@@ -277,7 +276,7 @@ const main = async (): Promise<void> => {
       const nodeEntries = collectNodeHomes(config)
       if (nodeEntries.length > 0) {
         try {
-          const packed = await packNodeHomes(nodeEntries, backupDir, deriveBackupKey(config.sessionSecret), dockerRunner ?? undefined)
+          const packed = await packNodeHomes(nodeEntries, backupDir, config.sessionSecret, dockerRunner ?? undefined)
           if (packed.length > 0) app.log.info(`backup: node homes → ${packed.join(', ')}`)
         } catch (error) {
           app.log.error(`node home backup failed: ${error instanceof Error ? error.message : String(error)}`)

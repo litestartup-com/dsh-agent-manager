@@ -4,10 +4,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, w
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { collectNodeHomes, packNodeHomes, pruneNodeHomeArchives, restoreNodeHome, type NodeHomeEntry } from './nodebackup.js'
-import { decryptFile, deriveBackupKey, encryptFile } from './crypt.js'
+import { decryptFile, encryptFile } from './crypt.js'
 import type { AppConfig } from './config.js'
 
-const KEY = deriveBackupKey('test-secret-0123456789abcdef0123456789abcdef')
+const SECRET = 'test-secret-0123456789abcdef0123456789abcdef'
 
 test('蜂群2计划 P4: collectNodeHomes 收集三种形态（process 目录 / docker 卷 / 额外卷）', () => {
   const config = {
@@ -37,12 +37,12 @@ test('蜂群2计划 P4: 节点 home 打包→灾难→恢复 全链路（排除 
     writeFileSync(join(home, 'x.pid'), '1', 'utf8')
 
     const entry: NodeHomeEntry = { nodeId: 'personal', kind: 'dir', home }
-    const packed = await packNodeHomes([entry], backupDir, KEY, undefined)
+    const packed = await packNodeHomes([entry], backupDir, SECRET, undefined)
     assert.equal(packed.length, 1)
     const archive = packed[0] ?? ''
 
     rmSync(home, { recursive: true, force: true })
-    await restoreNodeHome(entry, archive, backupDir, KEY, undefined)
+    await restoreNodeHome(entry, archive, backupDir, SECRET, undefined)
 
     assert.equal(readFileSync(join(home, 'sessions', 't.json'), 'utf8'), '{"ok":1}')
     assert.equal(existsSync(join(home, 'profiles', 'web', 'node_modules', 'junk.js')), false, 'node_modules 被排除')
@@ -61,8 +61,8 @@ test('蜂群2计划 P4: 6 小时内已有归档则跳过', async () => {
     writeFileSync(join(home, 'a.txt'), 'a', 'utf8')
     const entry: NodeHomeEntry = { nodeId: 'personal', kind: 'dir', home }
     const now = Date.now()
-    assert.equal((await packNodeHomes([entry], backupDir, KEY, undefined, now)).length, 1)
-    assert.equal((await packNodeHomes([entry], backupDir, KEY, undefined, now + 60_000)).length, 0, '6 小时内跳过')
+    assert.equal((await packNodeHomes([entry], backupDir, SECRET, undefined, now)).length, 1)
+    assert.equal((await packNodeHomes([entry], backupDir, SECRET, undefined, now + 60_000)).length, 0, '6 小时内跳过')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -100,8 +100,8 @@ test('蜂群2计划 P4: 密钥错误时解密抛错（备份不可解 = 诚实�
     const enc = join(root, 'plain.enc')
     const out = join(root, 'out.txt')
     writeFileSync(plain, 'secret-data', 'utf8')
-    await encryptFile(plain, enc, KEY)
-    await assert.rejects(() => decryptFile(enc, out, deriveBackupKey('wrong-secret')))
+    await encryptFile(plain, enc, SECRET)
+    await assert.rejects(() => decryptFile(enc, out, 'wrong-secret-0123456789abcdef0123456789abcdef'))
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -120,7 +120,7 @@ test('P6 评审 B4: 恢复目标守卫——非绝对/根/家目录/备份目录
   try {
     for (const c of cases) {
       await assert.rejects(
-        () => restoreNodeHome({ nodeId: 'x', kind: 'dir', home: c.home }, 'dummy.tar.gz.enc', backupDir, KEY, undefined),
+        () => restoreNodeHome({ nodeId: 'x', kind: 'dir', home: c.home }, 'dummy.tar.gz.enc', backupDir, SECRET, undefined),
         c.match,
         `应拒绝 ${c.home}`,
       )
