@@ -33,7 +33,6 @@ import { recordAudit } from '../audit.js'
 const GATEWAY_DEP = GATEWAY_REF // 0.1.2 线：钉 next-012 commit（dsh-version 单一真相源）
 const CONFIG_PATH = 'manager.config.yaml'
 const ENV_PATH = '.env'
-
 const nodeNameSchema = z.string().regex(/^[a-z0-9][a-z0-9_-]{0,30}$/, '节点名只能是小写字母/数字/下划线/连字符')
 const provisionBody = z.object({
   name: nodeNameSchema,
@@ -129,6 +128,9 @@ export const registerProvisionRoutes = (
   deps: ProvisionDeps,
 ): void => {
   const { db, supervisors, upstreamClients } = deps
+  // 债务 A5:真相源路径从 loadConfig 解析结果取(单一来源);测试字面量缺省时回退 cwd 相对
+  const configPath = config.configPath ?? resolve(CONFIG_PATH)
+  const envPath = config.envPath ?? resolve(ENV_PATH)
 
   app.post<{ Body: unknown }>('/api/nodes', { preHandler: requireUser }, async (request, reply) => {
     const parsed = provisionBody.safeParse(request.body)
@@ -230,11 +232,11 @@ export const registerProvisionRoutes = (
         // 真相文件（带快照，失败可还原）:.env 密钥 → yaml（债务 A3:原子写 + 保注释;syntax 校验
         // 防磁盘级损坏——loadConfig 依赖 process.env 快照,写后立即 full 校验会误报,语义完整性
         // 由 H2 快照回滚 + 下次 boot fail-loud 兜底）
-        envSnap = existsSync(ENV_PATH) ? readFileSync(ENV_PATH, 'utf8') : null
-        mergeEnv(ENV_PATH, { [keyRef]: key }, [keyRef])
-        yamlSnap = readFileSync(resolve(CONFIG_PATH), 'utf8')
+        envSnap = existsSync(envPath) ? readFileSync(envPath, 'utf8') : null
+        mergeEnv(envPath, { [keyRef]: key }, [keyRef])
+        yamlSnap = readFileSync(configPath, 'utf8')
         mutateYamlFile(
-          resolve(CONFIG_PATH),
+          configPath,
           (doc) => {
             doc.setIn(['endpoints', body.name], {
               url: `http://node-${body.name}:${port}`,
@@ -379,11 +381,11 @@ export const registerProvisionRoutes = (
       recordAudit(db, { actor: request.currentUser?.username ?? 'unknown', kind: 'node_create', detail: `节点 ${body.name}（端口 ${port}，工作区 ${agentSpec?.workspace ?? '—'}）` })
 
       // 真相文件（带快照，失败可还原）:.env 密钥 → yaml（债务 A3:原子写 + 保注释 + full 校验,失败自动还原）
-      envSnap = existsSync(ENV_PATH) ? readFileSync(ENV_PATH, 'utf8') : null
-      mergeEnv(ENV_PATH, { [keyRef]: key }, [keyRef])
-      yamlSnap = readFileSync(resolve(CONFIG_PATH), 'utf8')
+      envSnap = existsSync(envPath) ? readFileSync(envPath, 'utf8') : null
+      mergeEnv(envPath, { [keyRef]: key }, [keyRef])
+      yamlSnap = readFileSync(configPath, 'utf8')
       mutateYamlFile(
-        resolve(CONFIG_PATH),
+        configPath,
         (doc) => {
           doc.setIn(['endpoints', body.name], {
             url: `http://127.0.0.1:${port}`,
@@ -483,7 +485,7 @@ export const registerProvisionRoutes = (
       }
       if (yamlSnap !== null) {
         try {
-          writeFileAtomic(resolve(CONFIG_PATH), yamlSnap)
+          writeFileAtomic(configPath, yamlSnap)
         } catch (rollbackError) {
           app.log.warn(`provision rollback: restore config failed: ${(rollbackError as Error).message}`)
         }
@@ -492,13 +494,13 @@ export const registerProvisionRoutes = (
         if (envSnap === null) {
           // .env 在本请求之前不存在：它由 mergeEnv 创建且只含本节点的 key，直接移除。
           try {
-            rmSync(ENV_PATH, { force: true })
+            rmSync(envPath, { force: true })
           } catch {
             // 删不掉只影响卫生，不影响正确性
           }
         } else {
           try {
-            writeFileAtomic(ENV_PATH, envSnap, 0o600)
+            writeFileAtomic(envPath, envSnap, 0o600)
           } catch (rollbackError) {
             app.log.warn(`provision rollback: restore .env failed: ${(rollbackError as Error).message}`)
           }
@@ -541,7 +543,7 @@ export const registerProvisionRoutes = (
 
     // 债务 A3:删除也走原子写(syntax 校验,防磁盘级损坏)
     mutateYamlFile(
-      resolve(CONFIG_PATH),
+      configPath,
       (doc) => {
         doc.deleteIn(['endpoints', request.params.id])
         for (const a of bound) doc.deleteIn(['agents', a.id])

@@ -45,8 +45,20 @@ const withEnv = (vars: Record<string, string>, fn: () => void): void => {
   }
 }
 
-test('parses the P0 fields: agent preset/sandbox_mode and endpoint sandbox surface', () => {
-  withEnv({ GW_KEY_A: 'test-gw-key' }, () => {
+test('债务 A5 回归: loadConfig 返回解析后的真相源路径——全项目单一来源', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'manager-config-test-'))
+  try {
+    const file = join(dir, 'config.yaml')
+    writeFileSync(file, stringify(baseConfig()), 'utf8')
+    const cfg = loadConfig(file)
+    assert.equal(cfg.configPath, resolve(file), 'configPath 必须是解析后的绝对路径')
+    assert.equal(cfg.envPath, resolve('.env'), 'envPath 必须是绝对路径(.env 的规范位置)')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('parses the P0 fields: agent preset/sandbox_mode and endpoint sandbox surface', () => {  withEnv({ GW_KEY_A: 'test-gw-key' }, () => {
     const cfg = loadFrom(baseConfig({
       endpoints: {
         A: {

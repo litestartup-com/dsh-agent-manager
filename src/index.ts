@@ -268,7 +268,13 @@ const main = async (): Promise<void> => {
   const backupDir = join(dirname(config.databasePath), 'backups')
   const autoBackup = async (): Promise<void> => {
     try {
-      const result = await backupNow(config.databasePath, join(dirname(fileURLToPath(import.meta.url)), '..', 'manager.config.yaml'), join(dirname(fileURLToPath(import.meta.url)), '..', '.env'), backupDir)
+      // 债务 A5:真相源路径只从 loadConfig 解析结果取(单一来源,不再用 dist/../ 推导)
+      const result = await backupNow(
+        config.databasePath,
+        config.configPath ?? join(dirname(fileURLToPath(import.meta.url)), '..', 'manager.config.yaml'),
+        config.envPath ?? join(dirname(fileURLToPath(import.meta.url)), '..', '.env'),
+        backupDir,
+      )
       app.log.info(`backup: ${result.snapshot.file} (${result.snapshot.bytes} bytes)${result.pruned.length > 0 ? `, pruned ${result.pruned.length}` : ''}`)
       // 蜂群2计划 P3：审计留痕（自动备份，actor = system）
       recordAudit(db, { actor: 'system', kind: 'backup', detail: `快照 ${result.snapshot.file}` })

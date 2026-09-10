@@ -116,7 +116,16 @@ const main = async (): Promise<void> => {
     console.error('没有 data/manager.db——先启动过 manager 才有东西可备份。')
     process.exit(1)
   }
-  const result = await backupNow(dbPath, resolve('manager.config.yaml'), resolve('.env'), dir)
+  // 债务 A5:真相源路径从 loadConfig 解析结果取(单一来源);配置损坏时回退 cwd 相对(备份主体不受阻)
+  const { configPath, envPath } = ((): { configPath: string; envPath: string } => {
+    try {
+      const c = loadConfig()
+      return { configPath: c.configPath ?? resolve('manager.config.yaml'), envPath: c.envPath ?? resolve('.env') }
+    } catch {
+      return { configPath: resolve('manager.config.yaml'), envPath: resolve('.env') }
+    }
+  })()
+  const result = await backupNow(dbPath, configPath, envPath, dir)
   console.log(`快照完成：${result.snapshot.file}（${(result.snapshot.bytes / 1024).toFixed(0)} KB），配置副本已更新。`)
   if (result.pruned.length > 0) console.log(`按保留策略清理了 ${result.pruned.length} 个旧快照。`)
 

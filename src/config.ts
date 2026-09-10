@@ -251,6 +251,13 @@ export interface AppConfig {
     dailyBudgetMicroUsd: number | null
   }
   databasePath: string
+  /**
+   * 债务 A5：真相源的解析后绝对路径——config 与 .env 全项目只此一处推导
+   * （旧代码 index.ts 用 dist/../、provision 用 cwd 相对、backup 再一套，
+   * 部署布局一变备份就备错文件）。测试字面量可省略（读取方 ?? resolve 兜底）。
+   */
+  configPath?: string
+  envPath?: string
   /** 修路 A2：周期对账间隔（毫秒）；0 = 关闭。loadConfig 恒有值；测试字面量可省略（读取方 ?? 默认）。 */
   reconcileIntervalMs?: number
   /**
@@ -488,6 +495,9 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
         file.runner.daily_budget_usd === undefined ? null : Math.round(file.runner.daily_budget_usd * 1e6),
     },
     databasePath: resolve(file.database.path),
+    // 债务 A5:真相源路径只此一处推导,全项目读取
+    configPath: resolve(configPath),
+    envPath: resolve('.env'),
     reconcileIntervalMs: file.reconcile_interval_minutes * 60_000,
     brainDailyBudgetMicroUsd:
       file.brain.daily_budget_usd === undefined ? null : Math.round(file.brain.daily_budget_usd * 1e6),
