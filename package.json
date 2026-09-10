@@ -21,6 +21,7 @@
     "release:bundle": "node scripts/make-release.mjs",
     "backfill-cost": "tsx src/cli/backfill-cost.ts",
     "test": "tsx --test \"src/**/*.test.ts\"",
+    "test:coverage": "tsx --test --experimental-test-coverage \"src/**/*.test.ts\"",
     "test:web": "node --test \"public/assets/*.test.mjs\"",
     "lint": "eslint src scripts",
     "smoke": "node scripts/smoke.mjs",
