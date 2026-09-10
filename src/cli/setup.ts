@@ -204,16 +204,16 @@ export const resolveGatewayKey = (dshHome: string, settingsPath: string | null):
 }
 
 /**
- * 蜂群2计划 P6：节点 profile 依赖固定用 pnpm@9（npx 临时拉取，不碰用户全局）。
- * pnpm ≥10 的构建脚本白名单键语义反复变（实测 11.21 仍触发
- * ERR_PNPM_IGNORED_BUILDS，koffi/node-pty 等原生依赖不构建 → 节点运行期
- * 悄悄缺功能），容器镜像早已钉死 pnpm@9（DSH-FACTS），裸机同款。
- * Windows：npx 是 .cmd 垫片，必须 shell: true（CVE-2024-27980，EINVAL 实测）。
+ * 节点 profile 依赖安装命令。0.1.2 切主路实测（容器路径同款结论）：
+ * pnpm@9 对 harness 0.1.2-rc.1 的内层预发布区间（dsh-settings@>=0.1.2
+ * <0.2.0-0）解析失败、pnpm@11 的 onlyBuiltDependencies 白名单失效——
+ * 改用 npm（同版本集实证可解析，且按旧语义跑原生构建脚本）。
+ * Windows：npm 是 .cmd 垫片，调用处必须 shell: true（CVE-2024-27980，EINVAL 实测）。
  */
-export const profileInstallCommand = (platform: NodeJS.Platform): { cmd: string; args: string[] } =>
-  platform === 'win32'
-    ? { cmd: 'npx.cmd', args: ['-y', 'pnpm@9', 'install'] }
-    : { cmd: 'npx', args: ['-y', 'pnpm@9', 'install'] }
+export const profileInstallCommand = (_platform: NodeJS.Platform): { cmd: string; args: string[] } => ({
+  cmd: process.platform === 'win32' ? 'npm' : 'npm',
+  args: ['install', '--no-audit', '--no-fund'],
+})
 
 /**
  * 蜂群2计划 P6 回归：setup 写进 .env 的密钥集（含首启密码）。
@@ -596,7 +596,7 @@ const main = async (): Promise<void> => {
       } catch (error) {
         failures += 1
         const message = ((error as Error).message ?? String(error)).split('\n')[0] ?? ''
-        console.error(`   pnpm@9 install 失败于 ${dir}: ${message}`)
+        console.error(`   npm install 失败于 ${dir}: ${message}`)
         console.error('   GitHub 不通时改用 --gateway-local 指向本地 dsh-api-gateway 目录重跑 setup --force。')
       }
     }

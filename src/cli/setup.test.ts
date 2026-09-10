@@ -186,13 +186,13 @@ test('蜂群2计划 P6 回归: Windows 上 pnpm 探测必须穿透 .CMD 垫片�
   assert.match(tools.pnpm, /^\d+\.\d+\.\d+$/)
 })
 
-test('蜂群2计划 P6 回归: 节点依赖固定 npx pnpm@9——全局 pnpm ≥10 无视构建白名单（实测 ERR_PNPM_IGNORED_BUILDS）', () => {
+test('0.1.2 切主路回归: 节点依赖改 npm——pnpm9 预发布区间失效、pnpm11 白名单失效（容器双墙实证）', () => {
   const win = profileInstallCommand('win32')
-  assert.equal(win.cmd, 'npx.cmd')
-  assert.deepEqual(win.args, ['-y', 'pnpm@9', 'install'])
+  assert.equal(win.cmd, 'npm')
+  assert.deepEqual(win.args, ['install', '--no-audit', '--no-fund'])
   const posix = profileInstallCommand('linux')
-  assert.equal(posix.cmd, 'npx')
-  assert.deepEqual(posix.args, ['-y', 'pnpm@9', 'install'])
+  assert.equal(posix.cmd, 'npm')
+  assert.deepEqual(posix.args, ['install', '--no-audit', '--no-fund'])
 })
 
 test('蜂群2计划 P6 回归: setup 必须预生成首启密码进 .env（manager 隐藏窗口启动，生成密码会丢）', () => {
