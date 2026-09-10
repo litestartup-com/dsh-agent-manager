@@ -1,5 +1,6 @@
 import { readFileSync, existsSync, rmSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
+import { pathToFileURL } from 'node:url'
 import { loadConfig } from '../config.js'
 import { buildClients } from '../gateway/client.js'
 import { buildUpstreamClients } from '../upstream/client.js'
@@ -14,6 +15,8 @@ import type { NodeSupervisor } from '../nodes/supervisor.js'
  * - up [id]       拉起节点并等待 live/offline（幂等：已在跑则直接报状态）
  * - down [id]     停止节点（幂等）
  * - logs [id]     打印该节点捕获的 stdout/stderr 缓冲
+ *
+ * 债务 C2:纯函数导出供测试;main 只在直接执行时运行(与 setup 同模式)。
  */
 
 type Command = 'up' | 'down' | 'list' | 'logs'
@@ -24,7 +27,7 @@ const usage = (): void => {
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
-const pidFileOf = (logFile: string | null): string | null => (logFile === null ? null : logFile + '.pid')
+export const pidFileOf = (logFile: string | null): string | null => (logFile === null ? null : logFile + '.pid')
 
 /** Kill a detached node by its pidfile (the CLI has no in-memory child handle). */
 const killByPidFile = (pidFile: string): boolean => {
@@ -40,7 +43,7 @@ const killByPidFile = (pidFile: string): boolean => {
   return true
 }
 
-const waitSettled = async (node: NodeSupervisor, what: string, timeoutMs: number): Promise<boolean> => {
+export const waitSettled = async (node: NodeSupervisor, what: string, timeoutMs: number): Promise<boolean> => {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     const state = node.current.state
@@ -161,4 +164,5 @@ const main = (): void => {
   })()
 }
 
-main()
+const isDirect = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href
+if (isDirect) main()
