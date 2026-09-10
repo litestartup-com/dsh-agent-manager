@@ -41,3 +41,6 @@ Microsoft/
 
 # nginx 运行时配置 = install.sh 生成的派生品（真相源是 *.conf.example 与 tls-*.conf 模板）
 deploy/nginx/default.conf
+
+# upgrade-012 回滚备份（含 .env，绝不入库）
+*.pre-012.bak

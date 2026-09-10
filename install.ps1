@@ -1,4 +1,4 @@
-﻿# Oh! dsh — Windows 一键安装（裸机形态：manager + 主脑 + 个人，本机直跑）。
+# Oh! dsh — Windows 一键安装（裸机形态：manager + 主脑 + 个人，本机直跑）。
 #
 # 推荐（先下载查看再执行）：
 #   irm https://get.ohdsh.com/install.ps1 -OutFile install.ps1
@@ -18,7 +18,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$DSH_VERSION = '0.1.1-rc.2' # 与 src/dsh-version.ts 保持一致
+$DSH_VERSION = '0.1.2-rc.1' # 与 src/dsh-version.ts 保持一致
 
 function Step([string]$Msg) { Write-Host "[install] $Msg" -ForegroundColor Cyan }
 function Plan([string]$Msg) { Write-Host "[plan] $Msg" -ForegroundColor DarkGray }

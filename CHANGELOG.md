@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.0.3 — 0.1.2 切主路（2026-09-10）
+
+> ⚠️ **升级注意**：切主路升级顺序 = **先停栈 → 跑 upgrade 脚本 → 重启 → smoke**。
+> 脚本首次运行自动备份 `*.pre-012.bak`（含 `.env`，不入库），出错按备份回滚。
+> Linux 容器：`node scripts/upgrade-012.mjs`（manager.config.yaml 接线 + .env 镜像标签）；
+> Windows 裸机：`node scripts/upgrade-012-win.mjs`（profile 换 facade / 铸钥 / .env 同步 / 全局 DSH，
+> 端口预检被占即拒）。
+
+### 修路（manager 上层重写）
+
+- **SessionDriver 端口化**：上层只依赖端口，facade 驱动成为插头（探活改 probeVersion、release 语义入端口，零行为变化）；拔插头验收 FakeSessionDriver 纯内存驱动 apiproxy 全链路 8 条测试
+- **ACP 窄桥**：SDK 客户端中继 + 窄面映射（权限→审批帧；usage/history 缺口入档），假 agent 验收 4 条 + runner 拔插头复跑
+- **对账单一化**：reconcileAll 统一入口（镜像/run 收敛/孤儿/fleet/节点认领），boot 与 provision 共用；healOnly 只治 offline；supervisor 运行时健康对账（probeLive 连续失败转 offline，同 tick 自愈）
+- **apiproxy prefix 显式配置生效**：0.1.2 facade 接线的先决条件（省略时保留旧默认 /api）
+
+### 0.1.2 切主路
+
+- COMPAT_DSH_VERSION 升 `0.1.2-rc.1`，gateway 0.1.2 门禁化改包名 **ohdsh-api-facade** 全线接线（镜像 / 节点 profile / entrypoint 命名空间 / 默认 tag），endpoints 走 `/api-gw/v1/proxy` + key_ref（与 sandbox_key_ref 同一把钥匙）
+- **upgrade-012.mjs**：manager.config.yaml 一次性接线迁移（幂等 / 备份 / 缺钥匙退出码 2 大声失败）+ `.env` 镜像标签迁移（`DSH_NODE_IMAGE→0.1.2-rc.1`、`MANAGER_VERSION→1.0.3`，gen-env 幂等不覆盖旧值所以必须显式升）
+- **upgrade-012-win.mjs**：Windows 裸机节点升级（profile 换 facade / 铸钥 / .env 同步 / 全局 DSH），端口预检（8080/3081/3082/3090 被占即拒，EPERM 半毁树教训固化）、`--dry-run` / `--force`、幂等
+- 节点 profile 依赖安装 **pnpm→npm**（pnpm@9 预发布区间失效 + pnpm@11 白名单失效，双墙实证；npm 同版本集本机 e2e 全绿）
+- Windows setup resolveGatewayKey 切 facade 命名空间（旧 dsh-api-gw 段不读，含回归测试）
+- entrypoint 密钥判定加命名空间条件（0.1.1 旧 settings.yaml 残留同 key 串不再误判跳过）
+- compose 删 `--trusted-host`（0.1.2 CLI 已删）；镜像 stage-2 用户创建兼容已有 1000:1000
+- **双线验证**：Linux 容器集群 + Windows 生产节点 smoke 全 PASS（三节点 apiKeySet:true）
+- 文档双语规范落地：README.md（英文）+ README.zh.md（中文）分文件，禁止混排
+
 ## 1.0.2 — 安全与部署加固（2026-09-08）
 
 > ⚠️ **升级注意**：本版数据库迁移会把既有账号的 `must_change_password` 置 1——升级后首次登录

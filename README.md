@@ -1,104 +1,107 @@
 # Oh! dsh
 
-> 蜂群计划 —— 单主机多节点的本地多 agent 管理器，建在 DeepSeek Harness 之上。
-> 默认安装 = manager（总办）+ 主脑（总控）+ 个人（工作区）。一条命令、5 分钟用起来。
+> The Swarm Project — a single-host, multi-node local multi-agent manager built on top of DeepSeek Harness.
+> Default install = manager (HQ) + brain (chief controller) + personal workspace. One command, up in 5 minutes.
 
-## 一键安装
+> 中文文档见 [README.zh.md](./README.zh.md)。
 
-**Linux 服务器（容器，推荐）：**
+## One-line install
+
+**Linux server (containers, recommended):**
 
 ```bash
 curl -fsSL https://get.ohdsh.com/install.sh -o install.sh && bash install.sh
-# 熟手一行：curl -fsSL https://get.ohdsh.com/install.sh | bash
+# pros: curl -fsSL https://get.ohdsh.com/install.sh | bash
 ```
 
-**Windows（本机直跑）：**
+**Windows (bare metal):**
 
 ```powershell
 irm https://get.ohdsh.com/install.ps1 -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File .\install.ps1
-# 熟手一行：irm https://get.ohdsh.com/install.ps1 | iex
+# pros: irm https://get.ohdsh.com/install.ps1 | iex
 ```
 
-脚本幂等：已装组件自动跳过，重跑不覆盖配置与数据；唯一需要输入的是 DeepSeek API key
-（`DEEPSEEK_API_KEY=...` 预置则全自动）；首次登录强制修改密码。
-完整使用手册见 `docs/USER-GUIDE.md`。
+The scripts are idempotent: already-installed components are skipped, and re-runs never overwrite config or data.
+The only input needed is your DeepSeek API key (pre-set `DEEPSEEK_API_KEY=...` for a fully unattended install);
+first login forces a password change. Full manual: `docs/USER-GUIDE.md` (Chinese).
 
-## 是什么
+## What it is
 
-DeepSeek Harness 提供 agent 运行时（会话 / 工具 / 沙箱 / 文件系统）；Oh! dsh 提供控制面：
-认证、聊天中继、主脑派工、定时任务、节点管理、技能清单、记账、备份恢复。
+DeepSeek Harness provides the agent runtime (sessions / tools / sandbox / filesystem); Oh! dsh provides the control plane:
+auth, chat relay, brain dispatch, cron jobs, node management, skill inventory, billing, backup & restore.
 
-概念层级（详见 `docs/USER-GUIDE.md`）：
+Concept hierarchy (see `docs/USER-GUIDE.md`):
 
 ```
-服务器 ──► 节点（= 一个 DSH agent 进程 + 独立 DSH_HOME）──► 工作区（身份+目录+preset+沙箱）──► 会话
+server ──► node (= one DSH agent process + its own DSH_HOME) ──► workspace (identity + dir + preset + sandbox) ──► session
 ```
 
-- **主脑** = manager 级总控：跨域规划、派工单、查 fleet；对工作区只读，执行永远委托。
-- **工作区** = 文件即真相的边界：每个工作区一个 git 仓，每次运行落一次提交（审计留痕）。
+- **Brain** = manager-level chief controller: cross-domain planning, work orders, fleet queries; read-only on workspaces, execution is always delegated.
+- **Workspace** = files-as-truth boundary: one git repo per workspace, one commit per run (audit trail).
 
-## 功能
+## Features
 
-- **聊天 UI**：多轮对话、流式输出、工具调用卡片、互动提问/授权卡片直接作答
-- **主脑派工**：对话式编排 + delegation 帧（点击跳回被派会话）+ 会话复用（同类续接）
-- **多节点**：`/nodes` 页全 UI 管控（起/停/重启/日志）+ 向导新增节点 + 侧栏 `N/N` 就绪计数
-- **多会话并发**：会话内串行、会话间并行（DSH 原生语义 + git 提交锁 + 冲突显性化）
-- **定时任务**：cron 自动化、连续失败自动停用、主脑日预算熔断（只拦派工，人工不拦）
-- **技能清单**：`/skills` 页按工作区列技能 + 版本对照（= 工作区 git HEAD）
-- **站内通知**：铃铛——cron 成败 / 预算熔断 / 主脑任务完成
-- **记账**：峰谷计价（**周六周日全天谷价**）、每 run 花费、月度汇总、按工作区分账
-- **备份恢复**：15 分钟自动快照 + 保留策略（24h 全留 → 每日 30 天 → 每周 12 周）+ 一键恢复
-- **服务化**：开机自启（Windows 任务计划 / Linux systemd）
-- **自更新**：备份 → 拉新 → 构建 → 探活，失败自动回滚
+- **Chat UI**: multi-turn conversation, streaming output, tool-call cards, interactive question/authorization cards answered inline
+- **Brain dispatch**: conversational orchestration + delegation frames (click to jump to the delegated session) + session reuse
+- **Multi-node**: full UI control on `/nodes` (start/stop/restart/logs) + guided node wizard + `N/N` readiness count in the sidebar
+- **Concurrent sessions**: serial within a session, parallel across sessions (native DSH semantics + git commit locks + surfaced conflicts)
+- **Cron jobs**: automation, auto-disable after repeated failures, brain daily-budget circuit breaker (blocks dispatch only, never humans)
+- **Skill inventory**: `/skills` page lists skills per workspace with version mapping (= workspace git HEAD)
+- **In-app notifications**: bell — cron results / budget breaker / brain task completions
+- **Billing**: peak/off-peak pricing (**weekends are all off-peak**), per-run cost, monthly summary, per-workspace breakdown
+- **Backup & restore**: 15-minute automatic snapshots + retention policy (24h full → daily 30 days → weekly 12 weeks) + one-click restore
+- **Service**: auto-start on boot (Windows Task Scheduler / Linux systemd)
+- **Self-update**: backup → pull → build → health probe, auto-rollback on failure
 
-## 从源码运行（开发者）
+## Run from source (developers)
 
-前置：Node ≥ 20（推荐 22）、git、DeepSeek Harness（版本见 `COMPAT_DSH_VERSION`）；
-节点依赖由 setup 用 `npx pnpm@9` 临时拉取安装，无需全局 pnpm。
+Prerequisites: Node ≥ 20 (22 recommended), git, DeepSeek Harness (version in `COMPAT_DSH_VERSION`);
+node dependencies are installed by setup via npm, no global pnpm needed.
 
 ```powershell
 git clone <repo-url>
 cd dsh-agent-manager
 npm install
-npm run setup          # 自检表（node/pnpm/git/dsh）+ 初始化工作区/节点/配置
+npm run setup          # self-check (node/git/dsh) + initialize workspaces/nodes/config
 npm run build
-npm start              # 启动 manager，自动拉起托管节点
+npm start              # start manager, auto-spawns managed nodes
 ```
 
-## CLI 一览
+## CLI overview
 
-| 命令 | 用途 |
+| Command | Purpose |
 | --- | --- |
-| `npm run setup [--force]` | 初始化/重装（`--force` 保留已定制的工作区） |
-| `npm start` | 启动 manager（自动拉起托管节点） |
-| `npm run nodes -- up/down/list/logs <名>` | 节点生命周期（UI 在 /nodes 页） |
-| `npm run backup [-- list]` / `npm run restore -- latest` | 备份 / 恢复（恢复前自动探测 manager 是否在跑） |
-| `npm run service -- install/uninstall/status` | 开机自启服务 |
-| `npm run update` | 自更新（失败自动回滚） |
-| `npm test` / `npm run typecheck` | 测试 / 类型检查 |
+| `npm run setup [--force]` | Initialize / reinstall (`--force` keeps customized workspaces) |
+| `npm start` | Start manager (auto-spawns managed nodes) |
+| `npm run nodes -- up/down/list/logs <name>` | Node lifecycle (UI on /nodes page) |
+| `npm run backup [-- list]` / `npm run restore -- latest` | Backup / restore (probes whether manager is running before restore) |
+| `npm run service -- install/uninstall/status` | Auto-start service |
+| `npm run update` | Self-update (auto-rollback on failure) |
+| `npm test` / `npm run typecheck` | Tests / type check |
 
-## 配置
+## Configuration
 
-`manager.config.yaml` 是唯一真相源：`endpoints`（每个 DSH 进程的入口 + spawn 生命周期）、
-`agents`（工作区绑定）、`runner`（超时/静默/预算）、`pricing`（峰谷窗口 + 周末规则）、
-`brain.daily_budget_usd`（主脑派工熔断）。密钥只进 `.env`（`GW_KEY_*` / `BRAIN_TOKEN`），永不入库。
+`manager.config.yaml` is the single source of truth: `endpoints` (entry + spawn lifecycle for each DSH process),
+`agents` (workspace bindings), `runner` (timeouts/silence/budget), `pricing` (peak/off-peak windows + weekend rule),
+`brain.daily_budget_usd` (brain dispatch breaker). Secrets live only in `.env` (`GW_KEY_*` / `BRAIN_TOKEN`), never in git.
 
-## 文档
+## Documentation
 
-| 文档 | 内容 |
+| Doc | Contents |
 | --- | --- |
-| `docs/USER-GUIDE.md` | 用户手册（安装 / 主脑 / 节点 / 定时 / 记账 / 备份） |
-| `CHANGELOG.md` | 变更记录 |
+| `docs/USER-GUIDE.md` | User manual (install / brain / nodes / cron / billing / backup) — Chinese |
+| `README.zh.md` | This README in Chinese |
+| `CHANGELOG.md` | Changelog |
 
-> **本仓库只放用户面文档。** 设计稿、路线图、实施计划、评审记录、发布流程、
-> 上游行为事实卡均在不公开的内部设计库。**已交付的能力看 `CHANGELOG.md` 与
-> GitHub Release，不对未发布的功能做公开承诺。** 代码、配置样例与用户手册
-> 即完整的可运行、可自托管交付物。
+> **This repo carries user-facing docs only.** Design drafts, roadmaps, implementation plans, review records,
+> release procedures and upstream behavior fact cards live in the private internal design library.
+> **Delivered capabilities are in `CHANGELOG.md` and GitHub Releases; no public promises for unreleased features.**
+> Code, config samples and the user manual are the complete runnable, self-hostable deliverable.
 
-## 测试
+## Tests
 
 ```powershell
-npm test   # 全绿（数量由 CI 断言，不手写）
+npm test   # all green (count asserted by CI, not hardcoded)
 ```
 
 ## License

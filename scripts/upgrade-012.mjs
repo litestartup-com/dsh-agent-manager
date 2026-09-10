@@ -6,10 +6,20 @@
  * - `key_ref` 为空时取同段 `sandbox_key_ref` 的值（同一把门钥匙，语义一致）；
  *   sandbox_key_ref 也为空 → 该端点无法迁移，列出并退出码 2（大声失败）。
  *
+ * 附带 .env 镜像标签迁移（gen-env 幂等不覆盖旧值 → 老部署标签必须显式升）：
+ * - DSH_NODE_IMAGE=ohdsh/dsh-node:0.1.1-rc.2 → 0.1.2-rc.1；
+ * - MANAGER_VERSION=1.0.1 / 1.0.2 → 1.0.3。
+ * .env 备份：首次改动前拷为 .env.pre-012.bak（已存在不覆盖）。
+ *
  * 备份：首次运行前把原文件拷为 <config>.pre-012.bak（已存在不覆盖）。
  * 用法：node scripts/upgrade-012.mjs [config路径]
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+
+const dirnameOf = (p) => {
+  const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'))
+  return i === -1 ? '' : p.slice(0, i + 1)
+}
 
 const configPath = process.argv[2] ?? 'manager.config.yaml'
 if (!existsSync(configPath)) {
@@ -18,6 +28,25 @@ if (!existsSync(configPath)) {
 }
 const original = readFileSync(configPath, 'utf8')
 const lines = original.split(/\r?\n/)
+
+// ---- .env 镜像标签迁移（gen-env 幂等不覆盖旧值 → 老部署的标签必须显式升）----
+const envPath = `${dirnameOf(configPath)}.env`
+let envChanged = false
+if (existsSync(envPath)) {
+  const envOriginal = readFileSync(envPath, 'utf8')
+  const envLines = envOriginal.split(/\r?\n/)
+  for (let i = 0; i < envLines.length; i += 1) {
+    if (envLines[i] === 'DSH_NODE_IMAGE=ohdsh/dsh-node:0.1.1-rc.2') { envLines[i] = 'DSH_NODE_IMAGE=ohdsh/dsh-node:0.1.2-rc.1'; envChanged = true }
+    if (envLines[i] === 'MANAGER_VERSION=1.0.1') { envLines[i] = 'MANAGER_VERSION=1.0.3'; envChanged = true }
+    if (envLines[i] === 'MANAGER_VERSION=1.0.2') { envLines[i] = 'MANAGER_VERSION=1.0.3'; envChanged = true }
+  }
+  if (envChanged) {
+    const envBak = `${envPath}.pre-012.bak`
+    if (!existsSync(envBak)) writeFileSync(envBak, envOriginal, 'utf8')
+    writeFileSync(envPath, envLines.join('\n'), 'utf8')
+    console.log(`upgrade-012: 已迁移 .env 镜像标签（DSH_NODE_IMAGE→0.1.2-rc.1、MANAGER_VERSION→1.0.3），备份 ${envBak}`)
+  }
+}
 
 // 只在 endpoints 段内扫描（段边界：'endpoints:' 到下一个顶层键，通常 'agents:'）
 const sectionStart = lines.findIndex((l) => /^endpoints:\s*$/.test(l))

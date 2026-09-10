@@ -29,7 +29,7 @@ services:
     build:
       context: .
       dockerfile: images/manager/Dockerfile
-    image: ohdsh/manager:${MANAGER_VERSION:-1.0.2}
+    image: ohdsh/manager:${MANAGER_VERSION:-1.0.3}
     container_name: ohdsh-manager
     env_file: .env
     # 债务 H1：manager 非 root 运行（与 node-brain 同款 HOST_UID 约定）；
