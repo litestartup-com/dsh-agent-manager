@@ -8,8 +8,9 @@ import type { AppConfig, ResolvedAgent } from '../config.js'
 import { openDb, schema, type Db } from '../db/index.js'
 import { GatewayClient } from '../gateway/client.js'
 import { UpstreamClient } from '../upstream/client.js'
+import { FakeSessionDriver } from '../session-driver/fake.js'
 import { DEFAULT_PRICING } from '../pricing.js'
-import { registerStatusRoutes } from './status.js'
+import { _clearProbeCache, registerStatusRoutes } from './status.js'
 
 /**
  * The agent detail aggregate.
@@ -33,6 +34,7 @@ const agentFor = (id: string, name: string, workspacePath: string, isPublic = fa
 })
 
 const boot = (): { app: FastifyInstance; db: Db } => {
+  _clearProbeCache() // 债务 B4:探测缓存跨测试残留会污染同 id 的不同形态断言
   const dir = mkdtempSync(join(tmpdir(), 'route-status-'))
   const workspace = mkdtempSync(join(tmpdir(), 'route-status-ws-'))
   const { db } = openDb(join(dir, 'test.db'))
@@ -112,6 +114,7 @@ test('an agent that is not configured is a 404, not an empty panel', async () =>
 })
 
 test('an apiproxy endpoint gets a row probed via host.describe, not /health', async () => {
+  _clearProbeCache()
   const dir = mkdtempSync(join(tmpdir(), 'route-status-apx-'))
   const workspace = mkdtempSync(join(tmpdir(), 'route-status-apx-ws-'))
   const { db } = openDb(join(dir, 'test.db'))
@@ -145,5 +148,40 @@ test('an apiproxy endpoint gets a row probed via host.describe, not /health', as
   // 蜂群2计划 P1：探测失败时版本字段为 null，不产生虚假告警
   assert.equal(body.endpoints[0]!.dshVersion, null)
   assert.equal(body.endpoints[0]!.dshCompatible, null)
+  await app.close()
+})
+
+test('债务 B4 回归: TTL 内重复轮询复用缓存探测,不每请求扇出', async () => {
+  _clearProbeCache()
+  const dir = mkdtempSync(join(tmpdir(), 'route-status-cache-'))
+  const workspace = mkdtempSync(join(tmpdir(), 'route-status-cache-ws-'))
+  const { db } = openDb(join(dir, 'test.db'))
+  const config: AppConfig = {
+    listen: { host: '127.0.0.1', port: 0 },
+    endpoints: { A: { id: 'A', url: 'http://127.0.0.1:1', driver: 'apiproxy', prefix: '/api', key: '', sandboxBase: null, sandboxKey: '', spawn: null } },
+    agents: { personal: agentFor('personal', 'Personal', workspace) },
+    runner: { timeoutMs: 10_000, silenceMs: 0, maxConsecutiveFailures: 3, dailyBudgetMicroUsd: null },
+    databasePath: ':memory:',
+    pricing: DEFAULT_PRICING,
+    sessionSecret: 'x'.repeat(32),
+    initialUser: { username: 'admin', password: null },
+    warnings: [],
+  }
+  const app = Fastify()
+  let probes = 0
+  const fake = new FakeSessionDriver('A', { frames: [], probeVersion: '0.1.1-rc.2' })
+  fake.probeVersion = async (): Promise<string> => {
+    probes += 1
+    return '0.1.1-rc.2'
+  }
+  const upstreamClients = new Map([['A', fake]])
+  registerStatusRoutes(app, config, db, new Map(), async () => undefined, upstreamClients)
+
+  await app.inject({ method: 'GET', url: '/api/status' })
+  await app.inject({ method: 'GET', url: '/api/status' })
+  assert.equal(probes, 1, 'TTL 内第二次轮询必须复用缓存,不得再探测(旧代码每请求扇出 = 2 次)')
+  _clearProbeCache()
+  await app.inject({ method: 'GET', url: '/api/status' })
+  assert.equal(probes, 2, 'TTL 过期后恢复探测')
   await app.close()
 })

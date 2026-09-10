@@ -96,6 +96,34 @@ export const probeEndpoint = async (
   }
 }
 
+/**
+ * 债务 B4:探测结果 TTL 缓存。前端每 5s 轮询 /api/status,旧代码每请求对
+ * 所有端点扇出真实探测(节点越多风暴越大,慢探测拖长整页)。
+ * 缓存 = 同一个 TTL 窗口内的轮询全部命中;过期或显式清除后恢复探测。
+ * 注:supervisor 已在后台维护节点生命周期状态,「读监督器快照」的更彻底
+ * 方案留待 B 类后续(需要把 HTTP 探活语义并入 supervisor,改动面大)。
+ */
+const probeCache = new Map<string, { at: number; result: EndpointStatus }>()
+const PROBE_TTL_MS = 5_000
+
+/** Testing only:清探测缓存(避免测试间 TTL 残留)。 */
+export const _clearProbeCache = (): void => {
+  probeCache.clear()
+}
+
+const probeCached = async (
+  config: AppConfig,
+  clients: Map<string, GatewayClient>,
+  upstreamClients: Map<string, SessionDriver>,
+  endpointId: string,
+): Promise<EndpointStatus> => {
+  const hit = probeCache.get(endpointId)
+  if (hit !== undefined && Date.now() - hit.at < PROBE_TTL_MS) return hit.result
+  const result = await probeEndpoint(config, clients, upstreamClients, endpointId)
+  probeCache.set(endpointId, { at: Date.now(), result })
+  return result
+}
+
 export const registerStatusRoutes = (
   app: FastifyInstance,
   config: AppConfig,
@@ -112,8 +140,9 @@ export const registerStatusRoutes = (
   app.get('/api/status', { preHandler: requireUser }, async (_request, reply) => {
     // Every configured endpoint gets a row, whatever its driver: the green dot
     // is the page's whole job, and a missing row reads as "forgotten", not "down".
+    // 债务 B4:TTL 缓存——轮询窗口内复用上一次探测,不每请求扇出。
     const endpoints: EndpointStatus[] = await Promise.all(
-      Object.keys(config.endpoints).map((id) => probeEndpoint(config, clients, upstreamClients, id)),
+      Object.keys(config.endpoints).map((id) => probeCached(config, clients, upstreamClients, id)),
     )
 
     const agents = Object.values(config.agents).map((agent) => ({
@@ -147,7 +176,7 @@ export const registerStatusRoutes = (
     const agent = config.agents[request.params.id]
     if (agent === undefined) return reply.code(404).send({ error: 'unknown_agent' })
 
-    const health = await probeEndpoint(config, clients, upstreamClients, agent.endpoint)
+    const health = await probeCached(config, clients, upstreamClients, agent.endpoint)
 
     // 容器形态：节点镜像标签（镜像 tag 即 DSH 版本）——详情面板优先展示它。
     const image = await supervisors.get(agent.endpoint)?.containerImage() ?? null
