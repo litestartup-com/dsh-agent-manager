@@ -15,7 +15,7 @@ export const DSH_INSTALL_COMMAND = `npm install -g ${COMPAT_DSH_PACKAGE}@${COMPA
  * next-012 分支的最新 commit（eeb33d6 = 白名单全量迁移完成点）。
  */
 export const GATEWAY_PACKAGE = 'ohdsh-api-facade'
-export const GATEWAY_REF = 'github:litestartup-com/dsh-api-gateway#e6b3c5b6dfc8c1cb1226f2b391fcd9a1582dc050'
+export const GATEWAY_REF = 'github:litestartup-com/dsh-api-gateway#9dd41f92e93a14ddb06595383ac890d292a92fd8'
 /** 版本比对：容忍 v 前缀；null = 未探测到。 */
 export const dshCompatible = (version: string | null): boolean =>
   version !== null && version.replace(/^v/, '') === COMPAT_DSH_VERSION
