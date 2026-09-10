@@ -52,11 +52,26 @@ interface MuxConnection {
   reconnectTimer: ReturnType<typeof setTimeout> | null
   /** approvalId → the rpcId of the original approval/requested frame. */
   approvalRpcIds: Map<string, string>
+  /** 债务 A4:曾连上过(重连成功后要向订阅者广播 stream_reconnected)。 */
+  wasConnected: boolean
+  /** 债务 A4:连续断线计数,驱动指数退避;连上即清零。 */
+  reconnectAttempt: number
 }
 
 const connections = new Map<string, MuxConnection>()
 
-const RECONNECT_MS = 3_000
+const RECONNECT_BASE_MS = 3_000
+const RECONNECT_MAX_MS = 30_000
+
+/**
+ * 债务 A4:指数退避 + ±25% 抖动(纯函数,可测)。
+ * 固定 3s 无退避会在上游抖动时形成重连风暴。
+ */
+export const nextReconnectDelay = (attempt: number): number => {
+  const exp = Math.min(RECONNECT_BASE_MS * 2 ** Math.max(attempt - 1, 0), RECONNECT_MAX_MS)
+  const jitter = exp * 0.25 * (Math.random() * 2 - 1)
+  return Math.round(exp + jitter)
+}
 
 /**
  * Derives the WebSocket URL from an HTTP endpoint base.
@@ -146,25 +161,22 @@ const dispatch = (conn: MuxConnection, env: WireEnvelope): void => {
  * the options bag (supported by Node's undici WebSocket); older runtimes that
  * reject the options form fall back to a plain connection.
  */
-const openSocket = (conn: MuxConnection): WebSocket => {
-  const url = muxUrl(conn.ep.base)
-  let ws: WebSocket
-  if (conn.ep.key !== '') {
-    try {
-      ws = new WebSocket(url, { headers: { 'x-api-key': conn.ep.key } } as never)
-    } catch {
-      ws = new WebSocket(url)
-    }
-  } else {
-    ws = new WebSocket(url)
-  }
-  return ws
-}
 
 /** Wires one socket's handlers; the socket connects immediately on construction. */
 const attach = (conn: MuxConnection): void => {
-  const ws = openSocket(conn)
+  const ws = socketFactory(conn)
   conn.ws = ws
+
+  ws.onopen = () => {
+    // 债务 A4:重连成功即向所有活跃订阅者广播 stream_reconnected——
+    // 断线期间丢掉的 turn_end 不会无声无息,上层按通知显性失败/对账。
+    // 首连(wasConnected=false)不发。
+    conn.reconnectAttempt = 0
+    if (!conn.wasConnected) return
+    for (const sessionId of conn.listeners.keys()) {
+      emit(conn, sessionId, { kind: 'stream_reconnected', seq: 0 })
+    }
+  }
 
   ws.onmessage = (event: MessageEvent) => {
     const data = typeof event.data === 'string' ? event.data : String(event.data)
@@ -187,17 +199,44 @@ const attach = (conn: MuxConnection): void => {
     if (conn.closed) return
     // Auto-reconnect if there are still listeners.
     if (conn.listeners.size > 0 || conn.globalListeners.size > 0) {
+      conn.wasConnected = true
       if (conn.reconnectTimer === null) {
+        const delay = nextReconnectDelay(conn.reconnectAttempt)
+        conn.reconnectAttempt += 1
         conn.reconnectTimer = setTimeout(() => {
           conn.reconnectTimer = null
           if (conn.closed) return
           attach(conn)
-        }, RECONNECT_MS)
+        }, delay)
       }
     } else {
       connections.delete(conn.ep.base)
     }
   }
+}
+
+const openSocket = (conn: MuxConnection): WebSocket => {
+  const url = muxUrl(conn.ep.base)
+  let ws: WebSocket
+  if (conn.ep.key !== '') {
+    try {
+      ws = new WebSocket(url, { headers: { 'x-api-key': conn.ep.key } } as never)
+    } catch {
+      ws = new WebSocket(url)
+    }
+  } else {
+    ws = new WebSocket(url)
+  }
+  return ws
+}
+
+/** 连接工厂(测试注入假 socket 用);生产走真实 WebSocket。 */
+type SocketFactory = (conn: MuxConnection) => WebSocket
+let socketFactory: SocketFactory = openSocket
+
+/** Testing only:替换连接工厂,验证重连通知/退订修复等连接级行为。 */
+export const _setSocketFactory = (factory: SocketFactory): void => {
+  socketFactory = factory
 }
 
 const connect = (ep: UpstreamEndpoint): MuxConnection => {
@@ -213,6 +252,8 @@ const connect = (ep: UpstreamEndpoint): MuxConnection => {
     closed: false,
     reconnectTimer: null,
     approvalRpcIds: new Map(),
+    wasConnected: false,
+    reconnectAttempt: 0,
   }
   connections.set(key, conn)
   attach(conn)
@@ -234,7 +275,9 @@ export const subscribe = (ep: UpstreamEndpoint, sessionId: string, listener: Mux
 
   return () => {
     set.delete(listener)
-    if (set.size === 0) conn.listeners.delete(sessionId)
+    // 债务 A4:只有当 map 里挂着的还是本订阅创建的 set 时才删除——旧 unsub
+    // 在「退订后又重新订阅」之后调用,会把新订阅的 set 从 map 误删。
+    if (set.size === 0 && conn.listeners.get(sessionId) === set) conn.listeners.delete(sessionId)
     maybeClose(conn, ep.base)
   }
 }

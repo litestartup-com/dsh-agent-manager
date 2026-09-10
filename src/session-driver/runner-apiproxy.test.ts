@@ -141,6 +141,25 @@ test('apiproxy turn: 静默超时 = cancelled，且经端口调用 cancel', asyn
   assert.equal(fake.cancels, 1, '取消经端口发出')
 })
 
+test('债务 A4 回归: 回合中流重连 → 显性失败(结果未知),绝不静默等超时', async () => {
+  const db = makeDb()
+  const fake = new FakeSessionDriver('A', {
+    frames: [
+      { kind: 'turn_start', seq: 0, turn: 1 },
+      { kind: 'stream_reconnected', seq: 0 },
+      // 上游其实已完成,但 turn_end 丢在断线期间——重连后只有通知帧
+      { kind: 'turn_end', seq: 0, turn: 1, reason: 'completed', detail: null },
+    ],
+  })
+  const outcome = await runAgent({ db }, {
+    agent: agentFor(mkdtempSync(join(tmpdir(), 'apiproxy-ws-'))),
+    client: dummyClient(), upstream: fake, driver: 'apiproxy', prompt: 'hi', trigger: 'manual',
+    silenceMs: 0, timeoutMs: 5_000,
+  })
+  assert.equal(outcome.state, 'failed')
+  assert.match(outcome.error ?? '', /reconnected|重连|结果未知/, '重连必须显性失败,不得静默等超时')
+})
+
 test('端口九操作全覆盖：history/answer/decline/decide/release/probe 走记录', async () => {
   const fake = new FakeSessionDriver('A', { frames: [], probeVersion: '0.1.1-rc.2' })
   const history = await fake.history('fake-9')

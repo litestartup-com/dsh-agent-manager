@@ -675,6 +675,14 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
             )
           }
 
+          if (frame.kind === 'stream_reconnected') {
+            // 债务 A4:流在回合中重连——turn_end 可能已丢在断线期间,结果未知。
+            // 显性失败而非静默等超时(钱花了,结果必须可见,请查会话历史)。
+            unsub()
+            resolveTurn(finish('failed', 'upstream stream reconnected mid-turn: outcome unknown (the turn may have completed); check the session history'))
+            return
+          }
+
           if (isLiveMessage(frame)) {
             const frameUsage = normalizeUsage(frame.usage)
             usage = sumUsage(usage, frameUsage)
