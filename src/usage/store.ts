@@ -19,7 +19,24 @@ import type { Db } from '../db/index.js'
 const localBucket = (format: string): ReturnType<typeof sql> =>
   sql.raw(`strftime('${format}', at / 1000, 'unixepoch', 'localtime')`)
 
-const MONTH = "strftime('%Y-%m', at / 1000, 'unixepoch', 'localtime')"
+/**
+ * 债务 B5:分桶过滤不再用 strftime(索引用不上,全表扫)——把本地月/日分桶
+ * 换算成 epoch 毫秒半开区间,`at >= start AND at < end` 命中 usage_at 索引。
+ * 与 strftime '%Y-%m'/'%Y-%m-%d' 分桶在本地时区语义上完全等价。
+ */
+export const monthRangeMs = (month: string): { start: number; end: number } => {
+  const [y, m] = month.split('-').map(Number)
+  return { start: new Date(y ?? 0, (m ?? 1) - 1, 1).getTime(), end: new Date(y ?? 0, m ?? 1, 1).getTime() }
+}
+
+export const dayRangeMs = (day: string): { start: number; end: number } => {
+  const [y, m, d] = day.split('-').map(Number)
+  return { start: new Date(y ?? 0, (m ?? 1) - 1, d ?? 1).getTime(), end: new Date(y ?? 0, (m ?? 1) - 1, (d ?? 1) + 1).getTime() }
+}
+
+/** 范围过滤片段的模板(sql 参数化,防注入)。 */
+const inRange = (range: { start: number; end: number }): ReturnType<typeof sql> =>
+  sql`at >= ${range.start} AND at < ${range.end}`
 
 export interface SpendTotals {
   runs: number
@@ -97,7 +114,7 @@ export const spendMonths = (db: Db): string[] => {
 
 export const monthTotals = (db: Db, month: string): SpendTotals => {
   const rows = db.all<RawTotals>(
-    sql`SELECT ${AGGREGATES} FROM usage_record WHERE ${sql.raw(MONTH)} = ${month}`,
+    sql`SELECT ${AGGREGATES} FROM usage_record WHERE ${inRange(monthRangeMs(month))}`,
   )
   return toTotals(rows[0])
 }
@@ -123,7 +140,7 @@ export const monthByAgent = (db: Db, month: string): AgentSpend[] => {
       SUM(CASE WHEN usage_record.cost IS NULL THEN 1 ELSE 0 END) AS unpriced
     FROM usage_record
     JOIN run ON run.id = usage_record.run_id
-    WHERE strftime('%Y-%m', usage_record.at / 1000, 'unixepoch', 'localtime') = ${month}
+    WHERE usage_record.at >= ${monthRangeMs(month).start} AND usage_record.at < ${monthRangeMs(month).end}
     GROUP BY run.agent_id
     ORDER BY costMicroUsd DESC, runs DESC
   `)
@@ -134,7 +151,7 @@ export const monthByModel = (db: Db, month: string): ModelSpend[] => {
   const rows = db.all<RawTotals & { provider: string | null; model: string | null }>(sql`
     SELECT provider, model, ${AGGREGATES}
     FROM usage_record
-    WHERE ${sql.raw(MONTH)} = ${month}
+    WHERE ${inRange(monthRangeMs(month))}
     GROUP BY provider, model
     ORDER BY costMicroUsd DESC, runs DESC
   `)
@@ -150,12 +167,10 @@ export const monthByDay = (db: Db, month: string): DailySpend[] =>
       COALESCE(SUM(peak_cost), 0) AS peakCostMicroUsd,
       SUM(CASE WHEN cost IS NULL THEN 1 ELSE 0 END) AS unpriced
     FROM usage_record
-    WHERE ${sql.raw(MONTH)} = ${month}
+    WHERE ${inRange(monthRangeMs(month))}
     GROUP BY day
     ORDER BY day ASC
   `)
-
-const DAY = "strftime('%Y-%m-%d', at / 1000, 'unixepoch', 'localtime')"
 
 /**
  * Spend for one local day, which is what a daily budget has to be measured on.
@@ -171,7 +186,7 @@ export const daySpend = (db: Db, day: string): { costMicroUsd: number; unpriced:
       COALESCE(SUM(cost), 0) AS costMicroUsd,
       SUM(CASE WHEN cost IS NULL THEN 1 ELSE 0 END) AS unpriced
     FROM usage_record
-    WHERE ${sql.raw(DAY)} = ${day}
+    WHERE ${inRange(dayRangeMs(day))}
   `)
   return { costMicroUsd: rows[0]?.costMicroUsd ?? 0, unpriced: rows[0]?.unpriced ?? 0 }
 }

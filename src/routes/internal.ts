@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { timingSafeEqual } from 'node:crypto'
 import type { FastifyInstance, preHandlerAsyncHookHandler } from 'fastify'
-import { and, desc, eq, gte, inArray } from 'drizzle-orm'
+import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { AppConfig } from '../config.js'
 import type { Db } from '../db/index.js'
@@ -214,13 +214,15 @@ export const registerInternalRoutes = (
   const brainSpendToday = (): number => {
     const start = new Date()
     start.setHours(0, 0, 0, 0)
-    const rows = db
-      .select({ cost: schema.usageRecord.cost })
-      .from(schema.usageRecord)
-      .innerJoin(schema.run, eq(schema.usageRecord.runId, schema.run.id))
-      .where(and(eq(schema.run.trigger, 'brain'), gte(schema.usageRecord.at, start.getTime())))
-      .all()
-    return rows.reduce((sum, r) => sum + (r.cost ?? 0), 0)
+    // 债务 B5:求和下推 SQL(不再把行拉进 JS reduce),范围过滤命中
+    // usage_at + run_trigger_started 索引
+    const rows = db.all<{ total: number | null }>(sql`
+      SELECT COALESCE(SUM(usage_record.cost), 0) AS total
+      FROM usage_record
+      JOIN run ON run.id = usage_record.run_id
+      WHERE run.trigger = 'brain' AND usage_record.at >= ${start.getTime()}
+    `)
+    return rows[0]?.total ?? 0
   }
 
   const promptBody = z.object({ text: z.string().min(1, 'a prompt is required').max(20_000) })

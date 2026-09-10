@@ -218,6 +218,10 @@ const MIGRATIONS: readonly string[][] = [
      )`,
     `CREATE INDEX IF NOT EXISTS audit_at ON audit_log(at)`,
   ],
+  // 12 -- 债务 B5：brain 派工日账单与按 trigger 的 run 列表走索引
+  [
+    `CREATE INDEX IF NOT EXISTS run_trigger_started ON run(trigger, started_at)`,
+  ],
 ]
 
 export interface OpenDbResult {
