@@ -391,51 +391,24 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
     const costMicroUsd = usage === null || !costKnown ? null : accruedCost
     const peakCostMicroUsd = costMicroUsd === null ? null : accruedPeakCost
 
-    deps.db
-      .update(schema.run)
-      .set({
-        state,
-        dshSessionId: sessionId,
-        resultSummary: summary === '' ? null : summary,
-        endedAt,
-        error: errorText,
-      })
-      .where(eq(schema.run.id, runId))
-      .run()
-
-    // Written even when the run failed: the tokens were spent either way, and
-    // usage cannot be reconstructed after the fact.
-    if (usage !== null) {
-      deps.db
-        .insert(schema.usageRecord)
-        .values({
-          runId,
-          provider,
-          model,
-          inputTokens: usage.inputTokens,
-          outputTokens: usage.outputTokens,
-          cacheRead: usage.cacheReadTokens ?? null,
-          cacheWrite: usage.cacheWriteTokens ?? null,
-          reasoningTokens: usage.reasoningTokens ?? null,
-          cost: costMicroUsd,
-          peakCost: peakCostMicroUsd,
-          at: endedAt,
-        })
-        .run()
-    }
-
-    return {
+    const buildOutcome = (
+      finalState: RunState,
+      finalError: string | null,
+      finalUsage: TokenUsage | null,
+      finalCost: number | null,
+      finalPeak: number | null,
+    ): RunOutcome => ({
       runId,
-      state,
+      state: finalState,
       sessionId,
       summary,
-      usage,
-      costMicroUsd,
-      peakCostMicroUsd,
+      usage: finalUsage,
+      costMicroUsd: finalCost,
+      peakCostMicroUsd: finalPeak,
       provider,
       model,
       reason,
-      error: errorText,
+      error: finalError,
       toolCalls,
       durationMs: endedAt - startedAt,
       // Filled in by the snapshot below, once the turn is over.
@@ -443,7 +416,68 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
       changedFiles: [],
       snapshotSkipped: null,
       conflict: null,
+    })
+
+    // 债务 A2:run 终态与用量落库必须原子——旧代码先写 done 后写 usage,
+    // usage 失败会留下「done + 无账目」或依赖 boot 收敛的半态。
+    // Written even when the run failed: the tokens were spent either way, and
+    // usage cannot be reconstructed after the fact.
+    try {
+      deps.db.transaction((tx) => {
+        if (usage !== null) {
+          tx.insert(schema.usageRecord)
+            .values({
+              runId,
+              provider,
+              model,
+              inputTokens: usage.inputTokens,
+              outputTokens: usage.outputTokens,
+              cacheRead: usage.cacheReadTokens ?? null,
+              cacheWrite: usage.cacheWriteTokens ?? null,
+              reasoningTokens: usage.reasoningTokens ?? null,
+              cost: costMicroUsd,
+              peakCost: peakCostMicroUsd,
+              at: endedAt,
+            })
+            .run()
+        }
+        tx.update(schema.run)
+          .set({
+            state,
+            dshSessionId: sessionId,
+            resultSummary: summary === '' ? null : summary,
+            endedAt,
+            error: errorText,
+          })
+          .where(eq(schema.run.id, runId))
+          .run()
+      })
+    } catch (accountingError) {
+      // 记账事务失败(磁盘满/约束冲突):降级为单写 failed 终态——账目缺口
+      // 在 error 里显性可见,绝不静默把「done 但没账」的回合交给账本。
+      const accountingText = `记账失败,本次用量可能未入账: ${(accountingError as Error).message}`
+      log?.error(`run ${runId}: ${accountingText}`)
+      deps.db
+        .update(schema.run)
+        .set({
+          state: 'failed',
+          dshSessionId: sessionId,
+          resultSummary: summary === '' ? null : summary,
+          endedAt,
+          error: errorText === null ? accountingText : `${errorText}; ${accountingText}`,
+        })
+        .where(eq(schema.run.id, runId))
+        .run()
+      return buildOutcome(
+        'failed',
+        errorText === null ? accountingText : `${errorText}; ${accountingText}`,
+        null,
+        null,
+        null,
+      )
     }
+
+    return buildOutcome(state, errorText, usage, costMicroUsd, peakCostMicroUsd)
   }
 
   // ---- gateway turn (existing path) ----

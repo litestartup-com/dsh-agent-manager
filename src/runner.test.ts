@@ -821,3 +821,45 @@ test('the run row exists while the run is in flight', async () => {
 
   await pending
 })
+
+test('债务 A2 回归: usage 记账落库失败 → run 不落 done 半态,降级 failed 且账目缺口显性', async () => {
+  // 自建 db(需要 sqlite 句柄注入触发器):usage_record 插入即抛 = 磁盘满/约束冲突的真实失败路径
+  const dir = mkdtempSync(join(tmpdir(), 'runner-db-'))
+  const { db, sqlite } = openDb(join(dir, 'test.db'))
+  db.insert(schema.agent)
+    .values({
+      id: 'personal',
+      name: 'Personal',
+      workspacePath: dir,
+      endpoint: 'A',
+      preset: null,
+      gitRemote: null,
+      public: 0,
+      createdAt: Date.now(),
+    })
+    .run()
+  sqlite.exec("CREATE TRIGGER boom_usage BEFORE INSERT ON usage_record BEGIN SELECT RAISE(ABORT, 'boom'); END")
+
+  const gw = await boot(SUCCESS)
+  const workspace = mkdtempSync(join(tmpdir(), 'ws-'))
+
+  // 修复前:usage 插入失败直接抛出,run 行停留在中间态(旧代码先写 done 后写 usage);
+  // 修复后:事务回滚 + 降级 failed,run 行有终态且账目缺口在 error 显性可见。
+  const outcome = await runAgent({ db }, {
+    agent: agentFor(workspace),
+    client: clientFor(gw),
+    prompt: '在工作日志里加一行今天的日期',
+    trigger: 'manual',
+  })
+
+  assert.equal(outcome.state, 'failed')
+  assert.match(outcome.error ?? '', /记账失败/)
+  const rows = db.select().from(schema.run).where(eq(schema.run.id, outcome.runId)).all()
+  assert.equal(rows[0]?.state, 'failed', 'run 行必须落在 failed 终态,不能停留在 running/done 半态')
+  assert.match(rows[0]?.error ?? '', /记账失败/)
+  assert.equal(
+    db.select().from(schema.usageRecord).where(eq(schema.usageRecord.runId, outcome.runId)).all().length,
+    0,
+    '事务回滚后 usage 无残留行',
+  )
+})
