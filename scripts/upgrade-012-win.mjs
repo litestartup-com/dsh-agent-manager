@@ -16,6 +16,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { randomBytes } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
+import { createServer } from 'node:net'
 
 const require = createRequire(import.meta.url)
 const { parse: parseYaml, stringify: stringifyYaml } = require('yaml')
@@ -27,8 +28,28 @@ const GATEWAY_REF = 'github:litestartup-com/dsh-api-gateway#e6b3c5b6dfc8c1cb1226
 
 const args = process.argv.slice(2)
 const dryRun = args.includes('--dry-run')
+const force = args.includes('--force')
 const positional = args.filter((a) => !a.startsWith('--'))
 const configPath = positional[0] ?? 'manager.config.yaml'
+
+// 预检：生产端口被占 = 栈还在跑，npm 清旧文件必 EPERM（2026-09-10 实测炸过
+// 一半留半毁树）。要求先停栈，--force 跳过。
+const BUSY_PORTS = [8080, 3081, 3082, 3090]
+const portBusy = (p) => new Promise((resolveBusy) => {
+  const probe = createServer()
+  probe.once('error', () => resolveBusy(true))
+  probe.once('listening', () => { probe.close(); resolveBusy(false) })
+  probe.listen(p, '127.0.0.1')
+})
+if (!force && !dryRun) {
+  const busy = []
+  for (const p of BUSY_PORTS) if (await portBusy(p)) busy.push(p)
+  if (busy.length > 0) {
+    console.error(`upgrade-012-win: 端口 ${busy.join(', ')} 被占用——生产栈还在运行，升级会 EPERM 半途而废。`)
+    console.error('先停栈：schtasks /end /tn OhdshManager，等节点进程退出后重跑本脚本。')
+    process.exit(1)
+  }
+}
 const log = (line) => console.log(`[upgrade-012-win] ${line}`)
 
 const cfg = parseYaml(readFileSync(configPath, 'utf8'))
@@ -152,5 +173,5 @@ if (actions.length === 0) console.log('  （无变化——已是 0.1.2 接线�
 for (const a of actions) console.log('  - ' + a)
 if (!dryRun && actions.length > 0) {
   console.log('')
-  console.log('下一步：schtasks /end /tn OhdshManager && schtasks /run /tn OhdshManager（整栈重启）')
+  console.log('下一步：schtasks /run /tn OhdshManager（脚本运行前已要求停栈；等待 ~60 秒后验收四端口 + facade health）')
 }
