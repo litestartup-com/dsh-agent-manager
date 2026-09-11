@@ -68,13 +68,28 @@ export const mutateYamlFile = (
   const validate = opts.validate ?? 'syntax'
   const before = readFileSync(path, 'utf8')
   const doc = parseDocument(before)
+  // 债务 R6:parseDocument 对语法错误不抛,只在返回文档上挂 errors。不查 =
+  // 把「拒绝改写」交给更下游的 stringify 兜底(报错信息差),更糟的是写后
+  // 回读校验(见下)对语法错误完全空转。这里显性拒绝,错误可读。
+  if (doc.errors.length > 0) {
+    throw new Error(
+      `refusing to rewrite ${path}: existing YAML has syntax errors (${doc.errors.map((e) => e.message).join('; ')})`,
+    )
+  }
   mutate(doc)
   const next = stringify(doc, { lineWidth: 0 })
   if (next === before) return
   writeFileAtomic(path, next)
   try {
     if (validate === 'full') loadConfig(path)
-    else if (validate === 'syntax') parseDocument(readFileSync(path, 'utf8'))
+    else if (validate === 'syntax') {
+      // 债务 R6:写后回读同样必须检查 errors——旧代码只 parseDocument 不查,
+      // 「syntax 校验」对语法错误是空转。
+      const reread = parseDocument(readFileSync(path, 'utf8'))
+      if (reread.errors.length > 0) {
+        throw new Error(`syntax validation failed: ${reread.errors.map((e) => e.message).join('; ')}`)
+      }
+    }
   } catch (error) {
     // 坏配置绝不留在真相源:还原上一版,错误显性抛出
     try {

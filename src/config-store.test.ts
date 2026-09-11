@@ -91,6 +91,19 @@ test('债务 A3 回归: 并发写经锁串行——两处更新都不丢', async
   assert.ok(after.includes('company') && after.includes('product'), '两个并发更新都必须落盘')
 })
 
+test('债务 R6: 带语法错误的既有 YAML 必须拒绝改写——errors 不得被静默丢弃', () => {
+  withEnv()
+  const broken = 'listen:\n  port: 8080\nendpoints:\n  A:\n    url: http://x\n   bad_indent: [unclosed\n'
+  writeFileSync(configPath, broken, 'utf8')
+  assert.throws(
+    () => mutateYamlFile(configPath, (doc) => {
+      doc.setIn(['agents', 'x'], { name: 'x', endpoint: 'A', workspace: './w' })
+    }),
+    /syntax/,
+  )
+  assert.equal(readFileSync(configPath, 'utf8'), broken, '带语法错误的配置不得被改写(错误片段会被丢弃)')
+})
+
 // 收尾:测试文件结束前清理临时目录(测试间共享 dir,顺序执行)
 after(() => {
   rmSync(dir, { recursive: true, force: true })

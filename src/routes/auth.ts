@@ -8,6 +8,7 @@ import { schema } from '../db/index.js'
 import { hashPassword, verifyPassword } from '../auth/password.js'
 import { COOKIE_NAME, issueSession, resolveSession, revokeAllForUser, revokeSession } from '../auth/session.js'
 import { recordAudit } from '../audit.js'
+import { withConfigLock } from '../config-store.js'
 
 /** 蜂群2计划 P3：CSRF 双提交 cookie（非 httpOnly，前端读出来放进 X-CSRF-Token）。 */
 export const CSRF_COOKIE = 'ohdsh_csrf'
@@ -198,7 +199,9 @@ export const registerAuthRoutes = (
     if (envPath !== undefined) {
       // 抹初始口令是"顺手清理"，不是改密的前提：只读挂载/权限不足时只警告。
       try {
-        if (clearInitialPassword(envPath)) app.log.info('cleared MANAGER_INITIAL_PASSWORD from .env')
+        // 债务 R6:.env 写入统一走锁入口(与 provision/setup 的配置写串行)
+        await withConfigLock(() => clearInitialPassword(envPath))
+        app.log.info('cleared MANAGER_INITIAL_PASSWORD from .env')
       } catch (error) {
         app.log.warn(`could not clear MANAGER_INITIAL_PASSWORD: ${error instanceof Error ? error.message : String(error)}`)
       }

@@ -210,9 +210,10 @@ const main = async (): Promise<void> => {
   app.get('/password', { preHandler: requirePage }, page('password'))
   app.get('/audit', { preHandler: requirePage }, page('audit'))
 
-  // P1-5：改密成功后抹掉 .env 里的初始口令（路径推导与自动备份处一致；
-  // 单一来源收进 AppConfig 是 P2-5 的事）。
-  registerAuthRoutes(app, db, secureCookies, join(here, '..', '.env'))
+  // P1-5：改密成功后抹掉 .env 里的初始口令。
+  // 债务 R6:路径改用 config.envPath(真相源单一推导;旧代码 dist/../.env 在
+  // 非默认部署布局下会摸错文件)。
+  registerAuthRoutes(app, db, secureCookies, config.envPath ?? join(here, '..', '.env'))
   registerAuditRoutes(app, db, requireUser)
   registerStatusRoutes(app, config, db, clients, requireUser, upstreamClients, nodeSupervisors)
   registerWorkspaceRoutes(app, config, requireUser)
@@ -282,6 +283,7 @@ const main = async (): Promise<void> => {
         config.configPath ?? join(dirname(fileURLToPath(import.meta.url)), '..', 'manager.config.yaml'),
         config.envPath ?? join(dirname(fileURLToPath(import.meta.url)), '..', '.env'),
         backupDir,
+        config.sessionSecret,
       )
       app.log.info(`backup: ${result.snapshot.file} (${result.snapshot.bytes} bytes)${result.pruned.length > 0 ? `, pruned ${result.pruned.length}` : ''}`)
       // 蜂群2计划 P3：审计留痕（自动备份，actor = system）
