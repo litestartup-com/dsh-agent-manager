@@ -227,11 +227,19 @@ export const keysForFile = (file: NoteDataFile): string[] =>
     .filter(([, owner]) => owner === file)
     .map(([key]) => key)
 
+/**
+ * 债务 E11:读取失败必须显性——旧实现 catch 一切返回 null,把「读不了」
+ * (权限/IO/EISDIR)当成「不存在」,writer 会据此重建文件并覆盖真实数据。
+ * 现在只有 ENOENT(确实不存在)返回 null;其余错误显性抛出。
+ */
 export const readRawFile = (workspacePath: string, file: NoteDataFile): string | null => {
+  const path = join(dataDir(workspacePath), file)
   try {
-    return readFileSync(join(dataDir(workspacePath), file), 'utf8')
-  } catch {
-    return null
+    return readFileSync(path, 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`reading ${path} failed: ${message}`)
   }
 }
 

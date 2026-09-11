@@ -7,6 +7,7 @@ import {
   NOTE_DATA_DIR,
   keysForFile,
   readNoteData,
+  readRawFile,
   serializeNoteDataFile,
   type NoteData,
 } from './notedata.js'
@@ -46,6 +47,17 @@ window.NOTE_DATA.trade = {
   ],
 };
 `
+
+test('债务 E11 回归: readRawFile——文件不存在返回 null;存在但读不了必须显性抛出', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'notedata-raw-'))
+  mkdirSync(join(dir, NOTE_DATA_DIR), { recursive: true })
+  assert.equal(readRawFile(dir, 'core.js'), null, '不存在 = null(旧语义)')
+
+  // 文件位置是目录:readFileSync 抛 EISDIR(非 ENOENT)——绝不能静默返回 null,
+  // 否则 writer 会把它当「不存在」重建,覆盖掉无法读取的真实数据。
+  mkdirSync(join(dir, NOTE_DATA_DIR, 'weekly.js'), { recursive: true })
+  assert.throws(() => readRawFile(dir, 'weekly.js'), /reading .* failed|EISDIR/i, '读取失败必须显性抛出')
+})
 
 test('reads window.NOTE_DATA the way the browser accumulates it', () => {
   const root = makeWorkspace({

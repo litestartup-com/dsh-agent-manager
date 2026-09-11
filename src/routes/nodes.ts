@@ -138,8 +138,12 @@ export const registerNodesRoutes = (
       if (ep.spawn?.logFile !== undefined && ep.spawn.logFile !== null) {
         try {
           return reply.send({ logs: tail(readFileSync(ep.spawn.logFile, 'utf8')), source: 'file' })
-        } catch {
-          return reply.send({ logs: '', source: 'file' })
+        } catch (error) {
+          // 债务 E11:读失败不再静默返回空串(用户会把「无日志」当成节点没跑,
+          // 而真相是权限/IO 错误)——记日志并把原因带回给前端展示。
+          const message = error instanceof Error ? error.message : String(error)
+          app.log.warn(`node ${request.params.id}: reading log file failed: ${message}`)
+          return reply.send({ logs: '', source: 'file', error: `读取日志失败: ${message}` })
         }
       }
       const supervisor = supervisors.get(request.params.id)
