@@ -106,7 +106,7 @@ try {
       if (!accepted.accepted) fail('prompt not accepted')
       log('prompt accepted; waiting for turn_end (timeout 120s)...')
       turnEnd = await waitForFrame(client.endpoint, sessionId, 'turn_end', 120_000)
-      log('turn_end: reason=' + turnEnd.reason)
+      log('turn_end: reason=' + String(turnEnd.reason))
     } finally {
       unsub()
     }

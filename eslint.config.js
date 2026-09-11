@@ -20,7 +20,21 @@ export default tseslint.config(
   {
     languageOptions: {
       parserOptions: {
-        projectService: true,
+        // 债务 R1:projectService 只自动发现名为 `tsconfig.json` 的工程文件,
+        // `tsconfig.scripts.json` 因此从不参与匹配——scripts/ 下 11 个脚本
+        // (.mjs/.ts)全部报 parsing error「not found by the project service」,
+        // CI 在测试前跑 lint,必红。修法(外部审查 2026-09-11 建议的 default
+        // project 路线):scripts/** 交给 allowDefaultProject,失去 type-aware
+        // 规则,但它们的类型安全由 CI 的 `tsc -p tsconfig.scripts.json`
+        // (typecheck 步骤)覆盖;基础规则(语法/风格/非类型 bug 类)照常生效。
+        projectService: {
+          // 显式扩展名列表(不用 '**'):ts-eslint 护栏拒绝过宽 glob。
+          allowDefaultProject: ['scripts/*.mjs', 'scripts/*.ts'],
+          // 11 个 scripts 文件 > 默认上限 8;官方逃生阀(名字自带警告)。
+          // 性能代价可忽略(11 个小脚本),换来 scripts 上真实的
+          // type-aware 规则覆盖(首跑即抓出 3 处真实错误)。
+          maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 20,
+        },
         tsconfigRootDir: import.meta.dirname,
       },
     },
