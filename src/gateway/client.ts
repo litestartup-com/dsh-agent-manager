@@ -83,7 +83,7 @@ export const isSessionNotFound = (error: unknown): boolean =>
 export const isAdoptDisabled = (error: unknown): boolean =>
   error instanceof GatewayError && error.status === 403 && error.code === 'adopt_disabled'
 
-const DEFAULT_TIMEOUT_MS = 20_000
+const DEFAULT_TIMEOUT_MS = 20_000 // 债务 E13:单次网关 HTTP 请求超时(勿与 runner 的回合超时混淆)
 
 /** One mapped event from the gateway's durable log. See gateway events.ts. */
 export interface HistoryEvent {

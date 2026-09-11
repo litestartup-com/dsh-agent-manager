@@ -9,7 +9,7 @@ export {
   type MuxFrame, type SessionSummary,
 } from './translate.js'
 export {
-  subscribe, subscribeAll, closeAllMux, waitForFrame, muxUrl,
+  subscribe, closeAllMux, waitForFrame, muxUrl,
   type MuxListener,
 } from './mux.js'
 export {

@@ -46,8 +46,6 @@ interface MuxConnection {
   ep: UpstreamEndpoint
   ws: WebSocket | null
   listeners: Map<string, Set<MuxListener>>
-  /** Listeners that receive frames from ALL sessions (for monitoring). */
-  globalListeners: Set<MuxListener>
   closed: boolean
   reconnectTimer: ReturnType<typeof setTimeout> | null
   /** approvalId → the rpcId of the original approval/requested frame. */
@@ -116,7 +114,6 @@ const emit = (conn: MuxConnection, sessionId: string, gw: GatewayFrame): void =>
   if (listeners !== undefined) {
     for (const listener of listeners) listener(sessionId, gw)
   }
-  for (const listener of conn.globalListeners) listener(sessionId, gw)
 }
 
 const dispatch = (conn: MuxConnection, env: WireEnvelope): void => {
@@ -202,7 +199,7 @@ const attach = (conn: MuxConnection): void => {
   ws.onclose = () => {
     if (conn.closed) return
     // Auto-reconnect if there are still listeners.
-    if (conn.listeners.size > 0 || conn.globalListeners.size > 0) {
+    if (conn.listeners.size > 0) {
       conn.wasConnected = true
       reconnectCount += 1
       if (conn.reconnectTimer === null) {
@@ -253,7 +250,6 @@ const connect = (ep: UpstreamEndpoint): MuxConnection => {
     ep,
     ws: null,
     listeners: new Map(),
-    globalListeners: new Set(),
     closed: false,
     reconnectTimer: null,
     approvalRpcIds: new Map(),
@@ -288,21 +284,13 @@ export const subscribe = (ep: UpstreamEndpoint, sessionId: string, listener: Mux
 }
 
 /**
- * Subscribe to events from ALL sessions on a given endpoint.
- * Returns a function that removes the subscription.
+ * 债务 E13:subscribeAll(全局订阅)已删除——全仓无生产调用者,是进入公共
+ * barrel 的死接口,读者会误以为「全局订阅」是被使用的特性。需要时再加回
+ * 并补测试。
  */
-export const subscribeAll = (ep: UpstreamEndpoint, listener: MuxListener): (() => void) => {
-  const conn = connect(ep)
-  conn.globalListeners.add(listener)
-
-  return () => {
-    conn.globalListeners.delete(listener)
-    maybeClose(conn, ep.base)
-  }
-}
 
 const maybeClose = (conn: MuxConnection, key: string): void => {
-  if (conn.listeners.size === 0 && conn.globalListeners.size === 0) {
+  if (conn.listeners.size === 0) {
     conn.closed = true
     if (conn.reconnectTimer !== null) clearTimeout(conn.reconnectTimer)
     try { conn.ws?.close() } catch { /* already closed */ }
