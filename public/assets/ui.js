@@ -20,6 +20,16 @@ export const esc = (value) =>
 
 export const $ = (id) => document.getElementById(id)
 
+export const uniqueFrames = (frames) => {
+  const seen = new Set()
+  return frames.filter((frame) => {
+    const key = JSON.stringify(frame)
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 export const icon = (name, size = 14) =>
   // viewBox：sprite 画在 16 单位坐标系里，没有它 16 单位的图标会按 1:1
   // 塞进 12-15px 的盒子——不缩放、还裁掉右边；xlink:href 是老 Edge 内核

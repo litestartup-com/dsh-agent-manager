@@ -22,7 +22,7 @@
 
 import { md } from './md.js'
 import { classifyTool, toolBody, toolSummary, toolTitle } from './tool-cards.js'
-import { $, esc, icon, money, apiFetch } from './ui.js'
+import { $, esc, icon, money, apiFetch, uniqueFrames } from './ui.js'
 
 const el = {
   notices: $('chat-notices'),
@@ -215,7 +215,6 @@ const reduce = (list, frame) => {
     }
 
     case 'turn_start':
-      agent()
       return list
 
     case 'chunk': {
@@ -1438,7 +1437,7 @@ const load = async () => {
   pendingUserTexts = stillPending
   // Anything that arrived mid-fetch and is not in the history yet still belongs
   // on screen, so it is replayed on top rather than thrown away.
-  const pendingFrames = [...liveFrames, ...buffered].filter((f) => !alreadyLoaded(f, maxSeq, rebuilt))
+  const pendingFrames = uniqueFrames([...liveFrames, ...buffered]).filter((f) => !alreadyLoaded(f, maxSeq, rebuilt))
   for (const f of pendingFrames) {
     if (f.kind === 'turn_queued') queuedItems.push({ id: typeof f.id === 'string' ? f.id : '', text: typeof f.text === 'string' ? f.text : '', at: Date.now() })
     if (f.kind === 'turn_start' && queuedItems.length > 0) {
