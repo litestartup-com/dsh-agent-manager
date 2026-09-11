@@ -8,17 +8,17 @@ import type { Db } from '../db/index.js'
 import { schema } from '../db/index.js'
 import { GatewayError, dummyGatewayClient, type GatewayClient, type HistoryEvent, type QuestionAnswer } from '../gateway/client.js'
 import { errorText } from '../errors.js'
-import type { GatewayFrame } from '../gateway/stream.js'
 import type { SessionDriver } from '../session-driver/port.js'
 import type { UpstreamComposerState } from '../upstream/client.js'
 import type { UpstreamGoal } from '../upstream/translate.js'
 import { UpstreamError } from '../upstream/rpc.js'
-import { activeRunCount, runAgent, runningRunId, type RunOutcome } from '../runner.js'
-import { cancelQueuedTurn, cancelQueuedTurns, drainChatQueue, enqueueTurn } from '../chat/queue.js'
+import { activeRunCount, runningRunId } from '../runner.js'
+import { cancelQueuedTurn, cancelQueuedTurns, enqueueTurn } from '../chat/queue.js'
 import { compactHistory } from '../chat/replay.js'
 import { HistoryCache } from '../chat/history-cache.js'
+// 债务 E2:回合编排(会话内串行/会话间并行)已下沉 chat/turn-runner.ts。
+import { makeChatTurnRunner } from '../chat/turn-runner.js'
 import {
-  bindSession,
   chatRuns,
   createChat,
   deriveTitle,
@@ -31,6 +31,9 @@ import {
   setTitleIfEmpty,
   touchChat,
 } from '../chat/store.js'
+// 债务 E2:relay(SSE pub-sub)已下沉 chat/relay.ts;此处 re-export 保持既有导入面。
+import { publish, registerRelayRoute } from '../chat/relay.js'
+export { publish, openChatRelays, closeChatRelays } from '../chat/relay.js'
 
 /**
  * The chat API: threads, transcripts, and one live relay per chat.
@@ -47,68 +50,6 @@ const renameBody = z.object({ title: z.string().min(1).max(200) })
 const createBody = z.object({ agentId: z.string().min(1) })
 const modelBody = z.object({ provider: z.string().min(1), model: z.string().min(1), reasoningEffort: z.string().min(1).optional() })
 const sandboxModeBody = z.object({ mode: z.enum(['read-only', 'workspace-write', 'danger-full-access']) })
-
-/**
- * Browsers watching one chat.
- *
- * A relay rather than letting each browser open the gateway stream directly:
- * the gateway needs the endpoint API key, and that key must never reach a
- * browser. It also means N open tabs cost one upstream subscription, not N.
- */
-interface Relay {
-  subscribers: Set<FastifyReply>
-}
-
-const relays = new Map<string, Relay>()
-
-const relayFor = (chatId: string): Relay => {
-  const existing = relays.get(chatId)
-  if (existing !== undefined) return existing
-  const created: Relay = { subscribers: new Set() }
-  relays.set(chatId, created)
-  return created
-}
-
-/** 蜂群 P2：给任意会话推一帧（internal 派工完成时用它推 delegation 帧）。 */
-export const publish = (chatId: string, payload: unknown): void => {
-  const relay = relays.get(chatId)
-  if (relay === undefined) return
-  const frame = `data: ${JSON.stringify(payload)}\n\n`
-  for (const reply of relay.subscribers) {
-    // Checked rather than caught: writing to a destroyed socket does not throw,
-    // so a catch here would never run and a dead watcher would be written to
-    // forever.
-    if (reply.raw.destroyed || reply.raw.writableEnded) {
-      relay.subscribers.delete(reply)
-      continue
-    }
-    reply.raw.write(frame)
-  }
-  if (relay.subscribers.size === 0) relays.delete(chatId)
-}
-
-/**
- * How many chats have an open relay. For tests.
- *
- * A leaked subscriber is invisible from the outside -- it costs one browser
- * connection out of the six an origin gets, which shows up much later as "the
- * whole site hangs" -- so it needs to be assertable.
- */
-export const openChatRelays = (): number => relays.size
-
-/** Releases every open relay so the process can exit cleanly. */
-export const closeChatRelays = (): void => {
-  for (const relay of relays.values()) {
-    for (const reply of relay.subscribers) {
-      try {
-        reply.raw.end()
-      } catch {
-        // Already gone.
-      }
-    }
-  }
-  relays.clear()
-}
 
 export const registerChatRoutes = (
   app: FastifyInstance,
@@ -513,122 +454,16 @@ export const registerChatRoutes = (
     return reply.send({ ok: true, chat: getChat(db, chat.id), detail: '会话已恢复' })
   })
 
-  // ---- turns --------------------------------------------------------------
+  // ---- turns（债务 E2:回合编排在 chat/turn-runner.ts） ----------------------
 
-  /**
-   * One chat turn end to end: run + the post-run bookkeeping (history cache,
-   * session binding, turn_done frame). Shared by the direct path and the queue,
-   * so a queued turn does exactly what a direct one does.
-   */
-  const runChatTurn = async (
-    chat: NonNullable<ReturnType<typeof getChat>>,
-    agent: ResolvedAgent,
-    client: GatewayClient,
-    upstream: SessionDriver | null,
-    driver: 'gateway' | 'apiproxy',
-    text: string,
-    signal: AbortSignal,
-  ): Promise<RunOutcome> => {
-    const outcome = await runAgent(
-      {
-        db,
-        pricing: config.pricing,
-        log: {
-          info: (m) => app.log.info(m),
-          warn: (m) => app.log.warn(m),
-          error: (m) => app.log.error(m),
-        },
-      },
-      {
-        agent,
-        client,
-        upstream: upstream ?? undefined,
-        driver,
-        prompt: text,
-        trigger: 'manual',
-        timeoutMs: config.runner.timeoutMs,
-        silenceMs: config.runner.silenceMs,
-        chatId: chat.id,
-        sessionId: chat.dshSessionId,
-        signal,
-        onSession: (sessionId) => {
-          if (getChat(db, chat.id)?.dshSessionId === null) bindSession(db, chat.id, sessionId)
-        },
-        // A conversation continues on this session, so it keeps its slot.
-        // Releasing here would make the next message pay for a cold resume.
-        keepSession: true,
-        // The gateway echoes the message we just sent back as its own
-        // `user` frame, and the route has already published one above. Both
-        // would reach the browser and draw the same bubble twice. manager
-        // owns the echo because it can publish before the session even
-        // exists, so the upstream copy is the redundant one.
-        onFrame: (frame: GatewayFrame) => {
-          if (frame.kind === 'user') return
-          rememberLiveFrame(chat.id, frame)
-          publish(chat.id, frame)
-        },
-      },
-    )
-
-    // Invalidate history cache — the turn added new events.
-    if (outcome.sessionId !== null) invalidateHistory(outcome.sessionId)
-
-    // First turn: remember the session so the next message continues it
-    // rather than starting a fresh conversation.
-    if (outcome.sessionId !== null && chat.dshSessionId === null) {
-      bindSession(db, chat.id, outcome.sessionId)
-    } else {
-      touchChat(db, chat.id)
-    }
-
-    const doneFrame = { kind: 'turn_done', runId: outcome.runId, state: outcome.state, error: outcome.error }
-    rememberLiveFrame(chat.id, doneFrame)
-    publish(chat.id, doneFrame)
-    return outcome
-  }
-
-  /**
-   * 蜂群 P5.4 修订：并发语义 = **会话内串行、会话间并行**。
-   *
-   * 同一个 gateway 会话同时只能跑一个回合，所以每个 chat 同一时刻最多一个
-   * 回合（chatTurns 登记）；同会话的新消息排进该 chat 的队列，前一个完成
-   * 后自动接着跑。不同 chat 互不阻塞——那才是并发。会话名额（maxSessions）
-   * 仍是全局上限，满了的失败如实透给用户。
-   */
-  const chatTurns = new Map<string, Promise<unknown>>()
-  const chatCancels = new Map<string, AbortController>()
-
-  const startChatTurn = (
-    chat: NonNullable<ReturnType<typeof getChat>>,
-    agent: ResolvedAgent,
-    client: GatewayClient,
-    upstream: SessionDriver | null,
-    driver: 'gateway' | 'apiproxy',
-    text: string,
-  ): Promise<unknown> => {
-    const controller = new AbortController()
-    chatCancels.set(chat.id, controller)
-    const tracked = (async () => {
-      try {
-        await runChatTurn(chat, agent, client, upstream, driver, text, controller.signal)
-      } catch (error) {
-        // No HTTP reply carries the failure any more; the relay does.
-        const doneFrame = {
-          kind: 'turn_done',
-          state: 'failed',
-          error: error instanceof Error ? error.message : String(error),
-        }
-        rememberLiveFrame(chat.id, doneFrame)
-        publish(chat.id, doneFrame)
-      } finally {
-        if (chatCancels.get(chat.id) === controller) chatCancels.delete(chat.id)
-        chatTurns.delete(chat.id)
-        drainChatQueue(chat.id)
-      }
-    })()
-    chatTurns.set(chat.id, tracked)
-    return tracked
-  }
+  const turns = makeChatTurnRunner({
+    db,
+    config,
+    log: app.log,
+    publish,
+    rememberLiveFrame,
+    invalidateHistory,
+  })
 
   app.post<{ Params: { id: string }; Body: unknown }>(
     '/api/chats/:id/messages',
@@ -668,7 +503,7 @@ export const registerChatRoutes = (
       // 蜂群 P5.4 修订：同会话上一回合还在跑 → 排进本会话队列（dock 可见、
       // 可删），完成后自动接着跑；不同会话直接并行。
       try {
-        if (chatTurns.has(chat.id)) {
+        if (turns.hasRunningTurn(chat.id)) {
           const queuedId = randomUUID()
           const position = enqueueTurn(chat.id, {
             id: queuedId,
@@ -681,7 +516,7 @@ export const registerChatRoutes = (
             execute: () => {
               const fresh = getChat(db, chat.id)
               if (fresh === null || fresh.removedAt !== null) return Promise.resolve()
-              return startChatTurn(fresh, agent, client, upstream, driver, text).then(() => undefined)
+              return turns.startChatTurn(fresh, agent, client, upstream, driver, text).then(() => undefined)
             },
           })
           publish(chat.id, { kind: 'turn_queued', id: queuedId, position, text })
@@ -692,7 +527,7 @@ export const registerChatRoutes = (
           })
         }
 
-        void startChatTurn(chat, agent, client, upstream, driver, text)
+        void turns.startChatTurn(chat, agent, client, upstream, driver, text)
         return reply.code(202).send({ accepted: true, chat: getChat(db, chat.id) })
       } catch (error) {
         app.log.error(`chat turn failed for ${chat.id}: ${(error as Error).message}`)
@@ -721,9 +556,7 @@ export const registerChatRoutes = (
     const found = resolve(request.params.id, reply)
     if (found === null) return reply
     const { chat, client, upstream, driver } = found
-    const controller = chatCancels.get(chat.id)
-    if (controller !== undefined) {
-      controller.abort()
+    if (turns.abortTurn(chat.id)) {
       return reply.code(202).send({ ok: true })
     }
     if (chat.dshSessionId === null) return reply.code(409).send({ error: 'no_session' })
@@ -760,7 +593,7 @@ export const registerChatRoutes = (
     const found = resolve(request.params.id, reply)
     if (found === null) return reply
     if (found.chat.dshSessionId === null) return reply.code(409).send({ error: 'no_session' })
-    if (chatTurns.has(found.chat.id)) return reply.code(409).send({ error: 'chat_busy', detail: '这个会话正在运行，等当前回合结束后再切换模型。' })
+    if (turns.hasRunningTurn(found.chat.id)) return reply.code(409).send({ error: 'chat_busy', detail: '这个会话正在运行，等当前回合结束后再切换模型。' })
     if (found.upstream?.selectModel === undefined) return reply.code(501).send({ error: 'model_selection_unsupported' })
     const parsed = modelBody.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_body' })
@@ -778,7 +611,7 @@ export const registerChatRoutes = (
     const found = resolve(request.params.id, reply)
     if (found === null) return reply
     if (found.chat.dshSessionId === null) return reply.code(409).send({ error: 'no_session' })
-    if (chatTurns.has(found.chat.id)) return reply.code(409).send({ error: 'chat_busy', detail: '这个会话正在运行，等当前回合结束后再切换访问模式。' })
+    if (turns.hasRunningTurn(found.chat.id)) return reply.code(409).send({ error: 'chat_busy', detail: '这个会话正在运行，等当前回合结束后再切换访问模式。' })
     if (found.upstream?.canSetSandboxMode?.() !== true || found.upstream.setSandboxMode === undefined) return reply.code(501).send({ error: 'access_mode_unsupported' })
     const parsed = sandboxModeBody.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_body' })
@@ -897,70 +730,7 @@ export const registerChatRoutes = (
     },
   )
 
-  // ---- relay --------------------------------------------------------------
+  // ---- relay（债务 E2:SSE 事件流已下沉 chat/relay.ts） --------------------
 
-  /**
-   * Live frames for one chat, as server-sent events.
-   *
-   * Carries live frames only. History comes from `GET /api/chats/:id`, because
-   * the gateway's own `hello` frame replays the entire durable log -- relaying
-   * that would re-render the whole conversation on every reconnect, and the same
-   * confusion between replayed and live events is what makes double-billing
-   * possible upstream.
-   */
-  app.get<{ Params: { id: string } }>('/api/chats/:id/events', { preHandler: requireUser }, async (request, reply) => {
-    const chat = getChat(db, request.params.id)
-    if (chat === null || chat.removedAt !== null) return reply.code(404).send({ error: 'unknown_chat' })
-
-    const relay = relayFor(chat.id)
-
-    // Fastify is told to stop tracking this reply: the response is written by
-    // hand and never ends, so leaving it inside the normal lifecycle only means
-    // the framework is holding a request that will never complete.
-    reply.hijack()
-
-    reply.raw.writeHead(200, {
-      'content-type': 'text/event-stream; charset=utf-8',
-      'cache-control': 'no-cache, no-transform',
-      connection: 'keep-alive',
-      // nginx and Caddy would otherwise buffer the stream into uselessness.
-      'x-accel-buffering': 'no',
-    })
-    reply.raw.write('retry: 3000\n')
-    reply.raw.write(`data: ${JSON.stringify({ kind: 'hello', chatId: chat.id, at: Date.now() })}\n\n`)
-    relay.subscribers.add(reply)
-
-    // Phones drop idle sockets, and so do proxies. A comment line is a no-op for
-    // the client but keeps the connection open.
-    //
-    // The exit condition is `destroyed`, not a thrown error: `write` on a dead
-    // socket does not throw, it reports through a callback. A try/catch here
-    // never fires, so the interval and the subscriber would live until the
-    // process exits -- one leaked entry per abandoned browser.
-    const heartbeat = setInterval(() => {
-      if (reply.raw.destroyed || reply.raw.writableEnded) {
-        clearInterval(heartbeat)
-        drop()
-        return
-      }
-      reply.raw.write(': ping\n\n')
-    }, 25_000)
-
-    const drop = (): void => {
-      clearInterval(heartbeat)
-      relay.subscribers.delete(reply)
-      // Dropped when the last watcher leaves, so the map cannot grow without
-      // bound over a long uptime. Safe during a turn in flight: `publish` looks
-      // the relay up by chat id on every frame, so a browser that connects
-      // mid-turn gets a fresh relay and still receives the rest of the stream.
-      if (relay.subscribers.size === 0) relays.delete(chat.id)
-    }
-
-    // Both, deliberately: `close` covers the browser going away cleanly, `error`
-    // covers a socket that broke. Either way this subscriber must stop being
-    // counted, or a chat can end up with watchers nobody is watching from.
-    request.raw.on('close', drop)
-    request.raw.on('error', drop)
-    reply.raw.on('error', drop)
-  })
+  registerRelayRoute(app, db, requireUser)
 }
