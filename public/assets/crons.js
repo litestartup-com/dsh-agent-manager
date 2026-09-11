@@ -1,7 +1,4 @@
-import { $, bannerHtml, esc, apiFetch } from './ui.js'
-
-/** Whole cents: this is a budget ceiling, not a per-run figure. */
-const money = (micro) => `$${(micro / 1e6).toFixed(2)}`
+import { $, bannerHtml, esc, money, apiFetch } from './ui.js'
 
 /** Shorter than ui.js's when(): these are schedule times, always this year. */
 const when = (ms) => {
@@ -145,7 +142,7 @@ const load = async () => {
   $('budget-note').innerHTML =
     data.dailyBudgetMicroUsd === null
       ? '没有设置日预算 · 连续失败会自动停用，但「一直成功但很贵」不会被拦住'
-      : `日预算 ${esc(money(data.dailyBudgetMicroUsd))} · 超出后定时任务停到明天，手动运行不受限`
+      : `日预算 ${esc(money(data.dailyBudgetMicroUsd, 2))} · 超出后定时任务停到明天，手动运行不受限`
   render()
 }
 

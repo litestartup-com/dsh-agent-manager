@@ -51,7 +51,23 @@ export const bannerHtml = (b) => `<div class="banner ${b.level}">
 export const banner = (level, title, body) => bannerHtml({ level, title, body: esc(body) })
 
 // Cost arrives as integer micro-USD so no float is ever stored server-side.
-export const money = (micro) => (micro === null || micro === undefined ? '—' : `$${(micro / 1e6).toFixed(4)}`)
+// 债务 F2:money 全站单一实现——`digits` 供紧凑卡片用 2 位(crons 列表),
+// 账本/回合明细默认 4 位;汇总金额的自适应精度见 moneyAdaptive。
+export const money = (micro, digits = 4) => (micro === null || micro === undefined ? '—' : `$${(micro / 1e6).toFixed(digits)}`)
+
+/**
+ * 汇总金额的自适应精度(债务 F2:收口自 spend.js 的本地变体)。
+ * 一个回合花费只有几厘,固定 2 位会把一整天的工作显示成 "$0.00";
+ * 固定 4 位又会把月总计显示成 "$12.3400"。
+ */
+export const moneyAdaptive = (micro) => {
+  if (micro === null || micro === undefined) return '—'
+  const usd = micro / 1e6
+  if (usd === 0) return '$0'
+  if (usd < 0.01) return `$${usd.toFixed(4)}`
+  if (usd < 1) return `$${usd.toFixed(3)}`
+  return `$${usd.toFixed(2)}`
+}
 
 /**
  * A relative timestamp, for lists where the question is "which one did I touch

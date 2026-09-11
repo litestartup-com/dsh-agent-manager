@@ -1,25 +1,9 @@
 // Plain fetch + DOM, matching the rest of the front end: no build step.
 
-import { $, esc, apiFetch } from './ui.js'
+import { $, esc, moneyAdaptive, apiFetch } from './ui.js'
 
-const MICRO = 1_000_000
-
-/**
- * Money, with enough decimals to be useful at this scale.
- *
- * Deliberately not ui.js's money(): that one is fixed at four decimals for
- * per-run figures, which would render a month's total as "$12.3400".
- *
- * A run costs fractions of a cent, so the usual two decimals would render a
- * whole day of work as "$0.00" and make the page look broken.
- */
-const money = (micro) => {
-  const usd = micro / MICRO
-  if (usd === 0) return '$0'
-  if (usd < 0.01) return `$${usd.toFixed(4)}`
-  if (usd < 1) return `$${usd.toFixed(3)}`
-  return `$${usd.toFixed(2)}`
-}
+// 金额显示走 ui.js 的 moneyAdaptive(债务 F2 收口):$0 / <1 分 4 位 / <$1 3 位 / 其余 2 位。
+// 一个回合花费只有几厘,固定 2 位会把一整天的工作显示成 "$0.00"。
 
 const tokens = (n) => {
   if (n < 1000) return String(n)
@@ -50,7 +34,7 @@ const renderTotals = (data) => {
   const t = data.totals
   const gap = t.unpriced > 0
 
-  $('total-cost').textContent = `${gap ? '≥ ' : ''}${money(t.costMicroUsd)}`
+  $('total-cost').textContent = `${gap ? '≥ ' : ''}${moneyAdaptive(t.costMicroUsd)}`
   $('total-note').textContent = gap
     ? `另有 ${t.unpriced} 条记录的模型未配置单价，未计入`
     : t.runs === 0
@@ -85,7 +69,7 @@ const renderChart = (days) => {
       const height = Math.max((d.costMicroUsd / max) * 100, d.costMicroUsd > 0 ? 2 : 0)
       const peakPart = d.costMicroUsd > 0 ? (d.peakCostMicroUsd / d.costMicroUsd) * height : 0
       const offPart = height - peakPart
-      const title = `${d.day} · ${money(d.costMicroUsd)}${d.peakCostMicroUsd > 0 ? `（峰时 ${money(d.peakCostMicroUsd)}）` : ''}${d.unpriced > 0 ? ` · ${d.unpriced} 条未定价` : ''}`
+      const title = `${d.day} · ${moneyAdaptive(d.costMicroUsd)}${d.peakCostMicroUsd > 0 ? `（峰时 ${moneyAdaptive(d.peakCostMicroUsd)}）` : ''}${d.unpriced > 0 ? ` · ${d.unpriced} 条未定价` : ''}`
       // An unpriced-only day would otherwise be an invisible gap, as if nothing
       // ran at all. Draw it flat and grey instead.
       const body =
@@ -99,7 +83,7 @@ const renderChart = (days) => {
 
 const spendRow = (name, sub, entry) => {
   const gap = entry.unpriced > 0
-  const figure = gap && entry.costMicroUsd === 0 ? '未定价' : `${gap ? '≥ ' : ''}${money(entry.costMicroUsd)}`
+  const figure = gap && entry.costMicroUsd === 0 ? '未定价' : `${gap ? '≥ ' : ''}${moneyAdaptive(entry.costMicroUsd)}`
   return `
     <div class="row">
       <div class="spend-row">
@@ -111,7 +95,7 @@ const spendRow = (name, sub, entry) => {
       </div>
       <div class="muted small">
         ${entry.runs} 次 · ${tokens(entry.inputTokens)} in / ${tokens(entry.outputTokens)} out${
-          entry.peakCostMicroUsd > 0 ? ` · 峰时 ${money(entry.peakCostMicroUsd)}` : ''
+          entry.peakCostMicroUsd > 0 ? ` · 峰时 ${moneyAdaptive(entry.peakCostMicroUsd)}` : ''
         }
       </div>
     </div>`
