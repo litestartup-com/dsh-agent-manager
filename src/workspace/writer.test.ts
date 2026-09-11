@@ -6,6 +6,18 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { NOTE_DATA_DIR, readNoteData } from './notedata.js'
 import { WriteRejected, appendMarkdown, applyWrites, resolveInside, writeNoteData } from './writer.js'
+import type { ValidateRules } from './validate.js'
+
+/** 债务 E12:note-kaka 规则(外置后由调用方传入)。 */
+const RULES: ValidateRules = {
+  windows: [
+    { path: 'trade.history', max: 8, archive: 'E03.10.01-交易大盘.md' },
+    { path: 'weekly.weeks', max: 26, archive: 'G-日志/00-2026年周报' },
+    { path: 'weekly.logs', max: 10, archive: 'G01.08-2026年/0X月份' },
+  ],
+  forbidAmountFields: true,
+  acctFlowMaxAgeMonths: 1,
+}
 
 const git = (cwd: string, ...args: string[]): string =>
   execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
@@ -129,7 +141,7 @@ test('rejects data that breaks a governance window, leaving the file untouched',
   }
 
   await assert.rejects(
-    () => writeNoteData(root, { trade }, opts),
+    () => writeNoteData(root, { trade }, opts, RULES),
     (error: unknown) => {
       assert.ok(error instanceof WriteRejected)
       assert.ok(error.violations.some((v) => v.rule === 'governance-window'))
@@ -150,7 +162,7 @@ test('rejects trade data carrying amounts', async () => {
     holdings: [{ name: '光大证券', weight: 30.33, amount: 120000 }],
   }
 
-  await assert.rejects(() => writeNoteData(root, { trade }, opts), WriteRejected)
+  await assert.rejects(() => writeNoteData(root, { trade }, opts, RULES), WriteRejected)
   assert.equal(readFileSync(join(root, NOTE_DATA_DIR, 'trade.js'), 'utf8'), original)
 })
 

@@ -346,7 +346,8 @@ export const registerProvisionRoutes = (
             gitRemote: null,
             provider: null,
             model: null,
-          }
+  validate: null,
+}
         }
 
         await syncFleetDocs(config, (line) => app.log.info(line))
@@ -487,7 +488,8 @@ export const registerProvisionRoutes = (
           gitRemote: null,
           provider: null,
           model: null,
-        }
+  validate: null,
+}
       }
 
       await syncFleetDocs(config, (line) => app.log.info(line))

@@ -42,6 +42,7 @@ const agentFor = (workspacePath: string): ResolvedAgent => ({
   gitRemote: null,
   provider: null,
   model: null,
+  validate: null,
 })
 
 const SUCCESS: FakeScript = {

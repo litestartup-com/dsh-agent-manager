@@ -74,6 +74,7 @@ const makeDb = (): Db => {
 const agentFor = (workspacePath: string): ResolvedAgent => ({
   id: 'personal', name: 'Personal', endpoint: 'A', workspacePath, public: false,
   preset: null, gitRemote: null, provider: null, model: null, sandboxMode: null,
+  validate: null,
 })
 
 const dummyClient = (): GatewayClient =>

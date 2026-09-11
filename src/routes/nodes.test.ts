@@ -29,7 +29,8 @@ const configFor = (gw: FakeGateway): AppConfig => ({
     personal: {
       id: 'personal', name: '个人', endpoint: 'A', workspacePath: '.',
       public: false, preset: null, sandboxMode: null, gitRemote: null, provider: null, model: null,
-    },
+  validate: null,
+},
   },
   runner: { timeoutMs: 1_000, silenceMs: 0, maxConsecutiveFailures: 3, dailyBudgetMicroUsd: null },
   databasePath: ':memory:',

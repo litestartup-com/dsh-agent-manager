@@ -22,6 +22,7 @@ const AGENT: ResolvedAgent = {
   provider: null,
   model: null,
   sandboxMode: null,
+  validate: null,
 }
 
 const configWith = (over: Partial<AppConfig['runner']> = {}): AppConfig => ({

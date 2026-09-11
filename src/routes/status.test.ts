@@ -31,6 +31,7 @@ const agentFor = (id: string, name: string, workspacePath: string, isPublic = fa
   provider: null,
   model: null,
   sandboxMode: null,
+  validate: null,
 })
 
 const boot = (): { app: FastifyInstance; db: Db } => {

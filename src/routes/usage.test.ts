@@ -29,7 +29,7 @@ const setup = (): { dir: string; db: Db; app: ReturnType<typeof Fastify>; cleanu
   const config: AppConfig = {
     listen: { host: '127.0.0.1', port: 0 },
     endpoints: {},
-    agents: { personal: { id: 'personal', name: '个人', endpoint: 'A', workspacePath: dir, public: false, preset: null, gitRemote: null, provider: null, model: null, sandboxMode: null } },
+    agents: { personal: { id: 'personal', name: '个人', endpoint: 'A', workspacePath: dir, public: false, preset: null, gitRemote: null, provider: null, model: null, sandboxMode: null, validate: null } },
     runner: { timeoutMs: 1_000, silenceMs: 0, maxConsecutiveFailures: 3, dailyBudgetMicroUsd: null },
     databasePath: dbPath,
     pricing: DEFAULT_PRICING,

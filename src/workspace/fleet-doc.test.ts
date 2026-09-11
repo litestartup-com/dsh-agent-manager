@@ -38,8 +38,8 @@ const configFor = (): AppConfig => {
       },
     },
     agents: {
-      brain: { id: 'brain', name: '主脑', endpoint: 'brain', workspacePath: join(root, 'brain'), public: false, preset: 'standard', sandboxMode: null, gitRemote: null, provider: null, model: null },
-      personal: { id: 'personal', name: '个人', endpoint: 'personal', workspacePath: join(root, 'personal'), public: false, preset: 'standard', sandboxMode: null, gitRemote: null, provider: null, model: null },
+      brain: { id: 'brain', name: '主脑', endpoint: 'brain', workspacePath: join(root, 'brain'), public: false, preset: 'standard', sandboxMode: null, gitRemote: null, provider: null, model: null, validate: null },
+      personal: { id: 'personal', name: '个人', endpoint: 'personal', workspacePath: join(root, 'personal'), public: false, preset: 'standard', sandboxMode: null, gitRemote: null, provider: null, model: null, validate: null },
     },
     runner: { timeoutMs: 1_000, silenceMs: 0, maxConsecutiveFailures: 3, dailyBudgetMicroUsd: null },
     databasePath: ':memory:',
@@ -96,7 +96,7 @@ test('蜂群2计划 P6: syncFleetDocs 写入每个工作区、幂等、内容变
   // 幂等：内容一致不重写
   assert.deepEqual(await syncFleetDocs(config), [])
   // 拓扑变化 → 自动更新
-  config.agents['product'] = { id: 'product', name: '产品', endpoint: 'personal', workspacePath: join(config.agents['brain']!.workspacePath, '..', 'product'), public: false, preset: 'standard', sandboxMode: null, gitRemote: null, provider: null, model: null }
+  config.agents['product'] = { id: 'product', name: '产品', endpoint: 'personal', workspacePath: join(config.agents['brain']!.workspacePath, '..', 'product'), public: false, preset: 'standard', sandboxMode: null, gitRemote: null, provider: null, model: null, validate: null }
   assert.deepEqual((await syncFleetDocs(config)).sort(), ['brain', 'personal', 'product'])
   assert.match(readFileSync(join(config.agents['product'].workspacePath, FLEET_FILE), 'utf8'), /product/)
 })

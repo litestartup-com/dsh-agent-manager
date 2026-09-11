@@ -4,6 +4,7 @@ import dotenv from 'dotenv'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 import { DEFAULT_PRICING, parseUtcTime, type ModelPricing, type PricingTable } from './pricing.js'
+import type { ValidateRules } from './workspace/validate.js'
 
 dotenv.config()
 
@@ -80,6 +81,17 @@ const agentSchema = z.object({
   // review.
   provider: z.string().optional(),
   model: z.string().optional(),
+  // 债务 E12：该工作区的治理规则（note-data 校验的外置化）。缺省 = 只做
+  // 通用的凭证检查，不继承任何特定工作区的业务规则。
+  validate: z
+    .object({
+      windows: z
+        .array(z.object({ path: z.string().min(1), max: z.number().int().positive(), archive: z.string().min(1) }))
+        .default([]),
+      forbid_amount_fields: z.boolean().default(false),
+      acct_flow_max_age_months: z.number().int().nonnegative().nullable().default(null),
+    })
+    .optional(),
 })
 
 const rateSchema = z.object({
@@ -209,6 +221,8 @@ export interface ResolvedAgent {
   gitRemote: string | null
   provider: string | null
   model: string | null
+  /** 债务 E12:该工作区的治理规则;null = DEFAULT_RULES(只做通用凭证检查)。 */
+  validate: ValidateRules | null
 }
 
 /**
@@ -379,6 +393,15 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
       gitRemote: a.git_remote ?? null,
       provider: a.provider ?? null,
       model: a.model ?? null,
+      // 债务 E12:规则外置——配置缺省 = 只做通用凭证检查;snake_case 显式映射
+      validate:
+        a.validate === undefined
+          ? null
+          : {
+              windows: a.validate.windows,
+              forbidAmountFields: a.validate.forbid_amount_fields,
+              acctFlowMaxAgeMonths: a.validate.acct_flow_max_age_months,
+            },
     }
   }
 

@@ -48,6 +48,16 @@ agents:
     # 蜂群 P0：按会话沙箱模式（读-only 只读 / workspace-write 可写工作区）。
     # 缺省 = 不覆盖，沿用 DSH 部署默认。
     sandbox_mode: workspace-write
+    # 债务 E12：该工作区的治理规则（note-data 校验外置化，可选）。
+    # 缺省 = 只做通用的凭证检查，不继承任何特定工作区的业务规则。
+    # 例（note-kaka 用户可启用）：
+    # validate:
+    #   windows:
+    #     - { path: trade.history, max: 8, archive: E03.10.01-交易大盘.md }
+    #     - { path: weekly.weeks, max: 26, archive: G-日志/00-2026年周报 }
+    #     - { path: weekly.logs, max: 10, archive: G01.08-2026年/0X月份 }
+    #   forbid_amount_fields: true
+    #   acct_flow_max_age_months: 1
 
 runner:
   timeout_minutes: 15

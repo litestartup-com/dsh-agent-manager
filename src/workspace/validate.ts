@@ -1,16 +1,14 @@
 import type { NoteData } from './notedata.js'
 
 /**
- * Enforces rules that already exist in note-kaka's own documentation, so an
- * agent cannot quietly violate them:
+ * Enforces the workspace's own documented rules so an agent cannot quietly
+ * violate them. These are checks, not rewrites: a failing write is rejected
+ * and rolled back rather than silently "fixed".
  *
- *  - note-data/README.md §3  governance windows (files must not grow forever)
- *  - note-data/README.md §4  no credentials in data files
- *  - RULE.md §7             trade records percentages only, never amounts
- *
- * These are checks, not rewrites. A failing write is rejected and rolled back
- * rather than silently "fixed", because silently truncating someone's data is
- * worse than refusing to write it.
+ * 债务 E12:业务规则全部外置为 `ValidateRules`(来自 manager.config.yaml 的
+ * agent.validate 段)——旧实现把 note-kaka 的窗口/金额/acct 规则硬编码在
+ * 代码里,任何新用户都会继承一套不属于自己的治理行为。代码只保留两样:
+ * 通用的凭证检查(no-secrets,所有工作区都该有)与规则引擎。
  */
 
 export interface Violation {
@@ -18,6 +16,19 @@ export interface Violation {
   path: string
   detail: string
 }
+
+/** 债务 E12:per-agent 治理规则(manager.config.yaml → agent.validate)。 */
+export interface ValidateRules {
+  /** 治理窗口:「路径(点分)→ 条目上限 + 归档去向」,note-kaka README §3 的外置化。 */
+  windows: { path: string; max: number; archive: string }[]
+  /** trade 数据禁金额字段(RULE.md §7 的外置化)。 */
+  forbidAmountFields: boolean
+  /** acct.flow 只保留最近 N 个月(README §2.5 的外置化);null = 不检查。 */
+  acctFlowMaxAgeMonths: number | null
+}
+
+/** 无业务规则的默认值:只做通用的凭证检查。 */
+export const DEFAULT_RULES: ValidateRules = { windows: [], forbidAmountFields: false, acctFlowMaxAgeMonths: null }
 
 const asArray = (value: unknown): unknown[] | null => (Array.isArray(value) ? value : null)
 
@@ -30,23 +41,17 @@ const dig = (data: NoteData, path: string[]): unknown => {
   return current
 }
 
-/** README §3: page shows the active window only; history belongs in markdown. */
-const WINDOWS: { path: string[]; max: number; archive: string }[] = [
-  { path: ['trade', 'history'], max: 8, archive: 'E03.10.01-交易大盘（持仓·任务·快照）.md' },
-  { path: ['weekly', 'weeks'], max: 26, archive: 'G-日志/.../00-2026年周报/*.md' },
-  { path: ['weekly', 'logs'], max: 10, archive: 'G01.08-2026年/0X月份/' },
-]
-
-const checkWindows = (data: NoteData): Violation[] => {
+const checkWindows = (data: NoteData, windows: ValidateRules['windows']): Violation[] => {
   const out: Violation[] = []
-  for (const { path, max, archive } of WINDOWS) {
-    const list = asArray(dig(data, path))
+  for (const { path, max, archive } of windows) {
+    const segments = path.split('.')
+    const list = asArray(dig(data, segments))
     if (list === null) continue
     if (list.length > max) {
       out.push({
         rule: 'governance-window',
-        path: path.join('.'),
-        detail: `${list.length} entries exceeds the documented cap of ${max}; archive the oldest to ${archive} first (note-data/README.md §3)`,
+        path,
+        detail: `${list.length} entries exceeds the documented cap of ${max}; archive the oldest to ${archive} first`,
       })
     }
   }
@@ -54,10 +59,8 @@ const checkWindows = (data: NoteData): Violation[] => {
 }
 
 /**
- * RULE.md §7 and trade.js's own header: percentages only, never amounts.
- *
- * `cost` and `price` are legitimate per-share quotes already present in the
- * file; what must never appear is anything that reveals position size in money.
+ * Percentages only, never amounts (`cost` and `price` are legitimate per-share
+ * quotes; what must never appear is anything that reveals position size).
  */
 const MONEY_FIELDS = /^(amount|amt|money|cash_?value|value|total|shares|qty|quantity|金额|市值|数量|股数|成本额)$/i
 
@@ -77,7 +80,7 @@ const checkTradePrivacy = (data: NoteData): Violation[] => {
         out.push({
           rule: 'no-amounts',
           path: `${path}.${key}`,
-          detail: 'trade data records percentages only, never amounts (RULE.md §7)',
+          detail: 'trade data records percentages only, never amounts',
         })
       }
       scan(value, `${path}.${key}`)
@@ -131,13 +134,13 @@ const checkSecrets = (data: NoteData): Violation[] => {
   return out
 }
 
-/** README §2.5 / §2.1: `acct.flow` keeps the current and previous month only. */
-const checkAcctFlow = (data: NoteData, now = new Date()): Violation[] => {
+/** acct.flow keeps the current and previous months only(阈值由规则外置)。 */
+const checkAcctFlow = (data: NoteData, maxAgeMonths: number, now: Date): Violation[] => {
   const flow = asArray(dig(data, ['acct', 'flow']))
   if (flow === null) return []
 
   const allowed = new Set<string>()
-  for (let back = 0; back <= 1; back += 1) {
+  for (let back = 0; back <= maxAgeMonths; back += 1) {
     const d = new Date(now.getFullYear(), now.getMonth() - back, 1)
     allowed.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
     allowed.add(String(d.getMonth() + 1).padStart(2, '0'))
@@ -148,9 +151,9 @@ const checkAcctFlow = (data: NoteData, now = new Date()): Violation[] => {
     if (entry === null || typeof entry !== 'object') return
     const d = (entry as { d?: unknown }).d
     if (typeof d !== 'string') return
-    // Placeholder rows are the documented way to show "no data yet" (README
-    // §2.0), and acct.js currently ships exactly that. Only a genuinely
-    // date-shaped value can be stale.
+    // Placeholder rows are the documented way to show "no data yet", and
+    // acct.js currently ships exactly that. Only a genuinely date-shaped
+    // value can be stale.
     const match = /^(?:(\d{4})-)?(\d{1,2})-(\d{1,2})$/.exec(d.trim())
     if (match === null) return
     const month = match[1] === undefined ? (match[2] ?? '').padStart(2, '0') : `${match[1]}-${(match[2] ?? '').padStart(2, '0')}`
@@ -158,7 +161,7 @@ const checkAcctFlow = (data: NoteData, now = new Date()): Violation[] => {
       out.push({
         rule: 'governance-window',
         path: `acct.flow[${i}]`,
-        detail: `entry dated "${d}" is older than last month; archive it to the E-财富 accounting markdown first (note-data/README.md §3)`,
+        detail: `entry dated "${d}" is older than the configured ${maxAgeMonths + 1}-month window; archive it first`,
       })
     }
   })
@@ -167,11 +170,16 @@ const checkAcctFlow = (data: NoteData, now = new Date()): Violation[] => {
 
 export interface ValidateOptions {
   now?: Date
+  /** 债务 E12:per-agent 规则;缺省 = DEFAULT_RULES(只做通用凭证检查)。 */
+  rules?: ValidateRules
 }
 
-export const validateNoteData = (data: NoteData, options: ValidateOptions = {}): Violation[] => [
-  ...checkWindows(data),
-  ...checkTradePrivacy(data),
-  ...checkSecrets(data),
-  ...checkAcctFlow(data, options.now ?? new Date()),
-]
+export const validateNoteData = (data: NoteData, options: ValidateOptions = {}): Violation[] => {
+  const rules = options.rules ?? DEFAULT_RULES
+  return [
+    ...checkWindows(data, rules.windows),
+    ...(rules.forbidAmountFields ? checkTradePrivacy(data) : []),
+    ...checkSecrets(data),
+    ...(rules.acctFlowMaxAgeMonths === null ? [] : checkAcctFlow(data, rules.acctFlowMaxAgeMonths, options.now ?? new Date())),
+  ]
+}

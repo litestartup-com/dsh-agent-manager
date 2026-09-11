@@ -19,6 +19,7 @@ const agentFor = (id: string, name: string, workspacePath: string): ResolvedAgen
   gitRemote: null,
   provider: null,
   model: null,
+  validate: null,
 })
 
 const configFor = (brainWs: string, personalWs: string): AppConfig => ({

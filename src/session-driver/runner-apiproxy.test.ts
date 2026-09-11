@@ -36,7 +36,7 @@ const makeDb = (): Db => {
 
 const agentFor = (workspacePath: string, sandboxMode: 'read-only' | 'workspace-write' | null = null): ResolvedAgent => ({
   id: 'personal', name: 'Personal', endpoint: 'A', workspacePath, public: false,
-  preset: 'standard', gitRemote: null, provider: null, model: null, sandboxMode,
+  preset: 'standard', gitRemote: null, provider: null, model: null, sandboxMode, validate: null,
 })
 
 /** 端口不涉及 GatewayClient，但 RunInput 要求一个（gateway 分支才用得到）。 */

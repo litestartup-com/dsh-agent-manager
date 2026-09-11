@@ -2,7 +2,7 @@ import { existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { simpleGit } from 'simple-git'
 import { NOTE_DATA_DIR, NOTE_DATA_FILES, readNoteData } from './notedata.js'
-import { validateNoteData, type Violation } from './validate.js'
+import { DEFAULT_RULES, validateNoteData, type ValidateRules, type Violation } from './validate.js'
 
 /**
  * Inspects an adopted workspace. It deliberately writes nothing.
@@ -53,7 +53,11 @@ const isDir = (path: string): boolean => {
   }
 }
 
-export const inspectWorkspace = async (workspacePath: string): Promise<WorkspaceReport> => {
+export const inspectWorkspace = async (
+  workspacePath: string,
+  /** 债务 E12:治理规则随 agent 配置;缺省 = 通用凭证检查。 */
+  rules: ValidateRules = DEFAULT_RULES,
+): Promise<WorkspaceReport> => {
   const exists = isDir(workspacePath)
   const dataDir = join(workspacePath, NOTE_DATA_DIR)
 
@@ -87,7 +91,7 @@ export const inspectWorkspace = async (workspacePath: string): Promise<Workspace
     }
   }
 
-  const violations = validateNoteData(parsed.data)
+  const violations = validateNoteData(parsed.data, { rules })
 
   const blockers: string[] = []
   if (!exists) blockers.push(`workspace path does not exist: ${workspacePath}`)

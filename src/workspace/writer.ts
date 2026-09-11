@@ -14,7 +14,7 @@ import {
   type NoteData,
   type NoteDataFile,
 } from './notedata.js'
-import { validateNoteData, type Violation } from './validate.js'
+import { DEFAULT_RULES, validateNoteData, type ValidateRules, type Violation } from './validate.js'
 
 /**
  * The single channel through which anything reaches an agent's workspace.
@@ -248,6 +248,8 @@ export const writeNoteData = async (
   workspacePath: string,
   patch: NoteDataPatch,
   options: ApplyOptions,
+  /** 债务 E12:写前校验的治理规则;缺省 = 只做通用凭证检查。 */
+  rules: ValidateRules = DEFAULT_RULES,
 ): Promise<ApplyResult> => {
   const keys = Object.keys(patch)
   if (keys.length === 0) throw new WriteRejected('nothing to write', ['no datasets were supplied'])
@@ -274,7 +276,7 @@ export const writeNoteData = async (
 
   // Validate before touching the disk as well as after, so an obviously bad
   // request never reaches the filesystem.
-  const violations = validateNoteData(merged)
+  const violations = validateNoteData(merged, { rules })
   if (violations.length > 0) {
     throw new WriteRejected(
       'the write violates the workspace’s own documented rules',

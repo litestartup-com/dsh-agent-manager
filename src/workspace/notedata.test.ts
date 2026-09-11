@@ -11,7 +11,7 @@ import {
   serializeNoteDataFile,
   type NoteData,
 } from './notedata.js'
-import { validateNoteData } from './validate.js'
+import { validateNoteData, type ValidateRules } from './validate.js'
 
 const makeWorkspace = (files: Record<string, string>): string => {
   const root = mkdtempSync(join(tmpdir(), 'notedata-'))
@@ -147,12 +147,34 @@ test('unquoted keys are only used where they are valid identifiers', () => {
   assert.ok(out.includes('"中文键"'))
 })
 
+// 债务 E12:note-kaka 的业务规则已外置为 per-agent 配置(manager.config.yaml
+// → agent.validate)。本测试文件里的规则断言显式传入同一套规则。
+const NOTE_KAKA_RULES: ValidateRules = {
+  windows: [
+    { path: 'trade.history', max: 8, archive: 'E03.10.01-交易大盘（持仓·任务·快照）.md' },
+    { path: 'weekly.weeks', max: 26, archive: 'G-日志/.../00-2026年周报/*.md' },
+    { path: 'weekly.logs', max: 10, archive: 'G01.08-2026年/0X月份/' },
+  ],
+  forbidAmountFields: true,
+  acctFlowMaxAgeMonths: 1,
+}
+
+test('债务 E12 回归: 无规则(新用户)不继承任何业务规则——窗口/金额/acct 全不拦', () => {
+  const overflow = {
+    trade: { history: Array.from({ length: 99 }, (_, i) => ({ d: `08-0${i}`, pos: 60 })) },
+    acct: { flow: [{ d: '03-15', c: '旧账', a: 99 }] },
+  }
+  const violations = validateNoteData(overflow, { now: new Date(2026, 7, 30) })
+  assert.equal(violations.filter((v) => v.rule === 'governance-window').length, 0, '窗口规则必须由配置显式开启')
+  assert.equal(violations.filter((v) => v.rule === 'no-amounts').length, 0, '金额规则必须由配置显式开启')
+})
+
 test('governance windows are enforced against the documented caps', () => {
   const overflow = {
     trade: { history: Array.from({ length: 9 }, (_, i) => ({ d: `08-0${i}`, pos: 60 })) },
     weekly: { weeks: Array.from({ length: 27 }, (_, i) => ({ w: i, r: 50 })), logs: Array.from({ length: 11 }, () => ({ d: '08-01' })) },
   }
-  const violations = validateNoteData(overflow)
+  const violations = validateNoteData(overflow, { rules: NOTE_KAKA_RULES })
   const paths = violations.filter((v) => v.rule === 'governance-window').map((v) => v.path)
   assert.ok(paths.includes('trade.history'))
   assert.ok(paths.includes('weekly.weeks'))
@@ -161,12 +183,12 @@ test('governance windows are enforced against the documented caps', () => {
 
 test('trade data may not carry amounts, only percentages', () => {
   const withMoney = { trade: { holdings: [{ name: '光大证券', weight: 30.33, amount: 120000 }] } }
-  const violations = validateNoteData(withMoney)
+  const violations = validateNoteData(withMoney, { rules: NOTE_KAKA_RULES })
   assert.ok(violations.some((v) => v.rule === 'no-amounts' && v.path.endsWith('.amount')))
 
   // Per-share cost and price are already in the real file and are legitimate.
   const clean = { trade: { holdings: [{ name: '光大证券', weight: 30.33, cost: 15.456, price: 14.24 }] } }
-  assert.equal(validateNoteData(clean).filter((v) => v.rule === 'no-amounts').length, 0)
+  assert.equal(validateNoteData(clean, { rules: NOTE_KAKA_RULES }).filter((v) => v.rule === 'no-amounts').length, 0)
 })
 
 test('credentials are rejected and never echoed back', () => {
@@ -190,7 +212,7 @@ test('acct.flow keeps only the current and previous month', () => {
       ],
     },
   }
-  const violations = validateNoteData(data, { now })
+  const violations = validateNoteData(data, { now, rules: NOTE_KAKA_RULES })
   const stale = violations.filter((v) => v.rule === 'governance-window' && v.path.startsWith('acct.flow'))
   assert.equal(stale.length, 1)
   assert.ok((stale[0]?.detail ?? '').includes('03-15'))
@@ -207,7 +229,7 @@ test('placeholder rows are not mistaken for stale data', () => {
       ],
     },
   }
-  const violations = validateNoteData(data, { now: new Date(2026, 7, 30) })
+  const violations = validateNoteData(data, { now: new Date(2026, 7, 30), rules: NOTE_KAKA_RULES })
   assert.deepEqual(
     violations.filter((v) => v.path.startsWith('acct.flow')),
     [],

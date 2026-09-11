@@ -42,6 +42,7 @@ const agentFor = (workspacePath: string): ResolvedAgent => ({
   provider: null,
   model: null,
   sandboxMode: null,
+  validate: null,
 })
 
 const clientFor = (gw: FakeGateway): GatewayClient =>

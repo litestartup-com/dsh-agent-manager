@@ -32,6 +32,7 @@ const agent: ResolvedAgent = {
   gitRemote: null,
   provider: null,
   model: null,
+  validate: null,
 }
 
 const config: AppConfig = {

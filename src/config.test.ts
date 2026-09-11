@@ -58,6 +58,34 @@ test('债务 A5 回归: loadConfig 返回解析后的真相源路径——全项
   }
 })
 
+test('债务 E12 回归: agent.validate 治理规则解析与缺省', () => {
+  withEnv({}, () => {
+    const withRules = loadFrom(baseConfig({
+      agents: {
+        personal: {
+          name: '个人',
+          endpoint: 'A',
+          workspace: '.',
+          validate: {
+            windows: [{ path: 'trade.history', max: 8, archive: 'somewhere.md' }],
+            forbid_amount_fields: true,
+            acct_flow_max_age_months: 1,
+          },
+        },
+      },
+    }))
+    const rules = withRules.agents['personal']?.validate
+    assert.ok(rules !== null)
+    assert.deepEqual(rules?.windows, [{ path: 'trade.history', max: 8, archive: 'somewhere.md' }])
+    assert.equal(rules?.forbidAmountFields, true)
+    assert.equal(rules?.acctFlowMaxAgeMonths, 1)
+
+    // 缺省 = null(调用方走 DEFAULT_RULES:只做通用凭证检查,不继承业务规则)
+    const without = loadFrom(baseConfig())
+    assert.equal(without.agents['personal']?.validate, null)
+  })
+})
+
 test('parses the P0 fields: agent preset/sandbox_mode and endpoint sandbox surface', () => {  withEnv({ GW_KEY_A: 'test-gw-key' }, () => {
     const cfg = loadFrom(baseConfig({
       endpoints: {

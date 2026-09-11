@@ -24,6 +24,7 @@ const AGENT: ResolvedAgent = {
   provider: null,
   model: null,
   sandboxMode: null,
+  validate: null,
 }
 
 const CONFIG: AppConfig = {

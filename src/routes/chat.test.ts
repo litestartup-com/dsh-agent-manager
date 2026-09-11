@@ -33,6 +33,7 @@ const agentFor = (workspacePath: string): ResolvedAgent => ({
   provider: null,
   model: null,
   sandboxMode: null,
+  validate: null,
 })
 
 const configFor = (gw: FakeGateway, agent: ResolvedAgent): AppConfig => ({
