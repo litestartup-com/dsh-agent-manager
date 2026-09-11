@@ -42,7 +42,6 @@ const record = (
       agentId: opts.agentId,
       chatId: null,
       cronId: null,
-      apiKeyId: null,
       dshSessionId: null,
       trigger: 'manual',
       idempotencyKey: null,

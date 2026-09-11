@@ -43,19 +43,8 @@ export const agent = sqliteTable('agent', {
   createdAt: integer('created_at').notNull(),
 })
 
-export const apiKey = sqliteTable('api_key', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull(),
-  keyHash: text('key_hash').notNull(),
-  /** JSON array of agent ids. Never defaults to include private agents. */
-  scopeAgents: text('scope_agents').notNull(),
-  scopeActions: text('scope_actions').notNull(),
-  quotaTokensDay: integer('quota_tokens_day'),
-  quotaRunsDay: integer('quota_runs_day'),
-  revoked: integer('revoked').notNull().default(0),
-  createdAt: integer('created_at').notNull(),
-  lastUsedAt: integer('last_used_at'),
-})
+// 债务 D1:api_key 表(北向 API key 配额)全链路无写入无读取——死代码,已随
+// 迁移 13 删除。对外 API 属 M6 路线图,届时按真实契约重新设计。
 
 export const cron = sqliteTable('cron', {
   id: text('id').primaryKey(),
@@ -117,7 +106,7 @@ export const run = sqliteTable('run', {
    */
   conflict: text('conflict'),
   cronId: text('cron_id'),
-  apiKeyId: text('api_key_id'),
+  // 债务 D1:api_key_id 已随迁移 13 删除(北向 API 未实现,死列)
   dshSessionId: text('dsh_session_id'),
   /** 'cron' | 'manual' | 'api' | 'capture' | 'brain' */
   trigger: text('trigger').notNull(),

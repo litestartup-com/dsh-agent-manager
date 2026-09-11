@@ -277,7 +277,6 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
         chatId: input.chatId ?? null,
         sourceChatId: input.sourceChatId ?? null,
         cronId: input.cronId ?? null,
-        apiKeyId: null,
         dshSessionId: input.sessionId ?? null,
         trigger: input.trigger,
         idempotencyKey: input.idempotencyKey ?? null,

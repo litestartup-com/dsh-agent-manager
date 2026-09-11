@@ -222,6 +222,12 @@ const MIGRATIONS: readonly string[][] = [
   [
     `CREATE INDEX IF NOT EXISTS run_trigger_started ON run(trigger, started_at)`,
   ],
+  // 13 -- 债务 D1：api_key 表与 run.api_key_id 列全链路无读写(死代码)——删除。
+  // 北向对外 API 属 M6 路线图,届时按真实契约重新设计(迁移只进不退,不复用旧表)。
+  [
+    `ALTER TABLE run DROP COLUMN api_key_id`,
+    `DROP TABLE IF EXISTS api_key`,
+  ],
 ]
 
 export interface OpenDbResult {
