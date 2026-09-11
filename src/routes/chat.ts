@@ -769,13 +769,25 @@ export const registerChatRoutes = (
       await found.upstream.setSandboxMode(found.chat.dshSessionId, parsed.data.mode)
       invalidateHistory(found.chat.dshSessionId)
       publish(found.chat.id, { kind: 'composer_state', accessMode: parsed.data.mode })
+      // 成功钉入：清掉可能残留的延迟覆盖（直连成功 = 已生效）。
+      db.update(schema.chat).set({ accessModeOverride: null }).where(eq(schema.chat.id, found.chat.id)).run()
       // 全量沙箱切换留痕：用户决策 + 事后可追溯（2026-09-11 拍板）。
       if (parsed.data.mode === 'danger-full-access') {
         audit?.(request.currentUser?.username ?? 'unknown', 'sandbox_mode', `会话 ${found.chat.id} 开启全量沙箱（danger-full-access）`)
       }
       return reply.send({ accessMode: parsed.data.mode })
     } catch (error) {
-      return reply.code(502).send({ error: 'access_mode_failed', detail: errorText(error) })
+      // 会话转冷（回合间隙宿主已卸载）：记下覆盖，下回合创建/唤醒时由 runner 钉入。
+      const detail = errorText(error)
+      if (detail.includes('session_not_live')) {
+        db.update(schema.chat).set({ accessModeOverride: parsed.data.mode }).where(eq(schema.chat.id, found.chat.id)).run()
+        publish(found.chat.id, { kind: 'composer_state', accessMode: parsed.data.mode })
+        if (parsed.data.mode === 'danger-full-access') {
+          audit?.(request.currentUser?.username ?? 'unknown', 'sandbox_mode', `会话 ${found.chat.id} 请求全量沙箱（danger-full-access，延迟到下回合生效）`)
+        }
+        return reply.send({ accessMode: parsed.data.mode, deferred: true })
+      }
+      return reply.code(502).send({ error: 'access_mode_failed', detail })
     }
   })
 

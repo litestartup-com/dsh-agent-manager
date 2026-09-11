@@ -88,6 +88,11 @@ export const chat = sqliteTable('chat', {
   createdAt: integer('created_at').notNull(),
   lastActiveAt: integer('last_active_at').notNull(),
   removedAt: integer('removed_at'),
+  /**
+   * 沙箱覆盖的延迟生效请求（会话转冷时无法立即钉入）：下回合创建/唤醒会话时
+   * 由 runner 应用后清空。null = 无待生效覆盖。
+   */
+  accessModeOverride: text('access_mode_override'),
 })
 
 export const run = sqliteTable('run', {

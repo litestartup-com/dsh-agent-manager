@@ -228,6 +228,11 @@ const MIGRATIONS: readonly string[][] = [
     `ALTER TABLE run DROP COLUMN api_key_id`,
     `DROP TABLE IF EXISTS api_key`,
   ],
+  // 14 -- 沙箱覆盖延迟生效（2026-09-11）：宿主的 sandbox-mode 只能钉 live 会话，
+  // 回合间隙会话转冷 → 用户切权限记在 chat 行，下回合创建/唤醒时由 runner 钉入。
+  [
+    `ALTER TABLE chat ADD COLUMN access_mode_override TEXT`,
+  ],
 ]
 
 export interface OpenDbResult {

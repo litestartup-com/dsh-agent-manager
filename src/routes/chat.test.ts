@@ -196,6 +196,35 @@ test('composer state exposes context, model selection, and restricted access con
 })
 
 // ---------------------------------------------------------------------------
+// cold-session sandbox switch (deferred override)
+// ---------------------------------------------------------------------------
+
+test('sandbox switch on a cold session is recorded and deferred to the next turn', async () => {
+  const upstream = new FakeSessionDriver('A', {
+    frames: [],
+    composer: { accessMode: 'read-only' },
+    sandboxNotLive: true,
+    fullAccess: true,
+  })
+  const { base, db } = await boot({ frames: [] }, upstream)
+  const chatId = await newChat(base)
+  bindSession(db, chatId, 'fake-1')
+
+  const access = await fetch(`${base}/api/chats/${chatId}/sandbox-mode`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ mode: 'danger-full-access' }),
+  })
+  assert.equal(access.status, 200)
+  const body = (await access.json()) as { accessMode: string; deferred?: boolean }
+  assert.equal(body.accessMode, 'danger-full-access')
+  assert.equal(body.deferred, true)
+  // 冷会话上不能直钉：pin 不得打到上游，而是落库。
+  assert.equal(upstream.sandboxPins.length, 0)
+  const row = db.select().from(schema.chat).where(eq(schema.chat.id, chatId)).get()
+  assert.equal(row?.accessModeOverride, 'danger-full-access')
+})
+
+// ---------------------------------------------------------------------------
 // the relay
 // ---------------------------------------------------------------------------
 

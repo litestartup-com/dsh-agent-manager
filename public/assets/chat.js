@@ -1933,7 +1933,7 @@ if (el.access !== null) {
           return
         }
         state.composer = { ...(state.composer ?? {}), accessMode: body.accessMode }
-        toast('访问模式已更新')
+        toast(body.deferred === true ? '已记录，将在下回合开始时生效' : '访问模式已更新')
       } catch (error) {
         toast(`访问模式切换失败：${error.message}`)
       }

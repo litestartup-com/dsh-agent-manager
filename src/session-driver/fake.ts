@@ -29,6 +29,8 @@ export interface FakeScript {
   }
   /** 脚本可控：全量沙箱开锁状态（capabilities.fullAccess）。 */
   fullAccess?: boolean
+  /** 脚本可控：setSandboxMode 抛 session_not_live（模拟会话转冷的 409）。 */
+  sandboxNotLive?: boolean
   models?: {
     current: { provider: string; model: string; reasoningEffort?: string } | null
     routable: boolean
@@ -169,7 +171,10 @@ export class FakeSessionDriver implements SessionDriver {
     return true
   }
 
-  async setSandboxMode(sessionId: string, mode: 'read-only' | 'workspace-write'): Promise<void> {
+  async setSandboxMode(sessionId: string, mode: 'read-only' | 'workspace-write' | 'danger-full-access'): Promise<void> {
+    if (this.script.sandboxNotLive) {
+      throw new Error('sandbox-mode 409: {"error":"session_not_live","message":"session is not live"}')
+    }
     this.sandboxPins.push({ sessionId, mode })
   }
 }

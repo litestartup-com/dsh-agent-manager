@@ -650,6 +650,25 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
       return finish('failed', 'apiproxy driver selected but no upstream client is wired for this endpoint')
     }
 
+    /**
+     * 钉入延迟生效的沙箱覆盖（chat.accessModeOverride）并清空。
+     * 宿主只允许钉 live 会话：create 分支在刚建时调、resume 分支在 prompt
+     * （附带挂载冷会话）之后调。失败保留覆盖下次再试，绝不影响回合本身。
+     */
+    const applyAccessOverride = async (sid: string): Promise<void> => {
+      if (input.chatId === undefined || input.chatId === null) return
+      const row = deps.db.select().from(schema.chat).where(eq(schema.chat.id, input.chatId)).get()
+      const override = row?.accessModeOverride
+      if (override !== 'read-only' && override !== 'workspace-write' && override !== 'danger-full-access') return
+      try {
+        await upstream.setSandboxMode?.(sid, override)
+        deps.db.update(schema.chat).set({ accessModeOverride: null }).where(eq(schema.chat.id, input.chatId)).run()
+        log?.info(`run ${runId}: applied deferred sandbox override ${override} on ${sid}`)
+      } catch (error) {
+        log?.warn(`run ${runId}: deferred sandbox override ${override} failed: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+
     try {
       // apiproxy has no adopt/resume concept; prompt is the universal entry.
       // For a new session, create first; for an existing one, just prompt.
@@ -664,6 +683,9 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
           // 端口可选能力：无此能力的插头跳过（facade 插头必实现）。
           await upstream.setSandboxMode?.(sessionId, agent.sandboxMode)
         }
+        // 会话刚建 = live：延迟生效的沙箱覆盖在此刻钉入（chat.accessModeOverride，
+        // 2026-09-11：宿主只允许钉 live 会话，回合间隙的切换请求由 runner 代劳）。
+        await applyAccessOverride(sessionId)
       } else {
         sessionId = input.sessionId
         provider = agent.provider ?? null
@@ -761,6 +783,8 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
       if (!promptResult.accepted) {
         return finish('failed', 'the prompt was not accepted by the upstream')
       }
+      // prompt 附带挂载（冷会话已转 live）：此刻钉延迟覆盖成功率高；失败保留下次再试。
+      await applyAccessOverride(sessionId)
 
       return await turnDone
     } catch (error) {
