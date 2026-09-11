@@ -22,7 +22,7 @@
 
 import { md } from './md.js'
 import { classifyTool, toolBody, toolSummary, toolTitle } from './tool-cards.js'
-import { $, esc, icon, money, apiFetch, uniqueFrames } from './ui.js'
+import { $, esc, icon, money, apiFetch, uniqueFrames, autoReconnect } from './ui.js'
 
 const el = {
   notices: $('chat-notices'),
@@ -100,7 +100,13 @@ const openDropdown = (button) => {
     row.setAttribute('aria-selected', String(selected))
     row.dataset.value = option.value
     if (option.locked === true) row.dataset.locked = '1'
-    row.innerHTML = `<span>${option.label}</span>${selected ? CHECK_SVG : ''}`
+    // 债务 F5:全站唯一未转义的 innerHTML sink——option.label(上游模型目录/
+    // 沙箱模式名)原样拼进 innerHTML。改 DOM 构建(textContent 转义);
+    // CHECK_SVG 是静态常量,insertAdjacentHTML 安全。
+    const labelSpan = document.createElement('span')
+    labelSpan.textContent = option.label
+    row.append(labelSpan)
+    if (selected) row.insertAdjacentHTML('beforeend', CHECK_SVG)
     row.tabIndex = -1
     return row
   }))
@@ -608,8 +614,8 @@ const footer = (block, index, show) => {
   }
   const t = tokens(usage)
   if (t !== null) parts.push(esc(t))
-  if (run !== undefined && run !== null && run.usage !== null && run.usage.cost !== null) {
-    parts.push(esc(money(run.usage.cost)))
+  if (run !== undefined && run !== null && run.usage !== null && run.usage.costMicroUsd !== null) {
+    parts.push(esc(money(run.usage.costMicroUsd)))
   }
 
   const turnId = run !== undefined && run !== null && run.id !== undefined ? String(run.id) : ''
@@ -1756,27 +1762,11 @@ const reload = () => {
 // request, even the HTML document, sits queued behind a socket that will never
 // free up. So this is not battery hygiene, it is the difference between working
 // and hanging.
-let source = null
-let retryTimer = null
-let retryDelay = 3000
-
-const disconnect = () => {
-  if (retryTimer !== null) {
-    clearTimeout(retryTimer)
-    retryTimer = null
-  }
-  if (source !== null) {
-    source.close()
-    source = null
-  }
-}
-
-const connect = () => {
+// 债务 F3：重连机制已收敛进 ui.js 的 autoReconnect（3s → ×2 → 30s 封顶）。
+const { connect, disconnect } = autoReconnect(() => {
   // Never two streams for one page: a second one costs a second connection and
   // delivers every frame twice.
-  disconnect()
   const es = new EventSource(`/api/chats/${encodeURIComponent(chatId)}/events`)
-  source = es
 
   es.addEventListener('message', (event) => {
     let frame
@@ -1849,23 +1839,8 @@ const connect = () => {
     render()
   })
 
-  es.addEventListener('open', () => {
-    retryDelay = 3000
-  })
-
-  es.addEventListener('error', () => {
-    // `es`, not `source`: this handler outlives its own instance, and closing
-    // whatever happens to be current would leave the failed one retrying on its
-    // own -- a leaked connection every time.
-    es.close()
-    if (es !== source) return
-    source = null
-    // EventSource retries on its own, but not once the server closes the stream
-    // outright (a manager restart), so reconnect with a backoff.
-    retryTimer = setTimeout(connect, retryDelay)
-    retryDelay = Math.min(retryDelay * 2, 30_000)
-  })
-}
+  return es
+})
 
 // ---------------------------------------------------------------------------
 // sending
