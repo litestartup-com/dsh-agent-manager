@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lt, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, lt, sql, type SQL } from 'drizzle-orm'
 import { schema, type Db } from '../db/index.js'
 
 /**
@@ -16,8 +16,8 @@ import { schema, type Db } from '../db/index.js'
  */
 
 /** `strftime` over an epoch-milliseconds column, in local time. */
-const localBucket = (format: string): ReturnType<typeof sql> =>
-  sql.raw(`strftime('${format}', at / 1000, 'unixepoch', 'localtime')`)
+const localBucket = (format: string): SQL<string> =>
+  sql.raw(`strftime('${format}', at / 1000, 'unixepoch', 'localtime')`) as SQL<string>
 
 /**
  * 债务 B5:分桶过滤不再用 strftime(索引用不上,全表扫)——把本地月/日分桶
@@ -63,17 +63,36 @@ export interface DailySpend {
   unpriced: number
 }
 
-interface RawTotals {
-  runs: number | null
-  inputTokens: number | null
-  outputTokens: number | null
-  cacheReadTokens: number | null
-  costMicroUsd: number | null
-  peakCostMicroUsd: number | null
-  unpriced: number | null
+/**
+ * 债务 E9:聚合列片段——从 raw 文本(A GGREGATES)改 drizzle 片段:表引用由
+ * drizzle 按 schema 生成并自动限定,join 场景不会再出现「未限定列名静默
+ * 解析到错误表」的坑;类型随 builder 走,不再手写 RawTotals 泛型。
+ *
+ * `SUM(cost)` skips NULLs, which is exactly right -- an unknown cost must not
+ * be added in as zero -- but it also means the total alone cannot tell you
+ * whether anything was missing. That is what the `unpriced` counter is for.
+ */
+const totalsSelection = () => ({
+  runs: sql<number>`COUNT(DISTINCT ${schema.usageRecord.runId})`.as('runs'),
+  inputTokens: sql<number>`COALESCE(SUM(${schema.usageRecord.inputTokens}), 0)`.as('inputTokens'),
+  outputTokens: sql<number>`COALESCE(SUM(${schema.usageRecord.outputTokens}), 0)`.as('outputTokens'),
+  cacheReadTokens: sql<number>`COALESCE(SUM(${schema.usageRecord.cacheRead}), 0)`.as('cacheReadTokens'),
+  costMicroUsd: sql<number>`COALESCE(SUM(${schema.usageRecord.cost}), 0)`.as('costMicroUsd'),
+  peakCostMicroUsd: sql<number>`COALESCE(SUM(${schema.usageRecord.peakCost}), 0)`.as('peakCostMicroUsd'),
+  unpriced: sql<number>`SUM(CASE WHEN ${schema.usageRecord.cost} IS NULL THEN 1 ELSE 0 END)`.as('unpriced'),
+})
+
+type TotalsRow = {
+  runs: number
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  costMicroUsd: number
+  peakCostMicroUsd: number
+  unpriced: number
 }
 
-const toTotals = (r: RawTotals | undefined): SpendTotals => ({
+const toTotals = (r: TotalsRow | undefined): SpendTotals => ({
   runs: r?.runs ?? 0,
   inputTokens: r?.inputTokens ?? 0,
   outputTokens: r?.outputTokens ?? 0,
@@ -83,28 +102,13 @@ const toTotals = (r: RawTotals | undefined): SpendTotals => ({
   unpriced: r?.unpriced ?? 0,
 })
 
-/**
- * The aggregate columns, shared by every grouping below.
- *
- * `SUM(cost)` skips NULLs, which is exactly right -- an unknown cost must not
- * be added in as zero -- but it also means the total alone cannot tell you
- * whether anything was missing. That is what the `unpriced` counter is for.
- */
-const AGGREGATES = sql.raw(`
-  COUNT(DISTINCT run_id) AS runs,
-  COALESCE(SUM(input_tokens), 0) AS inputTokens,
-  COALESCE(SUM(output_tokens), 0) AS outputTokens,
-  COALESCE(SUM(cache_read), 0) AS cacheReadTokens,
-  COALESCE(SUM(cost), 0) AS costMicroUsd,
-  COALESCE(SUM(peak_cost), 0) AS peakCostMicroUsd,
-  SUM(CASE WHEN cost IS NULL THEN 1 ELSE 0 END) AS unpriced
-`)
-
 /** Months that have any recorded usage, newest first. */
 export const spendMonths = (db: Db): string[] => {
-  const rows = db.all<{ month: string }>(
-    sql`SELECT DISTINCT ${localBucket('%Y-%m')} AS month FROM usage_record ORDER BY month DESC`,
-  )
+  const rows = db
+    .selectDistinct({ month: localBucket('%Y-%m') })
+    .from(schema.usageRecord)
+    .orderBy(desc(localBucket('%Y-%m')))
+    .all()
   return rows.map((r) => r.month)
 }
 
@@ -112,9 +116,12 @@ export const spendMonths = (db: Db): string[] => {
 export const USD_TO_MICRO = 1_000_000
 
 export const monthTotals = (db: Db, month: string): SpendTotals => {
-  const rows = db.all<RawTotals>(
-    sql`SELECT ${AGGREGATES} FROM usage_record WHERE ${inRange(monthRangeMs(month))}`,
-  )
+  const range = monthRangeMs(month)
+  const rows = db
+    .select(totalsSelection())
+    .from(schema.usageRecord)
+    .where(and(gte(schema.usageRecord.at, range.start), lt(schema.usageRecord.at, range.end)))
+    .all()
   return toTotals(rows[0])
 }
 
@@ -122,54 +129,53 @@ export const monthTotals = (db: Db, month: string): SpendTotals => {
  * Spend per agent for a month.
  *
  * The agent is reached through `run`, since `usage_record` only knows its run.
- * Every column is table-qualified: an unqualified name inside a join resolves
- * against whichever table happens to have it, which is a silent wrong answer
- * rather than an error.
+ * 债务 E9:drizzle join 生成全限定列名——旧手写 SQL 靠人工逐列加表前缀,
+ * 漏一处就是静默错误答案。
  */
 export const monthByAgent = (db: Db, month: string): AgentSpend[] => {
-  const rows = db.all<RawTotals & { agentId: string }>(sql`
-    SELECT
-      run.agent_id AS agentId,
-      COUNT(DISTINCT usage_record.run_id) AS runs,
-      COALESCE(SUM(usage_record.input_tokens), 0) AS inputTokens,
-      COALESCE(SUM(usage_record.output_tokens), 0) AS outputTokens,
-      COALESCE(SUM(usage_record.cache_read), 0) AS cacheReadTokens,
-      COALESCE(SUM(usage_record.cost), 0) AS costMicroUsd,
-      COALESCE(SUM(usage_record.peak_cost), 0) AS peakCostMicroUsd,
-      SUM(CASE WHEN usage_record.cost IS NULL THEN 1 ELSE 0 END) AS unpriced
-    FROM usage_record
-    JOIN run ON run.id = usage_record.run_id
-    WHERE usage_record.at >= ${monthRangeMs(month).start} AND usage_record.at < ${monthRangeMs(month).end}
-    GROUP BY run.agent_id
-    ORDER BY costMicroUsd DESC, runs DESC
-  `)
+  const range = monthRangeMs(month)
+  const rows = db
+    .select({ agentId: schema.run.agentId, ...totalsSelection() })
+    .from(schema.usageRecord)
+    .innerJoin(schema.run, eq(schema.run.id, schema.usageRecord.runId))
+    .where(and(gte(schema.usageRecord.at, range.start), lt(schema.usageRecord.at, range.end)))
+    .groupBy(schema.run.agentId)
+    // 排序用裸别名(raw):drizzle 的 sql 模板会加引号,SQLite 会当成列名而非
+    // SELECT 别名("no such column: costMicroUsd")。
+    .orderBy(sql.raw('costMicroUsd DESC, runs DESC'))
+    .all()
   return rows.map((r) => ({ agentId: r.agentId, ...toTotals(r) }))
 }
 
 export const monthByModel = (db: Db, month: string): ModelSpend[] => {
-  const rows = db.all<RawTotals & { provider: string | null; model: string | null }>(sql`
-    SELECT provider, model, ${AGGREGATES}
-    FROM usage_record
-    WHERE ${inRange(monthRangeMs(month))}
-    GROUP BY provider, model
-    ORDER BY costMicroUsd DESC, runs DESC
-  `)
+  const range = monthRangeMs(month)
+  const rows = db
+    .select({ provider: schema.usageRecord.provider, model: schema.usageRecord.model, ...totalsSelection() })
+    .from(schema.usageRecord)
+    .where(and(gte(schema.usageRecord.at, range.start), lt(schema.usageRecord.at, range.end)))
+    .groupBy(schema.usageRecord.provider, schema.usageRecord.model)
+    .orderBy(sql.raw('costMicroUsd DESC, runs DESC'))
+    .all()
   return rows.map((r) => ({ provider: r.provider, model: r.model, ...toTotals(r) }))
 }
 
 /** One bucket per day that has usage, oldest first, for a bar chart. */
-export const monthByDay = (db: Db, month: string): DailySpend[] =>
-  db.all<DailySpend>(sql`
-    SELECT
-      ${localBucket('%Y-%m-%d')} AS day,
-      COALESCE(SUM(cost), 0) AS costMicroUsd,
-      COALESCE(SUM(peak_cost), 0) AS peakCostMicroUsd,
-      SUM(CASE WHEN cost IS NULL THEN 1 ELSE 0 END) AS unpriced
-    FROM usage_record
-    WHERE ${inRange(monthRangeMs(month))}
-    GROUP BY day
-    ORDER BY day ASC
-  `)
+export const monthByDay = (db: Db, month: string): DailySpend[] => {
+  const range = monthRangeMs(month)
+  const rows = db
+    .select({
+      day: localBucket('%Y-%m-%d').as('day'),
+      costMicroUsd: sql<number>`COALESCE(SUM(${schema.usageRecord.cost}), 0)`.as('costMicroUsd'),
+      peakCostMicroUsd: sql<number>`COALESCE(SUM(${schema.usageRecord.peakCost}), 0)`.as('peakCostMicroUsd'),
+      unpriced: sql<number>`SUM(CASE WHEN ${schema.usageRecord.cost} IS NULL THEN 1 ELSE 0 END)`.as('unpriced'),
+    })
+    .from(schema.usageRecord)
+    .where(and(gte(schema.usageRecord.at, range.start), lt(schema.usageRecord.at, range.end)))
+    .groupBy(localBucket('%Y-%m-%d'))
+    .orderBy(localBucket('%Y-%m-%d'))
+    .all()
+  return rows.map((r) => ({ day: r.day, costMicroUsd: r.costMicroUsd, peakCostMicroUsd: r.peakCostMicroUsd, unpriced: r.unpriced }))
+}
 
 /**
  * Spend for one local day, which is what a daily budget has to be measured on.
@@ -180,13 +186,15 @@ export const monthByDay = (db: Db, month: string): DailySpend[] =>
  * so the caller is told, and refuses to run rather than guessing.
  */
 export const daySpend = (db: Db, day: string): { costMicroUsd: number; unpriced: number } => {
-  const rows = db.all<{ costMicroUsd: number | null; unpriced: number | null }>(sql`
-    SELECT
-      COALESCE(SUM(cost), 0) AS costMicroUsd,
-      SUM(CASE WHEN cost IS NULL THEN 1 ELSE 0 END) AS unpriced
-    FROM usage_record
-    WHERE ${inRange(dayRangeMs(day))}
-  `)
+  const range = dayRangeMs(day)
+  const rows = db
+    .select({
+      costMicroUsd: sql<number>`COALESCE(SUM(${schema.usageRecord.cost}), 0)`.as('costMicroUsd'),
+      unpriced: sql<number>`SUM(CASE WHEN ${schema.usageRecord.cost} IS NULL THEN 1 ELSE 0 END)`.as('unpriced'),
+    })
+    .from(schema.usageRecord)
+    .where(and(gte(schema.usageRecord.at, range.start), lt(schema.usageRecord.at, range.end)))
+    .all()
   return { costMicroUsd: rows[0]?.costMicroUsd ?? 0, unpriced: rows[0]?.unpriced ?? 0 }
 }
 
