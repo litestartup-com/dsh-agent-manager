@@ -139,6 +139,8 @@ test('an apiproxy endpoint gets a row probed via host.describe, not /health', as
   // 蜂群2计划 P1：探测失败时版本字段为 null，不产生虚假告警
   assert.equal(body.endpoints[0]!.dshVersion, null)
   assert.equal(body.endpoints[0]!.dshCompatible, null)
+  // 债务 D5：manager 自身版本暴露（构建期注入的单一真相源）
+  assert.match(body.managerVersion, /^\d+\.\d+\.\d+$/, 'managerVersion 必须可读')
   await app.close()
 })
 

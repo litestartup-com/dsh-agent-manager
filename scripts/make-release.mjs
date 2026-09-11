@@ -7,7 +7,9 @@ import { fileURLToPath } from 'node:url'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const version = process.env.OHDSH_VERSION ?? 'v1.0.3'
+// 债务 D5:版本号唯一真相源 = package.json;环境变量只作显式覆盖。
+const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+const version = process.env.OHDSH_VERSION ?? `v${pkg.version}`
 const nodeImage = process.env.DSH_NODE_IMAGE ?? 'ohdsh/dsh-node:0.1.2-rc.1'
 const managerImage = process.env.MANAGER_IMAGE ?? `ohdsh/manager:${version.replace(/^v/, '')}`
 const releaseDir = join(root, 'dist-release')

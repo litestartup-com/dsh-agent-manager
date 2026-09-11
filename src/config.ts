@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { DEFAULT_PRICING, parseUtcTime, type ModelPricing, type PricingTable } from './pricing.js'
 import { USD_TO_MICRO } from './usage/store.js'
 import type { ValidateRules } from './workspace/validate.js'
+import { envSchema } from './env.js'
 
 dotenv.config()
 
@@ -310,10 +311,15 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
   }
   const file = parsed.data
 
-  const sessionSecret = process.env.SESSION_SECRET ?? ''
-  if (sessionSecret.length < 32) {
-    throw new Error('SESSION_SECRET must be set to at least 32 characters (see .env.example)')
+  // 债务 D5:env 集中 zod 校验(boot 一次 fail loud)——旧实现只手工查
+  // SESSION_SECRET 长度,其余变量零校验。key_ref 动态寻址的 GW_KEY_* 仍由
+  // 下方端点解析逐个校验非空。
+  const parsedEnv = envSchema.safeParse(process.env)
+  if (!parsedEnv.success) {
+    const detail = parsedEnv.error.issues.map((i) => `  ${i.path.join('.') || '(root)'}: ${i.message}`).join('\n')
+    throw new Error(`invalid environment:\n${detail}`)
   }
+  const sessionSecret = parsedEnv.data.SESSION_SECRET
 
   const endpoints: Record<string, ResolvedEndpoint> = {}
   for (const [id, ep] of Object.entries(file.endpoints)) {

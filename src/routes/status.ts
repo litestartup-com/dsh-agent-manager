@@ -9,6 +9,8 @@ import type { SessionDriver } from '../session-driver/port.js'
 import { listArchivedChats, listChats } from '../chat/store.js'
 import { activeRunCount, runningRunId } from '../runner.js'
 import { currentMonth, monthByAgent } from '../usage/store.js'
+// 债务 D5:manager 自身版本(构建期注入,与 DSH 兼容版本 COMPAT_DSH_VERSION 勿混淆)
+import { MANAGER_VERSION } from '../version.js'
 
 export interface EndpointStatus {
   id: string
@@ -157,7 +159,7 @@ export const registerStatusRoutes = (
     // Boot-time warnings were only ever written to the log, where nobody sees
     // them again. Things like "these agents share one DSH sandbox root" need to
     // be visible in the UI for as long as they remain true.
-    return reply.send({ endpoints, agents, warnings: config.warnings })
+    return reply.send({ endpoints, agents, warnings: config.warnings, managerVersion: MANAGER_VERSION })
   })
 
   /**

@@ -23,7 +23,8 @@ ensure MANAGER_USERNAME "admin"
 # 尊重 install.sh/环境传入的口令；未提供才随机生成
 ensure MANAGER_INITIAL_PASSWORD "${MANAGER_PASSWORD:-$(openssl rand -hex 8)}"
 ensure DSH_NODE_IMAGE "ohdsh/dsh-node:0.1.2-rc.1"
-ensure MANAGER_VERSION "1.0.3"
+# 债务 D5:版本号唯一真相源 = package.json(与 build 的 inject-version 同源)
+ensure MANAGER_VERSION "$(node -p "require('./package.json').version" 2>/dev/null || echo 0.0.0)"
 # 债务 H1：manager 容器经 group_add 加入宿主 docker 组才能访问 docker.sock。
 # 探测不到（本机未装 docker）落 0——compose 启动会因权限失败而显性报错。
 DOCKER_GID_DETECTED="$(getent group docker | cut -d: -f3 2>/dev/null || true)"
