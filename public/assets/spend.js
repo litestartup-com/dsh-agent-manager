@@ -1,6 +1,6 @@
 // Plain fetch + DOM, matching the rest of the front end: no build step.
 
-import { $, esc, moneyAdaptive, apiFetch } from './ui.js'
+import { $, esc, moneyAdaptive, apiFetch, banner, bannerHtml } from './ui.js'
 
 // 金额显示走 ui.js 的 moneyAdaptive(债务 F2 收口):$0 / <1 分 4 位 / <$1 3 位 / 其余 2 位。
 // 一个回合花费只有几厘,固定 2 位会把一整天的工作显示成 "$0.00"。
@@ -131,15 +131,17 @@ const renderModels = (rows) => {
  */
 const renderBanners = (data) => {
   const missing = data.byModel.filter((m) => !m.rateConfigured && m.runs > 0)
+  // 债务 F6:手写 banner 收敛进 ui.js 的 bannerHtml(body 预转义,可带 <code> 等内联标签)
   $('banners').innerHTML =
     missing.length === 0
       ? ''
-      : `<div class="banner warn">
-           <strong>有 ${missing.length} 个模型没有配置单价</strong>
-           <div class="body">${esc(missing.map((m) => m.model ?? '(未知)').join('、'))} 的运行只记录了 token，没有金额。
-              在 <code>manager.config.yaml</code> 的 <code>pricing.models</code> 下补上单价后，
-              新的运行就会计费（已有记录不会自动回填）。</div>
-         </div>`
+      : bannerHtml({
+          level: 'warn',
+          title: `有 ${missing.length} 个模型没有配置单价`,
+          body: `${esc(missing.map((m) => m.model ?? '(未知)').join('、'))} 的运行只记录了 token，没有金额。
+             在 <code>manager.config.yaml</code> 的 <code>pricing.models</code> 下补上单价后，
+             新的运行就会计费（已有记录不会自动回填）。`,
+        })
 }
 
 // ---------------------------------------------------------------------------
@@ -154,7 +156,8 @@ const load = async (month) => {
     return
   }
   if (!res.ok) {
-    $('banners').innerHTML = `<div class="banner bad"><strong>读取花费失败</strong><div class="body">HTTP ${esc(res.status)}</div></div>`
+    // 债务 F6:错误 banner 同样走共享 helper(banner 自动 esc)
+    $('banners').innerHTML = banner('bad', '读取花费失败', `HTTP ${res.status}`)
     return
   }
   const data = await res.json()
