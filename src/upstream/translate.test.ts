@@ -5,7 +5,7 @@ import {
   createSessionParams, promptParams, cancelParams, historyParams,
   extractProjectionUsage, extractProjectionTitle,
   questionRequestedFrame, questionResolvedFrame, approvalRequestedFrame, approvalResolvedFrame,
-  unwrapHistoryEvents, mapSessionList,
+  unwrapHistoryEvents, mapSessionList, goalOf, goalProjectionFrame,
   type MuxFrame,
 } from './translate.js'
 
@@ -383,5 +383,45 @@ describe('mapSessionList', () => {
   it('returns [] for malformed values', () => {
     assert.deepEqual(mapSessionList(null), [])
     assert.deepEqual(mapSessionList({ sessions: [] }), [])
+  })
+})
+
+// ---- goal 投影（Ongoing Goal 条，2026-09-11） ----
+
+describe('goalOf', () => {
+  it('parses an active goal', () => {
+    assert.deepEqual(goalOf({ id: 'g1', objective: '发布 v1', phase: 'active', revision: 2, maxGoalRounds: 8 }), {
+      id: 'g1', objective: '发布 v1', phase: 'active', blockedReason: null,
+    })
+  })
+
+  it('carries the blocked reason only for blocked goals', () => {
+    assert.deepEqual(goalOf({ id: 'g2', objective: '迁移', phase: 'blocked', revision: 3, maxGoalRounds: 4, blockedReason: { code: 'stalled', message: '三轮无进展' } }), {
+      id: 'g2', objective: '迁移', phase: 'blocked', blockedReason: '三轮无进展',
+    })
+  })
+
+  it('returns null for null, malformed shapes, and unknown phases', () => {
+    assert.equal(goalOf(null), null)
+    assert.equal(goalOf('nope'), null)
+    assert.equal(goalOf({ id: 'g3', objective: 'x', phase: 'weird' }), null)
+    assert.equal(goalOf({ id: 'g4', objective: 7, phase: 'active' }), null)
+  })
+})
+
+describe('goalProjectionFrame', () => {
+  it('maps a session/projection goal frame', () => {
+    const frame = goalProjectionFrame({ type: 'session/projection', sessionId: 's1', key: 'goal', value: { id: 'g1', objective: '上线', phase: 'active', revision: 1, maxGoalRounds: 8 }, seq: 41 })
+    assert.deepEqual(frame, { kind: 'goal', seq: 41, goal: { id: 'g1', objective: '上线', phase: 'active', blockedReason: null } })
+  })
+
+  it('passes a cleared goal through as goal:null', () => {
+    const frame = goalProjectionFrame({ type: 'session/projection', sessionId: 's1', key: 'goal', value: null, seq: 42 })
+    assert.deepEqual(frame, { kind: 'goal', seq: 42, goal: null })
+  })
+
+  it('returns null for other projection keys and frame types', () => {
+    assert.equal(goalProjectionFrame({ type: 'session/projection', sessionId: 's1', key: 'title', value: 'x', seq: 1 }), null)
+    assert.equal(goalProjectionFrame({ type: 'session/event', sessionId: 's1', key: 'goal', value: {}, seq: 1 }), null)
   })
 })

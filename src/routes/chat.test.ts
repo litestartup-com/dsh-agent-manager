@@ -260,6 +260,50 @@ test('composer passes a host-derived full-access mode through (no pin involved)'
 })
 
 // ---------------------------------------------------------------------------
+// Ongoing Goal 条（2026-09-11：宿主 goal 投影 → 历史与直播两条路径）
+// ---------------------------------------------------------------------------
+
+test('a host goal projection is reported in the chat state', async () => {
+  const upstream = new FakeSessionDriver('A', {
+    frames: [],
+    goal: { id: 'g1', objective: '把文档站点发布上线', phase: 'active', blockedReason: null },
+  })
+  const { base, db } = await boot({ frames: [] }, upstream)
+  const chatId = await newChat(base)
+  bindSession(db, chatId, 'fake-1')
+
+  const state = (await (await fetch(`${base}/api/chats/${chatId}`)).json()) as { goal?: { id?: string; objective?: string; phase?: string } }
+  assert.deepEqual(state.goal, { id: 'g1', objective: '把文档站点发布上线', phase: 'active', blockedReason: null })
+})
+
+test('a goal projection frame reaches the browser relay', async () => {
+  const goal = { id: 'g2', objective: '迁移到 0.1.2', phase: 'active', blockedReason: null }
+  const { base } = await boot({
+    frames: [
+      { kind: 'goal', seq: 7, goal },
+      { kind: 'message', text: '好。', reasoning: null, usage: { inputTokens: 1, outputTokens: 1 } },
+      { kind: 'turn_end', turn: 1, reason: 'completed', detail: null },
+    ],
+  })
+  const chatId = await newChat(base)
+
+  const stream = await fetch(`${base}/api/chats/${chatId}/events`)
+  const collected = collectFrames(stream, (f) => f.kind === 'turn_done')
+
+  const sent = await fetch(`${base}/api/chats/${chatId}/messages`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: '开始迁移' }),
+  })
+  assert.equal(sent.status, 202)
+
+  const frames = await collected
+  const goals = frames.filter((f) => f.kind === 'goal')
+  assert.equal(goals.length, 1)
+  assert.deepEqual(goals[0]?.goal, goal)
+})
+
+// ---------------------------------------------------------------------------
 // the relay
 // ---------------------------------------------------------------------------
 

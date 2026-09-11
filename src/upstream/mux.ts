@@ -30,6 +30,7 @@ import {
   muxFrameToGatewayFrame,
   questionRequestedFrame, questionResolvedFrame,
   approvalRequestedFrame, approvalResolvedFrame,
+  goalProjectionFrame,
 } from './translate.js'
 
 export type MuxListener = (sessionId: string, frame: GatewayFrame) => void
@@ -150,8 +151,14 @@ const dispatch = (conn: MuxConnection, env: WireEnvelope): void => {
       emit(conn, sessionId, approvalResolvedFrame(payload, decisionId))
       return
     }
+    case 'session/projection': {
+      // goal 投影 → Ongoing Goal 条（2026-09-11）；其余 key 仍丢弃。
+      const gw = goalProjectionFrame(payload)
+      if (gw !== null) emit(conn, sessionId, gw)
+      return
+    }
     default:
-      // session/subscribed、session/queue、session/jobs、session/projection 等：
+      // session/subscribed、session/queue、session/jobs 等：
       // 不转成 GatewayFrame（投影另有 extract 函数；其余对本驱动无意义）。
       return
   }

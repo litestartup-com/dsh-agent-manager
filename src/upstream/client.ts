@@ -16,7 +16,8 @@ import { subscribe, closeAllMux, type MuxListener } from './mux.js'
 import {
   mapEvents, createSessionParams, promptParams,
   cancelParams, historyParams,
-  unwrapHistoryEvents, mapSessionList,
+  unwrapHistoryEvents, mapSessionList, goalOf,
+  type UpstreamGoal,
 } from './translate.js'
 import { compactHistory } from '../chat/replay.js'
 
@@ -53,6 +54,8 @@ export interface UpstreamSessionHistory {
   title: string | null
   events: HistoryEvent[]
   composer: UpstreamComposerState
+  /** 宿主 goal 投影（Ongoing Goal 条）；无目标/形状不符 = null。 */
+  goal: UpstreamGoal | null
 }
 
 const recordOf = (value: unknown): Record<string, unknown> | null =>
@@ -252,11 +255,12 @@ export class UpstreamClient implements SessionDriver {
     const events = compactHistory(mapEvents(unwrapHistoryEvents(v)))
     const title = typeof v.projections?.values?.title === 'string' ? v.projections.values.title : null
     const composer = composerStateOf(v.projections?.values)
+    const goal = goalOf(v.projections?.values?.goal)
     // apiproxy doesn't have the adopted/live distinction; any session that
     // answers history is readable. Whether it's "live" depends on whether
     // the agent is currently attached, but for our purposes cold sessions
     // are auto-resumed by prompt, so we always report 'cold'.
-    return { sessionId, sessionState: 'cold', title, events, composer }
+    return { sessionId, sessionState: 'cold', title, events, composer, goal }
   }
 
   async listSessions(): Promise<Array<{ sessionId: string; title?: string }>> {

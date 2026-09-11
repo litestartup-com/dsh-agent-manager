@@ -236,6 +236,41 @@ export const extractProjectionTitle = (frame: MuxFrame): { sessionId: string; ti
   return { sessionId: frame.sessionId, title: frame.value }
 }
 
+// ---- goal 投影 → Ongoing Goal 条（2026-09-11：DSH web 的 GoalBar 同源数据） ----
+
+/**
+ * 宿主 `goal` 投影的 wire 形状（GoalProjection | null）中 manager 需要的部分。
+ * phase=complete 时前端不渲染；blockedReason 仅 phase=blocked 时非空。
+ */
+export interface UpstreamGoal {
+  id: string
+  objective: string
+  phase: 'active' | 'paused' | 'blocked' | 'complete'
+  blockedReason: string | null
+}
+
+/** 解析 goal 投影 wire 值；形状不符返回 null（前端视为无目标）。 */
+export const goalOf = (value: unknown): UpstreamGoal | null => {
+  if (value === null || typeof value !== 'object') return null
+  const source = value as Record<string, unknown>
+  const { id, objective, phase } = source
+  if (typeof id !== 'string' || typeof objective !== 'string') return null
+  if (phase !== 'active' && phase !== 'paused' && phase !== 'blocked' && phase !== 'complete') return null
+  const reason = source.blockedReason
+  const message = reason !== null && typeof reason === 'object' ? (reason as Record<string, unknown>).message : null
+  return { id, objective, phase, blockedReason: typeof message === 'string' ? message : null }
+}
+
+/**
+ * `session/projection` key=goal 帧 → `{kind:'goal'}` GatewayFrame；
+ * 其它 key 或形状不符返回 null（dispatch 丢弃）。
+ */
+export const goalProjectionFrame = (payload: MuxFrame): GatewayFrame | null => {
+  if (payload.type !== 'session/projection' || payload.key !== 'goal') return null
+  const seq = typeof payload.seq === 'number' ? payload.seq : 0
+  return { kind: 'goal', seq, goal: goalOf(payload.value) }
+}
+
 // ---- mux 问答/授权帧 → GatewayFrame（供 runner 与浏览器消费） ----
 
 /**

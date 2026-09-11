@@ -10,6 +10,7 @@
 import type { SessionDriver } from './port.js'
 import type { MuxListener } from '../upstream/mux.js'
 import type { UpstreamCreatedSession, UpstreamSessionHistory } from '../upstream/client.js'
+import type { UpstreamGoal } from '../upstream/translate.js'
 import type { RpcReceipt } from '../upstream/respond.js'
 import type { GatewayFrame } from '../gateway/stream.js'
 
@@ -31,6 +32,8 @@ export interface FakeScript {
   fullAccess?: boolean
   /** 脚本可控：setSandboxMode 抛 session_not_live（模拟会话转冷的 409）。 */
   sandboxNotLive?: boolean
+  /** 脚本可控：host goal 投影（history 里的 goal 字段）。 */
+  goal?: UpstreamGoal | null
   models?: {
     current: { provider: string; model: string; reasoningEffort?: string } | null
     routable: boolean
@@ -116,6 +119,7 @@ export class FakeSessionDriver implements SessionDriver {
           : { ...this.script.composer.context, breakdown: this.script.composer.context.breakdown ?? null, percent: Math.round(this.script.composer.context.usedTokens / this.script.composer.context.contextWindow * 100) },
         accessMode: this.script.composer?.accessMode ?? null,
       },
+      goal: this.script.goal ?? null,
     }
   }
 

@@ -51,6 +51,7 @@ const el = {
   send: $('chat-send'),
   stop: $('chat-stop'),
   queue: $('chat-queue'),
+  goalBar: $('goal-bar'),
   hint: $('composer-hint'),
   toast: $('chat-toast'),
 }
@@ -1368,6 +1369,37 @@ const renderNotices = () => {
 
   el.notices.innerHTML = out.join('')
   renderQueueDock()
+  renderGoalBar()
+}
+
+// ---------------------------------------------------------------------------
+// Ongoing Goal 条（DSH web 同款：读宿主 goal 投影，仅显示不操作）
+// ---------------------------------------------------------------------------
+
+const GOAL_PHASES = {
+  active: '进行中的目标',
+  paused: '已暂停的目标',
+  blocked: '受阻的目标',
+}
+
+const renderGoalBar = () => {
+  if (el.goalBar === null) return
+  const goal = state?.goal ?? null
+  // 无目标、目标已完成（或投影形状不符）都不占地方——与 DSH web 一致。
+  if (goal === null || goal === undefined || goal.phase === 'complete' || typeof goal.objective !== 'string') {
+    el.goalBar.hidden = true
+    el.goalBar.innerHTML = ''
+    return
+  }
+  const label = GOAL_PHASES[goal.phase] ?? '目标'
+  const blocked = goal.phase === 'blocked' && typeof goal.blockedReason === 'string' && goal.blockedReason !== ''
+    ? goal.blockedReason
+    : null
+  el.goalBar.hidden = false
+  el.goalBar.innerHTML =
+    `<span class="goal-glyph">${icon('spark', 14)}</span>` +
+    `<span class="goal-label"${blocked === null ? '' : ` title="${esc(blocked)}"`}>${esc(label)}</span>` +
+    `<span class="goal-objective" title="${esc(goal.objective)}">${esc(goal.objective)}</span>`
 }
 
 /**
@@ -1684,8 +1716,10 @@ const load = async () => {
       const started = queuedItems.shift()
       pendingUserTexts.push(started)
     }
+    // goal 帧不是转录帧：直接落状态，不进 blocks。
+    if (f.kind === 'goal') state.goal = f.goal ?? null
   }
-  blocks = pendingFrames.filter((f) => f.kind !== 'turn_queued').reduce((list, frame) => reduce(list, frame), rebuilt)
+  blocks = pendingFrames.filter((f) => f.kind !== 'turn_queued' && f.kind !== 'goal').reduce((list, frame) => reduce(list, frame), rebuilt)
   asks.clear()
   for (const frame of pendingFrames) trackAsks(frame)
   buffered = []
@@ -1757,6 +1791,11 @@ const connect = () => {
     if (frame.kind === 'hello') return
     if (frame.kind === 'composer_state' && state !== null) {
       state.composer = { ...(state.composer ?? {}), ...frame }
+      render()
+      return
+    }
+    if (frame.kind === 'goal' && state !== null) {
+      state.goal = frame.goal ?? null
       render()
       return
     }

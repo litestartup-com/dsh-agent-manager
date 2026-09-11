@@ -89,6 +89,44 @@
   background: var(--chat-bg);
 }
 
+/* Ongoing Goal 条（DSH web 同款）：一行 = 图标 + 阶段标签 + 目标文字省略 */
+.goal-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--chat-composer-w);
+  margin: 0 auto 8px;
+  padding: 7px 14px;
+  border: 1px solid var(--chat-line);
+  border-radius: 14px;
+  background: var(--chat-bg);
+  font-size: 13px;
+}
+
+.goal-glyph {
+  flex: none;
+  display: inline-flex;
+  color: var(--accent, #3a5ccc);
+}
+
+.goal-label {
+  flex: none;
+  font-weight: 600;
+  color: var(--text, #1f2329);
+  white-space: nowrap;
+}
+
+.goal-objective {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-soft, #5a6472);
+}
+
 .queue-row {
   display: flex;
   align-items: center;

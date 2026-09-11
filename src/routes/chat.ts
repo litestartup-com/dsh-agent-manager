@@ -11,6 +11,7 @@ import { errorText } from '../errors.js'
 import type { GatewayFrame } from '../gateway/stream.js'
 import type { SessionDriver } from '../session-driver/port.js'
 import type { UpstreamComposerState } from '../upstream/client.js'
+import type { UpstreamGoal } from '../upstream/translate.js'
 import { UpstreamError } from '../upstream/rpc.js'
 import { activeRunCount, runAgent, runningRunId, type RunOutcome } from '../runner.js'
 import { cancelQueuedTurn, cancelQueuedTurns, drainChatQueue, enqueueTurn } from '../chat/queue.js'
@@ -163,7 +164,7 @@ export const registerChatRoutes = (
   // 债务 B2(半项):容量上限 LRU + 惰性 TTL——旧裸 Map 无上限,大量
   // 「读过一次不再跑」的会话会让最贵的对象(整段历史数组)单调增长。
 
-  interface CachedHistory { events: HistoryEvent[]; sessionState: string; title: string | null; composer: UpstreamComposerState }
+  interface CachedHistory { events: HistoryEvent[]; sessionState: string; title: string | null; composer: UpstreamComposerState; goal: UpstreamGoal | null }
   const historyCache = new HistoryCache<CachedHistory>({ max: 200, ttlMs: 30_000 }) // cold sessions don't change; 30s is safe
   const liveFrames = new Map<string, Array<Record<string, unknown>>>()
   const rememberLiveFrame = (chatId: string, frame: Record<string, unknown>): void => {
@@ -315,11 +316,12 @@ export const registerChatRoutes = (
     }
 
     if (chat.dshSessionId === null) {
-      return reply.header('cache-control', 'no-store').send({ ...base, sessionState: 'fresh', events: [], composer: { ...withEffectiveAccess(composer), capabilities } })
+      return reply.header('cache-control', 'no-store').send({ ...base, sessionState: 'fresh', events: [], goal: null, composer: { ...withEffectiveAccess(composer), capabilities } })
     }
 
     let events: HistoryEvent[] = []
     let sessionState = 'cold'
+    let goal: UpstreamGoal | null = null
     const t0 = Date.now()
 
     // Check cache first — DSH session log reads are expensive (~6s for large sessions).
@@ -328,6 +330,7 @@ export const registerChatRoutes = (
       events = cached.events
       sessionState = cached.sessionState
       composer = cached.composer
+      goal = cached.goal
       if (cached.title !== null && cached.title !== '') renameChat(db, chat.id, cached.title)
       app.log.info(`GET /api/chats/${chat.id}: history CACHED ${Date.now() - t0}ms, ${events.length} events`)
     } else {
@@ -339,8 +342,9 @@ export const registerChatRoutes = (
           events = history.events
           sessionState = history.sessionState
           composer = history.composer
+          goal = history.goal
           if (history.title !== null && history.title !== '') renameChat(db, chat.id, history.title)
-          historyCache.set(chat.dshSessionId, { events, sessionState, title: history.title, composer })
+          historyCache.set(chat.dshSessionId, { events, sessionState, title: history.title, composer, goal })
         } else {
           // Read-only and does not wake the session, so opening an old chat costs
           // nothing on the gateway.
@@ -352,7 +356,7 @@ export const registerChatRoutes = (
           // The gateway names sessions itself; prefer its title over our guess.
           const title = history.header?.title
           if (typeof title === 'string' && title !== '') renameChat(db, chat.id, title)
-          historyCache.set(chat.dshSessionId, { events, sessionState, title: title ?? null, composer })
+          historyCache.set(chat.dshSessionId, { events, sessionState, title: title ?? null, composer, goal: null })
         }
         app.log.info(`GET /api/chats/${chat.id}: history ${driver} ${Date.now() - t0}ms, ${events.length} events`)
       } catch (error) {
@@ -371,7 +375,7 @@ export const registerChatRoutes = (
     }
 
     const refreshed = getChat(db, chat.id) ?? chat
-    return reply.header('cache-control', 'no-store').send({ ...base, chat: refreshed, sessionState, events, composer: { ...withEffectiveAccess(composer), capabilities } })
+    return reply.header('cache-control', 'no-store').send({ ...base, chat: refreshed, sessionState, events, goal, composer: { ...withEffectiveAccess(composer), capabilities } })
   })
 
   app.patch<{ Params: { id: string }; Body: unknown }>(
