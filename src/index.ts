@@ -218,7 +218,8 @@ const main = async (): Promise<void> => {
   registerWorkspaceRoutes(app, config, requireUser)
   registerRunRoutes(app, config, db, clients, requireUser, upstreamClients)
   registerBoardRoutes(app, config, requireUser)
-  registerChatRoutes(app, config, db, clients, requireUser, upstreamClients)
+  registerChatRoutes(app, config, db, clients, requireUser, upstreamClients, (actor, kind, detail) =>
+    recordAudit(db, { actor, kind, detail }))
   registerUsageRoutes(app, config, db, requireUser)
 
   const scheduler = new Scheduler({

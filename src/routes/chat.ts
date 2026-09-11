@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyReply, preHandlerHookHandler } from 'fasti
 import { count, desc, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import type { AppConfig, ResolvedAgent } from '../config.js'
+import type { AuditKind } from '../audit.js'
 import type { Db } from '../db/index.js'
 import { schema } from '../db/index.js'
 import { GatewayError, dummyGatewayClient, type GatewayClient, type HistoryEvent, type QuestionAnswer } from '../gateway/client.js'
@@ -44,7 +45,7 @@ const sendBody = z.object({ text: z.string().min(1, 'a message is required').max
 const renameBody = z.object({ title: z.string().min(1).max(200) })
 const createBody = z.object({ agentId: z.string().min(1) })
 const modelBody = z.object({ provider: z.string().min(1), model: z.string().min(1), reasoningEffort: z.string().min(1).optional() })
-const sandboxModeBody = z.object({ mode: z.enum(['read-only', 'workspace-write']) })
+const sandboxModeBody = z.object({ mode: z.enum(['read-only', 'workspace-write', 'danger-full-access']) })
 
 /**
  * Browsers watching one chat.
@@ -115,6 +116,8 @@ export const registerChatRoutes = (
   clients: Map<string, GatewayClient>,
   requireUser: preHandlerHookHandler,
   upstreamClients?: Map<string, SessionDriver>,
+  /** 审计回调（全量沙箱切换留痕用；测试可不传）。 */
+  audit?: (actor: string, kind: AuditKind, detail: string) => void,
 ): void => {
   const agentOf = (chatAgentId: string): ResolvedAgent | undefined => config.agents[chatAgentId]
 
@@ -276,6 +279,9 @@ export const registerChatRoutes = (
     const capabilities = {
       modelSelection: upstream?.modelCatalog !== undefined && upstream.selectModel !== undefined,
       accessMode: upstream?.canSetSandboxMode?.() === true && upstream.setSandboxMode !== undefined,
+      // 第三档权限（danger-full-access）：节点开锁才为 true；形态用于 UI 风险文案。
+      fullAccess: await upstream?.allowsFullAccess?.().catch(() => false) ?? false,
+      fullAccessForm: config.endpoints[agent.endpoint]?.spawn?.runner === 'docker' ? 'container' : 'bare-metal',
     }
     let composer: UpstreamComposerState = { model: null, context: null, accessMode: null }
 
@@ -763,6 +769,10 @@ export const registerChatRoutes = (
       await found.upstream.setSandboxMode(found.chat.dshSessionId, parsed.data.mode)
       invalidateHistory(found.chat.dshSessionId)
       publish(found.chat.id, { kind: 'composer_state', accessMode: parsed.data.mode })
+      // 全量沙箱切换留痕：用户决策 + 事后可追溯（2026-09-11 拍板）。
+      if (parsed.data.mode === 'danger-full-access') {
+        audit?.(request.currentUser?.username ?? 'unknown', 'sandbox_mode', `会话 ${found.chat.id} 开启全量沙箱（danger-full-access）`)
+      }
       return reply.send({ accessMode: parsed.data.mode })
     } catch (error) {
       return reply.code(502).send({ error: 'access_mode_failed', detail: errorText(error) })

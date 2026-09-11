@@ -14,6 +14,7 @@ export type AuditKind =
   | 'node_up'
   | 'node_down'
   | 'node_restart'
+  | 'sandbox_mode'
   | 'backup'
 
 export const recordAudit = (db: Db, entry: { actor: string; kind: AuditKind; detail: string }): void => {

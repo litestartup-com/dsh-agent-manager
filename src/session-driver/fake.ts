@@ -27,6 +27,8 @@ export interface FakeScript {
     context?: { usedTokens: number; contextWindow: number; breakdown?: { systemTokens: number; toolsTokens: number; messageTokens: number } } | null
     accessMode?: 'read-only' | 'workspace-write' | null
   }
+  /** 脚本可控：全量沙箱开锁状态（capabilities.fullAccess）。 */
+  fullAccess?: boolean
   models?: {
     current: { provider: string; model: string; reasoningEffort?: string } | null
     routable: boolean
@@ -150,6 +152,11 @@ export class FakeSessionDriver implements SessionDriver {
 
   async release(sessionId: string): Promise<void> {
     this.released.push(sessionId)
+  }
+
+  /** 脚本可控的全量沙箱开锁状态（测试 capabilities.fullAccess 用）。 */
+  async allowsFullAccess(): Promise<boolean> {
+    return this.script.fullAccess === true
   }
 
   async probeVersion(): Promise<string> {

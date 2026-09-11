@@ -75,7 +75,7 @@ const agentSchema = z.object({
   preset: z.string().optional(),
   // 蜂群 P0：按会话沙箱模式（经 gateway sandbox-mode 路由）。缺省 = 不覆盖，
   // 沿用 DSH 部署默认。
-  sandbox_mode: z.enum(['read-only', 'workspace-write']).optional(),
+  sandbox_mode: z.enum(['read-only', 'workspace-write', 'danger-full-access']).optional(),
   git_remote: z.string().optional(),
   // Left unset, the DSH profile's own default applies. Set per agent so a
   // cheap model can handle dictation while a stronger one writes the weekly
@@ -218,7 +218,7 @@ export interface ResolvedAgent {
   workspacePath: string
   public: boolean
   preset: string | null
-  sandboxMode: 'read-only' | 'workspace-write' | null
+  sandboxMode: 'read-only' | 'workspace-write' | 'danger-full-access' | null
   gitRemote: string | null
   provider: string | null
   model: string | null

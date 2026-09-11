@@ -188,7 +188,7 @@ export class UpstreamClient implements SessionDriver {
     return this.sandboxBase !== null
   }
 
-  async setSandboxMode(sessionId: string, mode: 'read-only' | 'workspace-write'): Promise<void> {
+  async setSandboxMode(sessionId: string, mode: 'read-only' | 'workspace-write' | 'danger-full-access'): Promise<void> {
     if (this.sandboxBase === null) {
       throw new UpstreamError('sandbox_unconfigured', `endpoint ${this.id}: no sandbox_base configured`)
     }
@@ -271,6 +271,15 @@ export class UpstreamClient implements SessionDriver {
   async probeVersion(): Promise<string> {
     const result = await rpc<{ version?: string }>(this.ep, 'host.describe', {}, { timeoutMs: 5_000 })
     return typeof result.result.value.version === 'string' ? result.result.value.version : 'unknown'
+  }
+
+  /**
+   * 节点是否开锁全量沙箱（host.describe 的 allowFullAccess）——UI 第三档权限
+   * 的诚实开关：没开锁时 manager 不提供全量选项（2026-09-11 拍板）。
+   */
+  async allowsFullAccess(): Promise<boolean> {
+    const result = await rpc<{ allowFullAccess?: unknown }>(this.ep, 'host.describe', {}, { timeoutMs: 5_000 })
+    return result.result.value.allowFullAccess === true
   }
 
   // ---- mux ----

@@ -93,10 +93,11 @@ const openDropdown = (button) => {
   optionsPanel.replaceChildren(...entry.options.map((option) => {
     const row = document.createElement('div')
     const selected = option.value === entry.value
-    row.className = `composer-option${selected ? ' selected' : ''}`
+    row.className = `composer-option${selected ? ' selected' : ''}${option.danger === true ? ' danger' : ''}${option.locked === true ? ' locked' : ''}`
     row.setAttribute('role', 'option')
     row.setAttribute('aria-selected', String(selected))
     row.dataset.value = option.value
+    if (option.locked === true) row.dataset.locked = '1'
     row.innerHTML = `<span>${option.label}</span>${selected ? CHECK_SVG : ''}`
     row.tabIndex = -1
     return row
@@ -122,6 +123,7 @@ const registerDropdown = (button, onPick) => {
 optionsPanel.addEventListener('click', (event) => {
   const row = event.target.closest('.composer-option')
   if (row === null || openDropdownBtn === null) return
+  if (row.dataset.locked === '1') return
   const entry = dropdownState.get(openDropdownBtn)
   if (entry === undefined) return
   entry.value = row.dataset.value
@@ -1461,11 +1463,12 @@ const renderComposer = () => {
   if (el.access !== null) {
     el.access.disabled = lost || fresh || sending || turnRunning || capabilities.accessMode !== true
     el.access.title = fresh ? '发送第一条消息后即可切换访问模式' : turnRunning ? '当前回合结束后可切换' : ''
+    if (typeof syncAccessOptions === 'function') syncAccessOptions()
     if (composer.accessMode !== null) {
       const entry = dropdownState.get(el.access)
       if (entry !== undefined) {
         entry.value = composer.accessMode
-        setDropdownLabel(el.access, composer.accessMode === 'workspace-write' ? '工作区可写' : '只读')
+        setDropdownLabel(el.access, composer.accessMode === 'workspace-write' ? '工作区可写' : composer.accessMode === 'danger-full-access' ? '全量访问' : '只读')
       }
     }
   }
@@ -1887,9 +1890,34 @@ el.composer.addEventListener('submit', (event) => {
   void send()
 })
 
+// 全量访问的确认文案按部署形态区分（爆炸半径不同，2026-09-11 拍板）。
+const FULL_WARNINGS = {
+  container: '容器内全量访问：agent 可读写容器内所有文件与工作区挂载。仅在完全信任该 agent 时开启。确定开启？',
+  'bare-metal': '整台机器的全量访问：agent 可读写本机所有文件，包括本 manager 的密钥文件（.env）。仅在完全信任该 agent 时开启。确定开启？',
+}
+const ACCESS_SAFE = [
+  { value: 'read-only', label: '只读' },
+  { value: 'workspace-write', label: '工作区可写' },
+]
+
+/** 第三档选项随节点开锁状态变化：开锁 = 可选；未开锁 = 展示但锁定并说明。 */
+const syncAccessOptions = () => {
+  if (el.access === null) return
+  const entry = dropdownState.get(el.access)
+  if (entry === undefined) return
+  const caps = state?.composer?.capabilities ?? {}
+  entry.options = caps.fullAccess === true
+    ? [...ACCESS_SAFE, { value: 'danger-full-access', label: '全量访问', danger: true }]
+    : [...ACCESS_SAFE, { value: 'danger-full-access', label: '全量访问 · 节点未开启', danger: true, locked: true }]
+}
+
 if (el.access !== null) {
   registerDropdown(el.access, (mode) => {
-    if (mode !== 'read-only' && mode !== 'workspace-write') return
+    if (mode !== 'read-only' && mode !== 'workspace-write' && mode !== 'danger-full-access') return
+    if (mode === 'danger-full-access') {
+      const form = state?.composer?.capabilities?.fullAccessForm ?? 'bare-metal'
+      if (!window.confirm(FULL_WARNINGS[form] ?? FULL_WARNINGS['bare-metal'])) return
+    }
     void (async () => {
       el.access.disabled = true
       try {
@@ -1912,13 +1940,9 @@ if (el.access !== null) {
       render()
     })()
   })
-  // 初始选项（只读/工作区可写）+ 默认值
   const accEntry = dropdownState.get(el.access)
   if (accEntry !== undefined) {
-    accEntry.options = [
-      { value: 'read-only', label: '只读' },
-      { value: 'workspace-write', label: '工作区可写' },
-    ]
+    syncAccessOptions()
     accEntry.value = 'read-only'
   }
 }

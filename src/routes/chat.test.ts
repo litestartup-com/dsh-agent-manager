@@ -170,11 +170,11 @@ test('composer state exposes context, model selection, and restricted access con
 
   const current = await fetch(`${base}/api/chats/${chatId}`)
   assert.equal(current.status, 200)
-  const state = await current.json() as { composer?: { context?: { percent: number }; model?: { model: string }; accessMode?: string; capabilities?: { modelSelection: boolean; accessMode: boolean } } }
+  const state = await current.json() as { composer?: { context?: { percent: number }; model?: { model: string }; accessMode?: string; capabilities?: { modelSelection: boolean; accessMode: boolean; fullAccess: boolean; fullAccessForm: string } } }
   assert.equal(state.composer?.context?.percent, 25)
   assert.equal(state.composer?.model?.model, 'chat')
   assert.equal(state.composer?.accessMode, 'workspace-write')
-  assert.deepEqual(state.composer?.capabilities, { modelSelection: true, accessMode: true })
+  assert.deepEqual(state.composer?.capabilities, { modelSelection: true, accessMode: true, fullAccess: false, fullAccessForm: 'bare-metal' })
 
   const models = await fetch(`${base}/api/chats/${chatId}/models`)
   assert.equal(models.status, 200)

@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 
 const DSH_VERSION = process.env.DSH_VERSION ?? '0.1.2-rc.1'
-const GATEWAY_REF = process.env.GATEWAY_REF ?? 'github:litestartup-com/dsh-api-gateway#91e53c1'
+const GATEWAY_REF = process.env.GATEWAY_REF ?? 'github:litestartup-com/dsh-api-gateway#4d72227'
 const NPM_REGISTRY = process.env.NPM_REGISTRY ?? 'https://registry.npmjs.org'
 const out = process.env.PROFILE_DIR ?? '/opt/ohdsh-profile'
 

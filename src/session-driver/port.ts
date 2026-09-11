@@ -52,6 +52,9 @@ export interface SessionDriver {
   /** 探活：返回版本串；失败必须抛出。 */
   probeVersion(): Promise<string>
   canSetSandboxMode?(): boolean
-  /** 按会话钉沙箱模式（facade 线能力；可选）。 */
-  setSandboxMode?(sessionId: string, mode: 'read-only' | 'workspace-write'): Promise<void>
+  /** 按会话钉沙箱模式（facade 线能力；可选）。danger-full-access 需节点开锁
+   *  allowFullAccess，未开锁时 facade 拒绝——上层先经 allowsFullAccess 检查。 */
+  setSandboxMode?(sessionId: string, mode: 'read-only' | 'workspace-write' | 'danger-full-access'): Promise<void>
+  /** 节点是否开锁全量沙箱（host.describe 的 allowFullAccess）；缺实现 = 不支持。 */
+  allowsFullAccess?(): Promise<boolean>
 }

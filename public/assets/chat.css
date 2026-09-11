@@ -1462,6 +1462,26 @@
   font-weight: 600;
 }
 
+/* 全量访问档：红色示警；节点未开锁时锁定置灰（不可点，靠文案说明）。 */
+.composer-option.danger {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.composer-option.danger.selected {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.composer-option.locked {
+  color: var(--chat-caption);
+  cursor: default;
+}
+
+.composer-option.locked:hover,
+.composer-option.locked:focus-visible {
+  background: transparent;
+  color: var(--chat-caption);
+}
+
 .composer-option .check {
   flex: 0 0 auto;
   margin-left: auto;
