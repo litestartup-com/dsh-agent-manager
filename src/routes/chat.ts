@@ -6,6 +6,7 @@ import type { AppConfig, ResolvedAgent } from '../config.js'
 import type { Db } from '../db/index.js'
 import { schema } from '../db/index.js'
 import { GatewayError, type GatewayClient, type HistoryEvent, type QuestionAnswer } from '../gateway/client.js'
+import { errorText } from '../errors.js'
 import type { GatewayFrame } from '../gateway/stream.js'
 import type { SessionDriver } from '../session-driver/port.js'
 import { UpstreamError } from '../upstream/rpc.js'
@@ -725,9 +726,7 @@ export const registerChatRoutes = (
             : 502
         return reply.code(status).send({
           error: 'answer_failed',
-          detail: error instanceof GatewayError ? error.detail
-            : error instanceof UpstreamError ? error.message
-              : String(error),
+          detail: errorText(error),
         })
       }
     },
@@ -763,9 +762,7 @@ export const registerChatRoutes = (
             : 502
         return reply.code(status).send({
           error: 'decide_failed',
-          detail: error instanceof GatewayError ? error.detail
-            : error instanceof UpstreamError ? error.message
-              : String(error),
+          detail: errorText(error),
         })
       }
     },

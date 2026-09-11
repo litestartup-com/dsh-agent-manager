@@ -3,7 +3,8 @@ import { desc, eq } from 'drizzle-orm'
 import type { AppConfig } from '../config.js'
 import { schema, type Db } from '../db/index.js'
 import { COMPAT_DSH_VERSION } from '../dsh-version.js'
-import { GatewayError, type GatewayClient } from '../gateway/client.js'
+import type { GatewayClient } from '../gateway/client.js'
+import { errorText } from '../errors.js'
 import type { SessionDriver } from '../session-driver/port.js'
 import { listArchivedChats, listChats } from '../chat/store.js'
 import { activeRunCount, runningRunId } from '../runner.js'
@@ -90,7 +91,7 @@ export const probeEndpoint = async (
   } catch (error) {
     // A dead endpoint must not take the whole status page down; it shows
     // up as one unreachable row instead.
-    const detail = error instanceof GatewayError ? error.detail || error.message : String(error)
+    const detail = errorText(error)
     row.error = detail.slice(0, 300)
     return row
   }

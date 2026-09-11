@@ -6,6 +6,7 @@ import type { Db } from './db/index.js'
 import { schema } from './db/index.js'
 import type { ResolvedAgent } from './config.js'
 import { GatewayError, isAdoptDisabled, type GatewayClient } from './gateway/client.js'
+import { errorText } from './errors.js'
 import { normalizeUsage, streamFrames, sumUsage, type GatewayFrame, type TokenUsage } from './gateway/stream.js'
 import { computeCost, DEFAULT_PRICING, type PricingTable } from './pricing.js'
 import { withCommitLock } from './workspace/commit-lock.js'
@@ -234,7 +235,7 @@ export const adoptFailure = (error: unknown, sessionId: string): string => {
       'Set allowAdopt on the gateway to continue conversations across restarts.'
     )
   }
-  const detail = error instanceof GatewayError ? error.detail : String(error)
+  const detail = errorText(error)
   if (detail.includes('session cap reached')) {
     return (
       'the gateway is holding its maximum number of live sessions, so this one could not be resumed. ' +
