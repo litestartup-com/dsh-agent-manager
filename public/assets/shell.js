@@ -3,7 +3,7 @@
 // Split out of the (since-deleted) home page script when the frame stopped
 // being the dashboard's private property; every page owns the shell equally.
 
-import { $, ago, banner, esc, icon, setHtml, when, apiFetch } from './ui.js'
+import { $, ago, banner, esc, icon, setHtml, when, apiFetch, poll } from './ui.js'
 
 /** An agent is only as healthy as the endpoint it runs on. */
 const agentHealth = (agent, endpoints) => {
@@ -1278,12 +1278,7 @@ void loadArchiveHint()
 // and its requests still compete for the six connections HTTP/1.1 allows an
 // origin -- which the tab you are actually looking at needs. Refreshed on return
 // instead, which is also when a stale sidebar would first be noticed.
-const poll = (fn, everyMs) => {
-  setInterval(() => {
-    if (document.visibilityState !== 'visible') return
-    void fn()
-  }, everyMs)
-}
+// 债务 F4:本地 poll 已收敛进 ui.js 的 poll(document.hidden 挂起 + 错误退避)。
 
 poll(loadShell, 15_000)
 poll(loadSpendHint, 60_000)

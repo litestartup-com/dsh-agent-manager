@@ -2,7 +2,7 @@
 //
 // 两个列表：全部节点（托管读监督器状态机，外管读探活）+ 全局最近任务
 // 流。15 秒轮询，与侧栏同一数据源 /api/nodes，不另起真相。
-import { $, ago, esc, setHtml, apiFetch } from './ui.js'
+import { $, ago, esc, setHtml, apiFetch, poll } from './ui.js'
 
 const NODE_STATE_DOT = { live: 'ok', cold: 'muted', starting: 'warn', restarting: 'warn', offline: 'bad' }
 const NODE_STATE_LABEL = { live: 'live', cold: '未启动', starting: '启动中', restarting: '重启中', offline: 'offline' }
@@ -266,4 +266,4 @@ const load = async () => {
 }
 
 void load()
-setInterval(() => void load(), 15_000)
+poll(() => void load(), 15_000)

@@ -137,3 +137,102 @@ export const apiFetch = async (url, options = {}) => {
   }
   return response
 }
+
+/**
+ * 债务 F3：SSE 自动重连 helper——board.js 与 chat.js 两份逐字相同的
+ * retryTimer/retryDelay 机制收敛到此（3s → ×2 → 30s 封顶）。
+ *
+ * `open()` 由调用方实现：创建 EventSource、挂 message 监听，返回实例。
+ * 纪律（两页注释合并）：
+ * - EventSource 自己会重试，但服务端直接关流（manager 重启）后不会——
+ *   error 时主动退避重连；
+ * - error 处理器只关「自己这一条」：旧实例的 handler 会迟到触发，关当前
+ *   实例 = 每断一次漏一条连接。
+ */
+export const autoReconnect = (open, { baseDelay = 3_000, maxDelay = 30_000 } = {}) => {
+  let source = null
+  let retryTimer = null
+  let retryDelay = baseDelay
+
+  const connect = () => {
+    disconnect()
+    const es = open()
+    source = es
+
+    es.addEventListener('open', () => {
+      retryDelay = baseDelay
+    })
+
+    es.addEventListener('error', () => {
+      es.close()
+      if (es !== source) return
+      source = null
+      retryTimer = setTimeout(connect, retryDelay)
+      retryDelay = Math.min(retryDelay * 2, maxDelay)
+    })
+  }
+
+  const disconnect = () => {
+    if (retryTimer !== null) {
+      clearTimeout(retryTimer)
+      retryTimer = null
+    }
+    if (source !== null) {
+      source.close()
+      source = null
+    }
+  }
+
+  return { connect, disconnect }
+}
+
+/**
+ * 债务 F4：轮询统一 helper——nodes/skills/shell 各自 setInterval（无失焦
+ * 暂停、无错误退避）收敛到此。
+ *
+ * - `document.hidden` 时挂起（后台标签不浪费请求），恢复可见后按原间隔继续；
+ * - fn 抛错时按 interval 退避（×2，上限 10×interval），成功即复位；
+ * - 返回停止函数（页面卸载/抽屉关闭时用）。
+ */
+export const poll = (fn, ms) => {
+  let timer = null
+  let delay = ms
+
+  const tick = () => {
+    timer = null
+    if (typeof document !== 'undefined' && document.hidden) {
+      timer = setTimeout(tick, ms)
+      return
+    }
+    // 页面用法是 `poll(() => void load(), ms)`——同步包装;同步抛错也能
+    // 退避。真正返回 Promise 的 fn 走 then 链(浏览器场景,测试用同步 fn)。
+    try {
+      const result = fn()
+      if (result !== null && typeof result === 'object' && typeof result.then === 'function') {
+        result
+          .then(() => {
+            delay = ms
+          })
+          .catch(() => {
+            delay = Math.min(delay * 2, ms * 10)
+          })
+          .finally(() => {
+            timer = setTimeout(tick, delay)
+          })
+        return
+      }
+      delay = ms
+    } catch {
+      delay = Math.min(delay * 2, ms * 10)
+    }
+    timer = setTimeout(tick, delay)
+  }
+
+  timer = setTimeout(tick, ms)
+  return () => {
+    if (timer !== null) {
+      clearTimeout(timer)
+      timer = null
+    }
+  }
+}

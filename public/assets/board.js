@@ -5,7 +5,7 @@
 // attacker-influenced text. Unescaped, one crafted note becomes stored XSS on
 // manager's own origin -- the origin holding the session cookie.
 
-import { esc, apiFetch } from './ui.js'
+import { esc, apiFetch, autoReconnect } from './ui.js'
 
 /** Tone is a closed set, so it is safe in a class attribute once checked. */
 const TONES = new Set(['good', 'warn', 'bad', 'info', 'muted'])
@@ -361,25 +361,9 @@ el.tabs.addEventListener('click', (event) => {
 // origin six connections, and a stream that outlives the page you left holds one
 // of them forever. Six such leaks and every later request -- including the next
 // navigation's HTML -- queues behind a socket that never frees.
-let source = null
-let retryTimer = null
-let retryDelay = 3000
-
-const disconnect = () => {
-  if (retryTimer !== null) {
-    clearTimeout(retryTimer)
-    retryTimer = null
-  }
-  if (source !== null) {
-    source.close()
-    source = null
-  }
-}
-
-const connect = () => {
-  disconnect()
+// 债务 F3：重连机制已收敛进 ui.js 的 autoReconnect（3s → ×2 → 30s 封顶）。
+const { connect, disconnect } = autoReconnect(() => {
   const es = new EventSource(`/api/board/${encodeURIComponent(agentId)}/events`)
-  source = es
 
   es.addEventListener('message', (event) => {
     let payload
@@ -394,22 +378,8 @@ const connect = () => {
     void load()
   })
 
-  es.addEventListener('open', () => {
-    retryDelay = 3000
-  })
-
-  es.addEventListener('error', () => {
-    // `es`, not `source`: closing whichever instance happens to be current would
-    // leave the failed one retrying by itself, leaking a connection each time.
-    es.close()
-    if (es !== source) return
-    source = null
-    // EventSource retries by itself, but not once the server closes the stream
-    // outright (a manager restart), so reconnect with a backoff.
-    retryTimer = setTimeout(connect, retryDelay)
-    retryDelay = Math.min(retryDelay * 2, 30_000)
-  })
-}
+  return es
+})
 
 // A phone that has been in a pocket comes back with stale numbers and a dead
 // socket. Refresh on return rather than waiting for the next change, and hold no

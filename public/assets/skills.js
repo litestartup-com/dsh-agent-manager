@@ -2,7 +2,7 @@
 //
 // 技能真相源 = 各 agent 工作区的 .skills/<name>/SKILL.md；版本 = 工作区 git
 // HEAD（与运行审计同源）。启停/分发是 P5.5 配置写回的事——本页不放假按钮。
-import { $, esc, setHtml, apiFetch } from './ui.js'
+import { $, esc, setHtml, apiFetch, poll } from './ui.js'
 
 const versionChip = (v) =>
   v === null ? '<span class="pill-mini muted">无 git 版本</span>' : `<span class="pill-mini">@${esc(v.slice(0, 7))}</span>`
@@ -55,4 +55,5 @@ const load = async () => {
 }
 
 void load()
-setInterval(() => void load(), 30_000)
+// 债务 F4:页面级轮询统一走 ui.js 的 poll(document.hidden 挂起 + 错误退避)
+poll(() => void load(), 30_000)
