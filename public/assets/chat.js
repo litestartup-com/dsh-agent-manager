@@ -57,6 +57,104 @@ const el = {
 const segments = window.location.pathname.split('/').filter(Boolean)
 const chatId = segments[0] === 'chat' && segments[1] !== undefined ? decodeURIComponent(segments[1]) : null
 
+// ---------------------------------------------------------------------------
+// 自绘下拉（模型 / 访问模式 / 推理深度）——原生 <option> 弹出列表浏览器
+// 不给样式，要 DSH web 的选项外观就得自绘：按钮 + body 挂载的选项面板，
+// token 同源（surface 卡片 + 悬停行 + 选中勾）。
+// ---------------------------------------------------------------------------
+
+const optionsPanel = document.createElement('div')
+optionsPanel.className = 'composer-options-panel'
+optionsPanel.hidden = true
+document.body.appendChild(optionsPanel)
+
+/** button 元素 → { options: [{value,label}], value, onPick }。 */
+const dropdownState = new Map()
+let openDropdownBtn = null
+
+const closeDropdown = () => {
+  optionsPanel.hidden = true
+  if (openDropdownBtn !== null) {
+    openDropdownBtn.setAttribute('aria-expanded', 'false')
+    openDropdownBtn = null
+  }
+}
+
+const setDropdownLabel = (button, label) => {
+  const span = button.querySelector('.composer-select-label')
+  if (span !== null) span.textContent = label
+}
+
+const CHECK_SVG = '<svg class="check" width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+
+const openDropdown = (button) => {
+  const entry = dropdownState.get(button)
+  if (entry === undefined || button.disabled) return
+  optionsPanel.replaceChildren(...entry.options.map((option) => {
+    const row = document.createElement('div')
+    const selected = option.value === entry.value
+    row.className = `composer-option${selected ? ' selected' : ''}`
+    row.setAttribute('role', 'option')
+    row.setAttribute('aria-selected', String(selected))
+    row.dataset.value = option.value
+    row.innerHTML = `<span>${option.label}</span>${selected ? CHECK_SVG : ''}`
+    row.tabIndex = -1
+    return row
+  }))
+  const rect = button.getBoundingClientRect()
+  optionsPanel.style.bottom = `${window.innerHeight - rect.top + 6}px`
+  optionsPanel.style.left = `${Math.min(Math.max(rect.left, 8), window.innerWidth - 300)}px`
+  optionsPanel.hidden = false
+  button.setAttribute('aria-expanded', 'true')
+  openDropdownBtn = button
+  ;(optionsPanel.querySelector('.composer-option.selected') ?? optionsPanel.querySelector('.composer-option'))?.focus()
+}
+
+/** 注册一个自绘下拉：button 点击开合；选中回填 value 并回调 onPick。 */
+const registerDropdown = (button, onPick) => {
+  dropdownState.set(button, { options: [], value: '', onPick })
+  button.addEventListener('click', () => {
+    if (!optionsPanel.hidden && openDropdownBtn === button) closeDropdown()
+    else openDropdown(button)
+  })
+}
+
+optionsPanel.addEventListener('click', (event) => {
+  const row = event.target.closest('.composer-option')
+  if (row === null || openDropdownBtn === null) return
+  const entry = dropdownState.get(openDropdownBtn)
+  if (entry === undefined) return
+  entry.value = row.dataset.value
+  entry.onPick(row.dataset.value)
+  closeDropdown()
+})
+
+optionsPanel.addEventListener('keydown', (event) => {
+  if (optionsPanel.hidden) return
+  const rows = [...optionsPanel.querySelectorAll('.composer-option')]
+  const index = rows.indexOf(document.activeElement)
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    rows[(index + 1) % rows.length]?.focus()
+  } else if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    rows[(index - 1 + rows.length) % rows.length]?.focus()
+  } else if (event.key === 'Enter') {
+    event.preventDefault()
+    ;(document.activeElement as HTMLElement | null)?.click()
+  } else if (event.key === 'Escape') {
+    const button = openDropdownBtn
+    closeDropdown()
+    button?.focus()
+  }
+})
+
+document.addEventListener('pointerdown', (event) => {
+  if (optionsPanel.hidden) return
+  if (event.target instanceof Element && (optionsPanel.contains(event.target) || (openDropdownBtn !== null && openDropdownBtn.contains(event.target)))) return
+  closeDropdown()
+})
+
 /** Everything the last GET told us. Null until it answers. */
 let state = null
 
@@ -1296,16 +1394,16 @@ const syncEffort = () => {
     return
   }
   el.effort.hidden = false
-  el.effort.replaceChildren(...[
+  const options = [
     { value: '', label: '默认推理' },
     ...efforts.filter((effort) => typeof effort?.id === 'string' && typeof effort?.name === 'string').map((effort) => ({ value: effort.id, label: effort.name })),
-  ].map((option) => {
-    const node = document.createElement('option')
-    node.value = option.value
-    node.textContent = option.label
-    return node
-  }))
-  el.effort.value = value
+  ]
+  const entry = dropdownState.get(el.effort)
+  if (entry !== undefined) {
+    entry.options = options
+    entry.value = value
+    setDropdownLabel(el.effort, (options.find((o) => o.value === value) ?? options[0]).label)
+  }
 }
 
 const renderContext = (context) => {
@@ -1363,7 +1461,13 @@ const renderComposer = () => {
   if (el.access !== null) {
     el.access.disabled = lost || fresh || sending || turnRunning || capabilities.accessMode !== true
     el.access.title = fresh ? '发送第一条消息后即可切换访问模式' : turnRunning ? '当前回合结束后可切换' : ''
-    if (composer.accessMode !== null) el.access.value = composer.accessMode
+    if (composer.accessMode !== null) {
+      const entry = dropdownState.get(el.access)
+      if (entry !== undefined) {
+        entry.value = composer.accessMode
+        setDropdownLabel(el.access, composer.accessMode === 'workspace-write' ? '工作区可写' : '只读')
+      }
+    }
   }
   if (el.model !== null) {
     if (el.model.parentElement !== null) el.model.parentElement.hidden = capabilities.modelSelection !== true
@@ -1499,14 +1603,15 @@ const loadModels = async () => {
     }
     modelChoices = choices
     modelCatalogSessionId = state.chat.dshSessionId
-    el.model.replaceChildren(...options.map((option) => {
-      const node = document.createElement('option')
-      node.value = option.key
-      node.textContent = option.label
-      return node
-    }))
+    const entry = dropdownState.get(el.model)
+    if (entry !== undefined) entry.options = options.map((option) => ({ value: option.key, label: option.label }))
     const selected = state.composer?.model ?? catalog?.current
-    if (selected !== null && selected !== undefined) el.model.value = `${selected.provider}\u0000${selected.model}`
+    const selectedKey = selected === null || selected === undefined ? '' : `${selected.provider}\u0000${selected.model}`
+    if (entry !== undefined) {
+      entry.value = selectedKey
+      const chosen = options.find((option) => option.key === selectedKey)
+      setDropdownLabel(el.model, chosen?.label ?? (selected !== null && selected !== undefined ? `${selected.provider} · ${selected.model}` : '默认模型'))
+    }
     render()
   } catch {
     modelCatalogSessionId = null
@@ -1783,8 +1888,7 @@ el.composer.addEventListener('submit', (event) => {
 })
 
 if (el.access !== null) {
-  el.access.addEventListener('change', () => {
-    const mode = el.access.value
+  registerDropdown(el.access, (mode) => {
     if (mode !== 'read-only' && mode !== 'workspace-write') return
     void (async () => {
       el.access.disabled = true
@@ -1808,6 +1912,15 @@ if (el.access !== null) {
       render()
     })()
   })
+  // 初始选项（只读/工作区可写）+ 默认值
+  const accEntry = dropdownState.get(el.access)
+  if (accEntry !== undefined) {
+    accEntry.options = [
+      { value: 'read-only', label: '只读' },
+      { value: 'workspace-write', label: '工作区可写' },
+    ]
+    accEntry.value = 'read-only'
+  }
 }
 
 const selectModel = async (selection) => {
@@ -1834,18 +1947,17 @@ const selectModel = async (selection) => {
 }
 
 if (el.model !== null) {
-  el.model.addEventListener('change', () => {
-    const choice = modelChoices.get(el.model.value)
+  registerDropdown(el.model, (key) => {
+    const choice = modelChoices.get(key)
     if (choice === undefined) return
     void selectModel({ provider: choice.provider, model: choice.model })
   })
 }
 
 if (el.effort !== null) {
-  el.effort.addEventListener('change', () => {
+  registerDropdown(el.effort, (reasoningEffort) => {
     const selection = state?.composer?.model
     if (selection === null || selection === undefined) return
-    const reasoningEffort = el.effort.value
     void selectModel({
       provider: selection.provider,
       model: selection.model,

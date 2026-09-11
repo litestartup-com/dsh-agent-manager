@@ -50,21 +50,20 @@
       <div id="composer-controls" class="composer-controls">
         <div class="composer-modes" id="composer-modes" hidden>
           <span class="composer-select-wrap">
-            <select id="composer-access" class="composer-select" aria-label="访问模式" disabled>
-              <option value="read-only">只读</option>
-              <option value="workspace-write">工作区可写</option>
-            </select>
+            <button type="button" id="composer-access" class="composer-select" aria-haspopup="listbox" aria-expanded="false" disabled>
+              <span class="composer-select-label">只读</span>
+            </button>
           </span>
         </div>
       <span class="composer-select-wrap">
-        <select id="composer-model" class="composer-select composer-model" aria-label="模型" disabled>
-          <option value="">默认模型</option>
-        </select>
+        <button type="button" id="composer-model" class="composer-select composer-model" aria-haspopup="listbox" aria-expanded="false" disabled>
+          <span class="composer-select-label">默认模型</span>
+        </button>
       </span>
       <span class="composer-select-wrap">
-        <select id="composer-effort" class="composer-select composer-effort" aria-label="推理深度" disabled hidden>
-          <option value="">默认推理</option>
-        </select>
+        <button type="button" id="composer-effort" class="composer-select composer-effort" aria-haspopup="listbox" aria-expanded="false" disabled hidden>
+          <span class="composer-select-label">默认推理</span>
+        </button>
       </span>
       <span id="composer-context-wrap" class="composer-context-wrap" hidden>
         <button id="composer-context" class="composer-context" type="button" aria-label="上下文使用率" aria-expanded="false"></button>

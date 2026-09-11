@@ -1401,6 +1401,73 @@
   opacity: 0.7;
 }
 
+/* 按钮化的 composer 下拉：label 排版与 select 一致（文字左对齐）。 */
+.composer-select .composer-select-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+
+/* 自绘选项面板（原生 <option> 列表不可样式化，DSH web 同款 token 风格）：
+   surface 卡片 + 圆角 + lv3 阴影 + 悬停行 + 选中勾。挂在 body，向上展开。 */
+.composer-options-panel {
+  position: fixed;
+  z-index: 70;
+  min-width: 190px;
+  max-width: min(300px, calc(100vw - 16px));
+  max-height: 40vh;
+  overflow-y: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--dsw-specific-menu);
+  border: 1px solid var(--chat-line);
+  border-radius: 12px;
+  box-shadow: var(--dsw-shadow-lv3);
+}
+
+.composer-options-panel[hidden] {
+  display: none;
+}
+
+.composer-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  font: 500 13px/20px var(--dsw-font-family);
+  color: var(--chat-text-2);
+  cursor: pointer;
+  white-space: nowrap;
+  outline: none;
+}
+
+.composer-option > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.composer-option:hover,
+.composer-option:focus-visible {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--chat-text);
+}
+
+.composer-option.selected {
+  color: var(--chat-send);
+  font-weight: 600;
+}
+
+.composer-option .check {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--chat-send);
+}
+
 #composer-access {
   max-width: 128px;
 }
