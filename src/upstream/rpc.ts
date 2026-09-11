@@ -19,6 +19,8 @@
  * rejected locally before any network request is made.
  */
 
+import { z } from 'zod'
+
 export interface UpstreamEndpoint {
   /** e.g. 'http://127.0.0.1:3080/api' */
   base: string
@@ -74,6 +76,24 @@ export class UpstreamError extends Error {
   }
 }
 
+// ---- wire schema（债务 E8:判别式 zod 替代手工 typeof 拍平） ----
+
+/**
+ * server-response 的判别 schema（wire 形状见模块头注释，DSH 0.1.1-rc.2 实证）。
+ * ok:false 缺 error 分支 = 畸形上游应答——不猜原因,显性失败(fail-loud)。
+ */
+const rpcEnvelopeSchema = z.object({
+  type: z.literal('server-response'),
+  rpcId: z.string().optional(),
+  result: z.discriminatedUnion('ok', [
+    z.object({ ok: z.literal(true), value: z.unknown() }),
+    z.object({
+      ok: z.literal(false),
+      error: z.object({ code: z.string(), message: z.string(), details: z.unknown().optional() }),
+    }),
+  ]),
+})
+
 // ---- RPC call ----
 
 let rpcSeq = 0
@@ -123,20 +143,18 @@ export async function rpc<T = unknown>(
     throw new Error(`upstream ${method}: HTTP ${response.status} — ${detail.slice(0, 300)}`)
   }
 
-  const json = await response.json() as {
-    type?: string
-    rpcId?: string
-    result?: { ok: boolean; value?: unknown; error?: { code?: string; message?: string; details?: unknown } }
-  }
+  const raw: unknown = await response.json()
 
-  if (json.type !== 'server-response' || json.result === undefined || json.result === null) {
-    throw new Error(`upstream ${method}: response missing "result" field`)
+  const parsed = rpcEnvelopeSchema.safeParse(raw)
+  if (!parsed.success) {
+    // 债务 E8:判别 schema 一次兜住——非 server-response / 缺 result /
+    // ok:false 缺 error 分支,全部显性失败,不猜上游意图。
+    throw new Error(`upstream ${method}: response missing "result" field or malformed server-response`)
   }
+  const json = parsed.data
 
   if (!json.result.ok) {
-    const code = typeof json.result.error?.code === 'string' ? json.result.error.code : 'unknown'
-    const message = typeof json.result.error?.message === 'string' ? json.result.error.message : 'upstream error'
-    throw new UpstreamError(code, `upstream ${method}: ${message}`)
+    throw new UpstreamError(json.result.error.code, `upstream ${method}: ${json.result.error.message}`)
   }
 
   return { id: json.rpcId ?? id, result: { ok: true, value: json.result.value as T } }

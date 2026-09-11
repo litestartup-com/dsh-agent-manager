@@ -26,6 +26,7 @@
 import type { UpstreamEndpoint } from './rpc.js'
 import type { MuxFrame } from './translate.js'
 import type { GatewayFrame } from '../gateway/stream.js'
+import { z } from 'zod'
 import {
   muxFrameToGatewayFrame,
   questionRequestedFrame, questionResolvedFrame,
@@ -42,6 +43,14 @@ export interface WireEnvelope {
   method: string
   payload: MuxFrame
 }
+
+/** 债务 E8:envelope 判别 schema(payload 细形状在 translate.ts 的帧判别里)。 */
+const wireEnvelopeSchema = z.object({
+  type: z.literal('server-request'),
+  rpcId: z.string().optional().default(''),
+  method: z.string(),
+  payload: z.record(z.string(), z.unknown()),
+})
 
 interface MuxConnection {
   ep: UpstreamEndpoint
@@ -93,17 +102,14 @@ export const muxUrl = (base: string): string => {
  */
 export const parseMuxFrame = (data: string): WireEnvelope | null => {
   try {
-    const parsed = JSON.parse(data) as unknown
-    if (parsed === null || typeof parsed !== 'object') return null
-    const e = parsed as Record<string, unknown>
-    if (e.type !== 'server-request' || typeof e.method !== 'string') return null
-    const payload = e.payload
-    if (payload === null || typeof payload !== 'object') return null
+    const parsed: unknown = JSON.parse(data)
+    const env = wireEnvelopeSchema.safeParse(parsed)
+    if (!env.success) return null
     return {
       type: 'server-request',
-      rpcId: typeof e.rpcId === 'string' ? e.rpcId : '',
-      method: e.method,
-      payload: payload as MuxFrame,
+      rpcId: env.data.rpcId,
+      method: env.data.method,
+      payload: env.data.payload as MuxFrame,
     }
   } catch {
     return null
@@ -175,7 +181,14 @@ const attach = (conn: MuxConnection): void => {
   const ws = socketFactory(conn)
   conn.ws = ws
 
+  // 债务 R5:只有真实 onopen 过的 socket 才算「曾连接」。首连失败(握手被拒/
+  // 网络不通)同样触发 onclose,若在 onclose 里无条件置 wasConnected,下一次
+  // 首次成功连接就会被当成「重连」广播 stream_reconnected,runner 据此把
+  // 好好的 run 错标为「结果未知」失败。判据必须是每个 socket 自己的 onopen。
+  let opened = false
+
   ws.onopen = () => {
+    opened = true
     // 债务 A4:重连成功即向所有活跃订阅者广播 stream_reconnected——
     // 断线期间丢掉的 turn_end 不会无声无息,上层按通知显性失败/对账。
     // 首连(wasConnected=false)不发。
@@ -205,9 +218,10 @@ const attach = (conn: MuxConnection): void => {
 
   ws.onclose = () => {
     if (conn.closed) return
+    // 债务 R5:「曾连接」只由真实 onopen 确立(见 attach 顶部注释)。
+    if (opened) conn.wasConnected = true
     // Auto-reconnect if there are still listeners.
     if (conn.listeners.size > 0) {
-      conn.wasConnected = true
       reconnectCount += 1
       if (conn.reconnectTimer === null) {
         const delay = nextReconnectDelay(conn.reconnectAttempt)

@@ -155,6 +155,21 @@ describe('rpc', () => {
     }
   })
 
+  it('债务 E8: ok:false 缺 error 分支 = 畸形应答,显性失败(fail-loud,不猜上游)', async () => {
+    const srv = await startServer(async (_req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ type: 'server-response', rpcId: '1', result: { ok: false } }))
+    })
+    try {
+      await assert.rejects(
+        () => rpc({ base: srv.url, key: '' }, 'session.list'),
+        /missing "result" field/,
+      )
+    } finally {
+      await srv.close()
+    }
+  })
+
   it('throws on non-200 HTTP status', async () => {
     const srv = await startServer(async (_req, res) => {
       res.writeHead(403)

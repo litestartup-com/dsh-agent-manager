@@ -110,8 +110,56 @@ describe('债务 A4: 连接级行为(注入假 socket)', () => {
     unsub()
   })
 
-  it('退订修复:旧 unsub 在重新订阅之后调用,不得误删新订阅', () => {
+  it('债务 R5:首连失败(从未 onopen)不算「曾连接」——重试首次成功不得广播 stream_reconnected', async () => {
     captured.length = 0
+    _setSocketFactory(() => {
+      const ws = new FakeWs()
+      captured.push(ws)
+      return ws as unknown as WebSocket
+    })
+
+    const seen: string[] = []
+    const unsub = subscribe(EP, 's1', (_sid, frame) => {
+      seen.push(frame.kind)
+    })
+    try {
+      assert.equal(captured.length, 1)
+      captured[0]!.close() // 首连从未 onopen 就断线(连接失败/被拒)
+      await new Promise((resolve) => setTimeout(resolve, 4_100)) // 等退避后的自动重连
+      assert.equal(captured.length, 2, '断线后必须自动重连')
+      captured[1]!.onopen?.() // 重试的首次成功连接
+      assert.deepEqual(seen, [], '首连失败→重试首次成功,不得广播 stream_reconnected(会误杀 run)')
+    } finally {
+      unsub()
+    }
+  })
+
+  it('债务 R5:首连成功后断线,重连成功仍必须广播 stream_reconnected', async () => {
+    captured.length = 0
+    _setSocketFactory(() => {
+      const ws = new FakeWs()
+      captured.push(ws)
+      return ws as unknown as WebSocket
+    })
+
+    const seen: string[] = []
+    const unsub = subscribe(EP, 's1', (_sid, frame) => {
+      seen.push(frame.kind)
+    })
+    try {
+      assert.equal(captured.length, 1)
+      captured[0]!.onopen?.() // 首连成功
+      captured[0]!.close() // 断线
+      await new Promise((resolve) => setTimeout(resolve, 4_100))
+      assert.equal(captured.length, 2)
+      captured[1]!.onopen?.()
+      assert.deepEqual(seen, ['stream_reconnected'], '曾连接过→重连成功必须广播')
+    } finally {
+      unsub()
+    }
+  })
+
+  it('退订修复:旧 unsub 在重新订阅之后调用,不得误删新订阅', () => {    captured.length = 0
     _setSocketFactory(() => {
       const ws = new FakeWs()
       captured.push(ws)
