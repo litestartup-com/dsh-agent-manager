@@ -1365,10 +1365,12 @@
   max-width: min(220px, 36cqw);
   height: 28px;
   padding: 0 22px 0 8px;
-  border: 0;
+  /* 可见药丸：细边 + 浅底，与 composer 其它控件同源 token；透明无边框会被
+     读成「原生控件」。 */
+  border: 1px solid var(--chat-line);
   border-radius: 999px;
   outline: none;
-  background-color: transparent;
+  background-color: var(--dsw-alias-bg-layer-1);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%2381858C' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 6px center;
@@ -1376,21 +1378,27 @@
   font: 500 13px/20px var(--dsw-font-family);
   cursor: pointer;
   appearance: none;
-  transition: background-color var(--motion), color var(--motion);
+  -webkit-appearance: none;
+  transition: background-color var(--motion), color var(--motion), border-color var(--motion);
 }
 
 .composer-select:hover:not(:disabled) {
   background-color: var(--chat-hover);
+  border-color: var(--chat-send);
   color: var(--chat-text);
 }
 
 .composer-select:focus-visible {
-  box-shadow: 0 0 0 2px var(--dsw-static-deepseek-300);
+  border-color: var(--chat-send);
+  box-shadow: 0 0 0 3px var(--dsw-static-deepseek-100);
 }
 
 .composer-select:disabled {
   color: var(--chat-caption);
-  cursor: default;
+  border-color: transparent;
+  background-color: transparent;
+  cursor: not-allowed;
+  opacity: 0.7;
 }
 
 #composer-access {
@@ -1493,9 +1501,36 @@
 }
 
 .composer-trailing {
+  position: relative;
   flex: none;
   gap: 12px;
   margin-left: auto;
+}
+
+.composer-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.composer-settings {
+  display: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--chat-text-2);
+  cursor: pointer;
+}
+
+.composer-settings:hover,
+.composer-settings[aria-expanded="true"] {
+  background: var(--chat-hover);
+  color: var(--chat-text);
 }
 
 .composer-agent {
@@ -1603,11 +1638,6 @@
 }
 
 @container (max-width: 480px) {
-  .composer-modes,
-  .composer-context-wrap {
-    display: none;
-  }
-
   .composer-tools {
     flex: 1 1 0;
   }
@@ -1616,17 +1646,68 @@
     max-width: 132px;
   }
 
-  .composer-model {
-    max-width: 146px;
+  .composer-controls {
+    display: none;
+  }
+
+  .composer-settings {
+    display: grid;
+  }
+
+  .composer-bar.settings-open .composer-controls {
+    position: absolute;
+    right: 42px;
+    bottom: 42px;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    width: min(264px, calc(100vw - 32px));
+    padding: 8px;
+    border-radius: 16px;
+    background: var(--dsw-specific-menu);
+    box-shadow: var(--dsw-shadow-lv3);
+  }
+
+  .composer-bar.settings-open .composer-modes {
+    display: flex;
+  }
+
+  .composer-bar.settings-open .composer-select-wrap,
+  .composer-bar.settings-open .composer-context-wrap {
+    width: 100%;
+  }
+
+  .composer-bar.settings-open .composer-select {
+    width: 100%;
+    max-width: none;
+    text-align: left;
+  }
+
+  .composer-bar.settings-open .composer-context-wrap {
+    justify-content: flex-start;
+  }
+
+  .composer-bar.settings-open .composer-context {
+    width: 100%;
+    justify-content: flex-start;
+    padding-left: 10px;
+    box-shadow: none;
+    background: var(--chat-hover);
+    border-radius: 10px;
+    font-size: 13px;
+  }
+
+  .composer-bar.settings-open .composer-context-popover {
+    position: static;
+    display: flex;
+    width: 100%;
+    margin-top: 4px;
+    box-shadow: none;
+    background: transparent;
   }
 
   .composer-hint {
-    display: none;
-  }
-}
-
-@container (max-width: 380px) {
-  .composer-model {
     display: none;
   }
 }

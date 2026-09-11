@@ -45,6 +45,8 @@ const el = {
   contextTools: $('composer-context-tools'),
   contextMessages: $('composer-context-messages'),
   contextBreakdown: $('composer-context-breakdown'),
+  settings: $('composer-settings'),
+  controls: $('composer-controls'),
   input: $('chat-input'),
   send: $('chat-send'),
   stop: $('chat-stop'),
@@ -1345,6 +1347,9 @@ const renderComposer = () => {
   const composer = state.composer ?? { capabilities: {}, model: null, context: null, accessMode: null }
   const capabilities = composer.capabilities ?? {}
   const lost = state.sessionState === 'lost'
+  // 会话尚未绑定（还没发过第一条消息）：切权限/选模型服务端必然 409 no_session，
+  // 控件直接禁用并说明原因，而不是「点了弹个 409」。
+  const fresh = state.sessionState === 'fresh'
   // 蜂群 P5.4：跨会话不再互锁，composer 永不因别的会话而禁用；同会话的
   // 新消息在上一回合跑完前由服务端排队，dock 可见可删。
   const locked = lost || sending
@@ -1352,13 +1357,18 @@ const renderComposer = () => {
 
   el.input.disabled = lost
   if (el.modes !== null) el.modes.hidden = capabilities.accessMode !== true
+  if (el.settings !== null) {
+    el.settings.hidden = capabilities.accessMode !== true && capabilities.modelSelection !== true && composer.context === null
+  }
   if (el.access !== null) {
-    el.access.disabled = lost || sending || turnRunning || capabilities.accessMode !== true
+    el.access.disabled = lost || fresh || sending || turnRunning || capabilities.accessMode !== true
+    el.access.title = fresh ? '发送第一条消息后即可切换访问模式' : turnRunning ? '当前回合结束后可切换' : ''
     if (composer.accessMode !== null) el.access.value = composer.accessMode
   }
   if (el.model !== null) {
     if (el.model.parentElement !== null) el.model.parentElement.hidden = capabilities.modelSelection !== true
-    el.model.disabled = lost || sending || turnRunning || capabilities.modelSelection !== true || modelChoices.size === 0
+    el.model.disabled = lost || fresh || sending || turnRunning || capabilities.modelSelection !== true || modelChoices.size === 0
+    el.model.title = fresh ? '发送第一条消息后即可选择模型' : turnRunning ? '当前回合结束后可切换' : ''
   }
   if (el.effort !== null) el.effort.disabled = lost || sending || turnRunning || capabilities.modelSelection !== true
   syncEffort()
@@ -1844,6 +1854,22 @@ if (el.effort !== null) {
   })
 }
 
+if (el.settings !== null && el.identity !== null) {
+  const closeSettings = () => {
+    el.identity.classList.remove('settings-open')
+    el.settings.setAttribute('aria-expanded', 'false')
+  }
+  el.settings.addEventListener('click', () => {
+    const open = !el.identity.classList.contains('settings-open')
+    el.identity.classList.toggle('settings-open', open)
+    el.settings.setAttribute('aria-expanded', String(open))
+  })
+  document.addEventListener('pointerdown', (event) => {
+    if (!el.identity.classList.contains('settings-open') || event.target instanceof Node && el.identity.contains(event.target)) return
+    closeSettings()
+  })
+}
+
 if (el.context !== null && el.contextPopover !== null && el.contextWrap !== null) {
   el.context.addEventListener('click', () => {
     const open = el.contextPopover.hidden
@@ -1893,6 +1919,11 @@ el.queueDock.addEventListener('click', (event) => {
 })
 
 document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && el.identity !== null && el.identity.classList.contains('settings-open')) {
+    el.identity.classList.remove('settings-open')
+    el.settings?.setAttribute('aria-expanded', 'false')
+    return
+  }
   if (event.key === 'Escape' && el.contextPopover !== null && !el.contextPopover.hidden) {
     el.contextPopover.hidden = true
     el.context?.setAttribute('aria-expanded', 'false')
