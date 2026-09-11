@@ -36,7 +36,15 @@ const el = {
   path: $('composer-path'),
   access: $('composer-access'),
   model: $('composer-model'),
+  effort: $('composer-effort'),
+  contextWrap: $('composer-context-wrap'),
   context: $('composer-context'),
+  contextPopover: $('composer-context-popover'),
+  contextSummary: $('composer-context-summary'),
+  contextSystem: $('composer-context-system'),
+  contextTools: $('composer-context-tools'),
+  contextMessages: $('composer-context-messages'),
+  contextBreakdown: $('composer-context-breakdown'),
   input: $('chat-input'),
   send: $('chat-send'),
   stop: $('chat-stop'),
@@ -70,6 +78,7 @@ let sending = false
 let turnStartedAt = null
 let modelChoices = new Map()
 let modelCatalogSessionId = null
+let effortSignature = null
 
 const toast = (text) => {
   el.toast.textContent = text
@@ -1268,6 +1277,63 @@ const shortPath = (path) => {
   return `${s.slice(0, 16)}…${s.slice(-32)}`
 }
 
+const modelKey = (selection) => `${selection.provider}\u0000${selection.model}`
+
+const syncEffort = () => {
+  if (el.effort === null) return
+  const selection = state?.composer?.model
+  const choice = selection === null || selection === undefined ? undefined : modelChoices.get(modelKey(selection))
+  const reasoning = choice?.reasoning
+  const efforts = Array.isArray(reasoning?.efforts) ? reasoning.efforts : []
+  const value = selection?.reasoningEffort ?? reasoning?.defaultEffort ?? ''
+  const signature = JSON.stringify([modelKey(selection ?? { provider: '', model: '' }), value, efforts])
+  if (signature === effortSignature) return
+  effortSignature = signature
+  if (efforts.length === 0) {
+    el.effort.hidden = true
+    return
+  }
+  el.effort.hidden = false
+  el.effort.replaceChildren(...[
+    { value: '', label: '默认推理' },
+    ...efforts.filter((effort) => typeof effort?.id === 'string' && typeof effort?.name === 'string').map((effort) => ({ value: effort.id, label: effort.name })),
+  ].map((option) => {
+    const node = document.createElement('option')
+    node.value = option.value
+    node.textContent = option.label
+    return node
+  }))
+  el.effort.value = value
+}
+
+const renderContext = (context) => {
+  if (el.contextWrap === null || el.context === null) return
+  el.contextWrap.hidden = context === null
+  if (context === null) {
+    if (el.contextPopover !== null) el.contextPopover.hidden = true
+    return
+  }
+  el.context.textContent = `${context.percent}%`
+  el.context.style.setProperty('--context-ratio', String(context.percent / 100))
+  el.context.title = `上下文约 ${context.usedTokens.toLocaleString()} / ${context.contextWindow.toLocaleString()} tokens`
+  el.context.setAttribute('aria-label', el.context.title)
+  if (el.contextSummary !== null) el.contextSummary.textContent = `约 ${context.usedTokens.toLocaleString()} / ${context.contextWindow.toLocaleString()} tokens`
+  const breakdown = context.breakdown
+  if (el.contextBreakdown !== null) {
+    el.contextBreakdown.hidden = breakdown === null || breakdown === undefined
+    if (breakdown !== null && breakdown !== undefined) {
+      el.contextBreakdown.textContent = `系统 ${breakdown.systemTokens.toLocaleString()} · 工具 ${breakdown.toolsTokens.toLocaleString()} · 对话 ${breakdown.messageTokens.toLocaleString()}`
+    }
+  }
+  const total = breakdown === null || breakdown === undefined ? 0 : breakdown.systemTokens + breakdown.toolsTokens + breakdown.messageTokens
+  const widths = total > 0
+    ? [breakdown.systemTokens, breakdown.toolsTokens, breakdown.messageTokens].map((value) => `${context.percent * value / total}%`)
+    : [`${context.percent}%`, '0%', '0%']
+  for (const [node, width] of [[el.contextSystem, widths[0]], [el.contextTools, widths[1]], [el.contextMessages, widths[2]]]) {
+    if (node !== null) node.style.width = width
+  }
+}
+
 const renderComposer = () => {
   if (state === null) return
   // The agent pill carries the name; the full path is one hover away.
@@ -1279,7 +1345,6 @@ const renderComposer = () => {
   const composer = state.composer ?? { capabilities: {}, model: null, context: null, accessMode: null }
   const capabilities = composer.capabilities ?? {}
   const lost = state.sessionState === 'lost'
-  const cold = state.sessionState === 'cold'
   // 蜂群 P5.4：跨会话不再互锁，composer 永不因别的会话而禁用；同会话的
   // 新消息在上一回合跑完前由服务端排队，dock 可见可删。
   const locked = lost || sending
@@ -1295,14 +1360,9 @@ const renderComposer = () => {
     if (el.model.parentElement !== null) el.model.parentElement.hidden = capabilities.modelSelection !== true
     el.model.disabled = lost || sending || turnRunning || capabilities.modelSelection !== true || modelChoices.size === 0
   }
-  const context = composer.context
-  if (el.context !== null) {
-    el.context.hidden = context === null
-    if (context !== null) {
-      el.context.textContent = `上下文 ${context.percent}%`
-      el.context.title = `约 ${context.usedTokens.toLocaleString()} / ${context.contextWindow.toLocaleString()} tokens`
-    }
-  }
+  if (el.effort !== null) el.effort.disabled = lost || sending || turnRunning || capabilities.modelSelection !== true
+  syncEffort()
+  renderContext(composer.context)
   el.send.disabled = locked || el.input.value.trim() === ''
   // The stop button shows while this chat has a running turn — the POST itself
   // returns immediately now, so `sending` alone no longer covers the run.
@@ -1317,10 +1377,8 @@ const renderComposer = () => {
         ? '正在等它回答…'
         : '说点什么…'
 
-  // The hint is the quiet channel: how to interrupt while sending, and the
-  // dormancy note when there is one -- next to the input, where it is acted on,
-  // not as a banner over the history.
-  el.hint.textContent = sending ? '按 Esc 或点「停止」可以中断' : cold ? '已休眠 · 下一条消息会唤回它' : ''
+  // The hint only names the available interruption gesture beside the input.
+  el.hint.textContent = sending ? '按 Esc 或点「停止」可以中断' : ''
 }
 
 // ---------------------------------------------------------------------------
@@ -1425,7 +1483,7 @@ const loadModels = async () => {
       for (const model of group.models) {
         if (typeof model?.id !== 'string' || typeof model?.name !== 'string') continue
         const key = `${group.id}\u0000${model.id}`
-        choices.set(key, { provider: group.id, model: model.id })
+        choices.set(key, { provider: group.id, model: model.id, reasoning: model.reasoning })
         options.push({ key, label: `${group.name ?? group.id} · ${model.name}` })
       }
     }
@@ -1742,31 +1800,60 @@ if (el.access !== null) {
   })
 }
 
+const selectModel = async (selection) => {
+  if (el.model !== null) el.model.disabled = true
+  if (el.effort !== null) el.effort.disabled = true
+  try {
+    const response = await apiFetch(`/api/chats/${encodeURIComponent(chatId)}/model`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(selection),
+    })
+    const body = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      toast(body.detail ?? `模型切换失败（${response.status}）`)
+      return
+    }
+    state.composer = { ...(state.composer ?? {}), model: body.model }
+    effortSignature = null
+    toast('模型已更新，将在下一回合生效')
+  } catch (error) {
+    toast(`模型切换失败：${error.message}`)
+  }
+  render()
+}
+
 if (el.model !== null) {
   el.model.addEventListener('change', () => {
-    const selection = modelChoices.get(el.model.value)
-    if (selection === undefined) return
-    void (async () => {
-      el.model.disabled = true
-      try {
-        const response = await apiFetch(`/api/chats/${encodeURIComponent(chatId)}/model`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(selection),
-        })
-        const body = await response.json().catch(() => ({}))
-        if (!response.ok) {
-          toast(body.detail ?? `模型切换失败（${response.status}）`)
-          render()
-          return
-        }
-        state.composer = { ...(state.composer ?? {}), model: body.model }
-        toast('模型已更新，将在下一回合生效')
-      } catch (error) {
-        toast(`模型切换失败：${error.message}`)
-      }
-      render()
-    })()
+    const choice = modelChoices.get(el.model.value)
+    if (choice === undefined) return
+    void selectModel({ provider: choice.provider, model: choice.model })
+  })
+}
+
+if (el.effort !== null) {
+  el.effort.addEventListener('change', () => {
+    const selection = state?.composer?.model
+    if (selection === null || selection === undefined) return
+    const reasoningEffort = el.effort.value
+    void selectModel({
+      provider: selection.provider,
+      model: selection.model,
+      ...(reasoningEffort === '' ? {} : { reasoningEffort }),
+    })
+  })
+}
+
+if (el.context !== null && el.contextPopover !== null && el.contextWrap !== null) {
+  el.context.addEventListener('click', () => {
+    const open = el.contextPopover.hidden
+    el.contextPopover.hidden = !open
+    el.context.setAttribute('aria-expanded', String(open))
+  })
+  document.addEventListener('pointerdown', (event) => {
+    if (el.contextPopover.hidden || event.target instanceof Node && el.contextWrap.contains(event.target)) return
+    el.contextPopover.hidden = true
+    el.context.setAttribute('aria-expanded', 'false')
   })
 }
 
@@ -1806,6 +1893,11 @@ el.queueDock.addEventListener('click', (event) => {
 })
 
 document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && el.contextPopover !== null && !el.contextPopover.hidden) {
+    el.contextPopover.hidden = true
+    el.context?.setAttribute('aria-expanded', 'false')
+    return
+  }
   if (event.key === 'Escape' && sending) void cancel()
 })
 
