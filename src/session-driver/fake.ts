@@ -19,6 +19,8 @@ export interface FakeScript {
   frames: GatewayFrame[]
   /** prompt 是否被接受（默认 true）。 */
   promptAccepted?: boolean
+  /** 非空 = prompt 抛出该错误（模拟上游 5xx）。 */
+  promptError?: string
   /** createSession 的返回事实（默认 null = 用入参）。 */
   preset?: string | null
   provider?: string | null
@@ -86,6 +88,7 @@ export class FakeSessionDriver implements SessionDriver {
 
   async prompt(sessionId: string, text: string): Promise<{ accepted: boolean }> {
     this.prompts.push(text)
+    if (this.script.promptError !== undefined) throw new Error(this.script.promptError)
     if (this.script.promptAccepted === false) return { accepted: false }
     // 异步泵帧：与真实插头的流式投递同序（订阅先于 prompt 已成立）。
     queueMicrotask(() => {
@@ -104,6 +107,11 @@ export class FakeSessionDriver implements SessionDriver {
       set.delete(listener)
       if (set.size === 0) this.listeners.delete(sessionId)
     }
+  }
+
+  /** 测试观察面：某会话当前挂着的订阅数（债务 R8 用，生产不调用）。 */
+  activeSubscriberCount(sessionId: string): number {
+    return this.listeners.get(sessionId)?.size ?? 0
   }
 
   async history(sessionId: string): Promise<UpstreamSessionHistory> {

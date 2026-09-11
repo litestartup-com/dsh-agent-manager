@@ -209,3 +209,41 @@ test('端口订阅可退订：退订后不再收帧', async () => {
   await new Promise((resolve) => setTimeout(resolve, 20))
   assert.deepEqual(seen, [], '退订后零投递')
 })
+
+test('债务 R8: prompt 被拒绝 = 订阅必须清理(不遗留 mux 订阅)', async () => {
+  const db = makeDb()
+  const fake = new FakeSessionDriver('A', { ...SUCCESS, promptAccepted: false })
+  const outcome = await runAgent({ db }, {
+    agent: agentFor(mkdtempSync(join(tmpdir(), 'apiproxy-ws-'))),
+    client: dummyClient(), upstream: fake, driver: 'apiproxy', prompt: 'hi', trigger: 'manual',
+  })
+  assert.equal(outcome.state, 'failed')
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.equal(fake.activeSubscriberCount(outcome.sessionId ?? ''), 0, 'prompt 拒绝路径必须退订')
+})
+
+test('债务 R8: prompt 抛错 = 订阅必须清理', async () => {
+  const db = makeDb()
+  const fake = new FakeSessionDriver('A', { ...SUCCESS, promptError: 'upstream 500' })
+  const outcome = await runAgent({ db }, {
+    agent: agentFor(mkdtempSync(join(tmpdir(), 'apiproxy-ws-'))),
+    client: dummyClient(), upstream: fake, driver: 'apiproxy', prompt: 'hi', trigger: 'manual',
+  })
+  assert.equal(outcome.state, 'failed')
+  assert.match(outcome.error ?? '', /upstream 500/)
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.equal(fake.activeSubscriberCount(outcome.sessionId ?? ''), 0, 'prompt 抛错路径必须退订')
+})
+
+test('债务 R8: 静默超时 = 订阅必须清理', async () => {
+  const db = makeDb()
+  const fake = new FakeSessionDriver('A', { frames: [] })
+  const outcome = await runAgent({ db }, {
+    agent: agentFor(mkdtempSync(join(tmpdir(), 'apiproxy-ws-'))),
+    client: dummyClient(), upstream: fake, driver: 'apiproxy', prompt: 'hi', trigger: 'manual',
+    silenceMs: 60,
+  })
+  assert.equal(outcome.state, 'failed')
+  assert.equal(fake.cancels, 1, '取消经端口发出')
+  assert.equal(fake.activeSubscriberCount(outcome.sessionId ?? ''), 0, '超时路径必须退订')
+})

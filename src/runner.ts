@@ -7,12 +7,14 @@ import { schema } from './db/index.js'
 import type { ResolvedAgent } from './config.js'
 import { GatewayError, isAdoptDisabled, type GatewayClient } from './gateway/client.js'
 import { errorText } from './errors.js'
-import { normalizeUsage, streamFrames, sumUsage, type GatewayFrame, type TokenUsage } from './gateway/stream.js'
-import { computeCost, DEFAULT_PRICING, type PricingTable } from './pricing.js'
+import { streamFrames, type GatewayFrame, type TokenUsage } from './gateway/stream.js'
+import { DEFAULT_PRICING, type PricingTable } from './pricing.js'
 import { withCommitLock } from './workspace/commit-lock.js'
 import { currentHead, snapshotAfter, snapshotBefore } from './workspace/snapshot.js'
 import type { SessionDriver } from './session-driver/port.js'
 import { UpstreamError } from './upstream/rpc.js'
+// 债务 E1:回合状态/finish/共享帧处理器已下沉 runner/turn.ts。
+import { handleTurnFrame, makeFinish, newTurnState } from './runner/turn.js'
 
 /**
  * Drives one agent turn end to end: acquire a session bounded to the workspace,
@@ -213,14 +215,6 @@ export const activeRunCount = (agentId: string): number => activeRuns.get(agentI
  * 其余全程并行。锁本体在 workspace/commit-lock.ts(fleet.md 同步共用同一把)。
  */
 
-const SUMMARY_LIMIT = 4_000
-
-const truncate = (text: string, limit = SUMMARY_LIMIT): string =>
-  text.length <= limit ? text : `${text.slice(0, limit)}\n[truncated ${text.length - limit} chars]`
-
-/** Frames whose kind indicates the turn produced visible assistant output. */
-const isLiveMessage = (frame: GatewayFrame): boolean => frame.kind === 'message'
-
 /**
  * Turns an adopt failure into something a person can act on.
  *
@@ -374,122 +368,28 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
         "check the deployment's approval policy."
       : `no response within ${Math.round(timeoutMs / 1000)}s; the turn was cancelled`
 
-  let sessionId: string | null = null
-  let provider: string | null = null
-  let model: string | null = null
-  let usage: TokenUsage | null = null
-  let reason: string | null = null
-  let toolCalls = 0
+  // 债务 E1:回合可变状态显式化为一个对象——两个回合循环、共享帧处理器
+  // (runner/turn.ts)与 finish 都读写它,替代旧实现闭包捕获的一把 let。
+  const turnState = newTurnState()
   let timedOut = false
-  const texts: string[] = []
 
   // Accumulated per response, because the rate depends on when each one landed.
   const pricing = deps.pricing ?? DEFAULT_PRICING
-  let accruedCost = 0
-  let accruedPeakCost = 0
-  // Cleared the first time a priced response has no configured rate, so an
-  // unpriced model reports an honest gap instead of a partial total.
-  let costKnown = true
 
-  // Note this does not release the agent lock: the caller does that only after
-  // the workspace has been committed, so the next turn cannot write files that
-  // would end up in this run's commit.
-  const finish = (state: RunState, errorText: string | null): RunOutcome => {
+  // 债务 E1:finish 下沉 runner/turn.ts(maker 入参 = 状态对象 + 落库依赖),
+  // 幂等语义(债务 R8)一并下沉。
+  const clearTimers = (): void => {
     clearTimeout(timer)
     clearSilence()
-    const endedAt = now()
-    const summary = truncate(texts.join('\n').trim())
-    const costMicroUsd = usage === null || !costKnown ? null : accruedCost
-    const peakCostMicroUsd = costMicroUsd === null ? null : accruedPeakCost
-
-    const buildOutcome = (
-      finalState: RunState,
-      finalError: string | null,
-      finalUsage: TokenUsage | null,
-      finalCost: number | null,
-      finalPeak: number | null,
-    ): RunOutcome => ({
-      runId,
-      state: finalState,
-      sessionId,
-      summary,
-      usage: finalUsage,
-      costMicroUsd: finalCost,
-      peakCostMicroUsd: finalPeak,
-      provider,
-      model,
-      reason,
-      error: finalError,
-      toolCalls,
-      durationMs: endedAt - startedAt,
-      // Filled in by the snapshot below, once the turn is over.
-      commit: null,
-      changedFiles: [],
-      snapshotSkipped: null,
-      conflict: null,
-    })
-
-    // 债务 A2:run 终态与用量落库必须原子——旧代码先写 done 后写 usage,
-    // usage 失败会留下「done + 无账目」或依赖 boot 收敛的半态。
-    // Written even when the run failed: the tokens were spent either way, and
-    // usage cannot be reconstructed after the fact.
-    try {
-      deps.db.transaction((tx) => {
-        if (usage !== null) {
-          tx.insert(schema.usageRecord)
-            .values({
-              runId,
-              provider,
-              model,
-              inputTokens: usage.inputTokens,
-              outputTokens: usage.outputTokens,
-              cacheRead: usage.cacheReadTokens ?? null,
-              cacheWrite: usage.cacheWriteTokens ?? null,
-              reasoningTokens: usage.reasoningTokens ?? null,
-              cost: costMicroUsd,
-              peakCost: peakCostMicroUsd,
-              at: endedAt,
-            })
-            .run()
-        }
-        tx.update(schema.run)
-          .set({
-            state,
-            dshSessionId: sessionId,
-            resultSummary: summary === '' ? null : summary,
-            endedAt,
-            error: errorText,
-          })
-          .where(eq(schema.run.id, runId))
-          .run()
-      })
-    } catch (accountingError) {
-      // 记账事务失败(磁盘满/约束冲突):降级为单写 failed 终态——账目缺口
-      // 在 error 里显性可见,绝不静默把「done 但没账」的回合交给账本。
-      const accountingText = `记账失败,本次用量可能未入账: ${(accountingError as Error).message}`
-      log?.error(`run ${runId}: ${accountingText}`)
-      deps.db
-        .update(schema.run)
-        .set({
-          state: 'failed',
-          dshSessionId: sessionId,
-          resultSummary: summary === '' ? null : summary,
-          endedAt,
-          error: errorText === null ? accountingText : `${errorText}; ${accountingText}`,
-        })
-        .where(eq(schema.run.id, runId))
-        .run()
-      return buildOutcome(
-        'failed',
-        errorText === null ? accountingText : `${errorText}; ${accountingText}`,
-        null,
-        null,
-        null,
-      )
-    }
-
-    return buildOutcome(state, errorText, usage, costMicroUsd, peakCostMicroUsd)
   }
+  const finish = makeFinish(turnState, {
+    runId,
+    db: deps.db,
+    now,
+    startedAt,
+    log,
+    clearTimers,
+  })
 
   // ---- gateway turn (existing path) ----
 
@@ -503,9 +403,9 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
           ...(agent.provider === undefined || agent.provider === null ? {} : { provider: agent.provider }),
           ...(agent.model === undefined || agent.model === null ? {} : { model: agent.model }),
         })
-        sessionId = created.sessionId
-        provider = created.provider ?? agent.provider ?? null
-        model = created.model ?? agent.model ?? null
+        turnState.sessionId = created.sessionId
+        turnState.provider = created.provider ?? agent.provider ?? null
+        turnState.model = created.model ?? agent.model ?? null
         cwd = created.cwd
       } else {
         // Adopt rather than send-and-retry-on-404.
@@ -515,15 +415,15 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
         // answer 404 for a cold session. `adopt` is idempotent -- it returns the
         // live entry untouched when one exists (gateway index.ts:570-573) -- so
         // one unconditional call covers both the warm and the cold case.
-        sessionId = input.sessionId
+        turnState.sessionId = input.sessionId
         let adopted
         try {
           adopted = await client.adopt(input.sessionId)
         } catch (error) {
           return finish('failed', adoptFailure(error, input.sessionId))
         }
-        provider = adopted.provider ?? agent.provider ?? null
-        model = adopted.model ?? agent.model ?? null
+        turnState.provider = adopted.provider ?? agent.provider ?? null
+        turnState.model = adopted.model ?? agent.model ?? null
         cwd = adopted.cwd
       }
 
@@ -550,67 +450,39 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
         )
       }
 
-      deps.db.update(schema.run).set({ dshSessionId: sessionId }).where(eq(schema.run.id, runId)).run()
-      if (sessionId !== null) input.onSession?.(sessionId)
-      log?.info(`run ${runId}: session ${sessionId} on ${client.id}, cwd=${agent.workspacePath}`)
+      deps.db.update(schema.run).set({ dshSessionId: turnState.sessionId }).where(eq(schema.run.id, runId)).run()
+      if (turnState.sessionId !== null) input.onSession?.(turnState.sessionId)
+      log?.info(`run ${runId}: session ${turnState.sessionId} on ${client.id}, cwd=${agent.workspacePath}`)
 
-      const frames = streamFrames(client.streamUrl(sessionId), {
+      const frames = streamFrames(client.streamUrl(turnState.sessionId), {
         headers: client.headers(),
         signal: controller.signal,
       })
 
       armSilence()
       let sent = false
+      // 债务 E1:直播帧的共享处理在 runner/turn.ts 的 handleTurnFrame;
+      // gateway 循环只留自己的差异——hello 回放与发消息时机。
+      const frameHooks = {
+        relay: (frame: GatewayFrame) => input.onFrame?.(frame),
+        trackAwaiting,
+        armSilence,
+      }
       for await (const frame of frames) {
-        // Counted before the timer is re-armed: the frame that says a question is
-        // open is the same frame that must stop the backstop from arming.
-        trackAwaiting(frame)
-        armSilence()
         if (frame.kind === 'hello') {
           // Deliberately ignoring frame.log: it is history, and counting its usage
-          // would bill previous turns again.
+          // would bill previous turns again. awaiting 计数与静默重挂和直播帧同序。
+          trackAwaiting(frame)
+          armSilence()
           if (!sent) {
-            await client.sendMessage(sessionId, prompt)
+            await client.sendMessage(turnState.sessionId, prompt)
             sent = true
           }
           continue
         }
 
-        // Past hello, so this is live: safe to relay and safe to bill.
-        input.onFrame?.(frame)
-
-        if (isLiveMessage(frame)) {
-          const frameUsage = normalizeUsage(frame.usage)
-          usage = sumUsage(usage, frameUsage)
-          if (frameUsage !== null) {
-            const cost = computeCost(frameUsage, provider, model, now(), pricing)
-            if (cost === null) costKnown = false
-            else {
-              accruedCost += cost.microUsd
-              if (cost.peak) accruedPeakCost += cost.microUsd
-            }
-          }
-          const text = typeof frame.text === 'string' ? frame.text : ''
-          if (text !== '') texts.push(text)
-          continue
-        }
-
-        if (frame.kind === 'tool_call') {
-          toolCalls += 1
-          continue
-        }
-
-        if (frame.kind === 'turn_end') {
-          reason = typeof frame.reason === 'string' ? frame.reason : 'unknown'
-          const detail = frame.detail as { message?: string; cause?: string } | null
-          if (reason === 'error') {
-            return finish('failed', detail?.message ?? 'the turn ended with an error')
-          }
-          if (reason === 'aborted') {
-            return finish('failed', `the turn was aborted (${detail?.cause ?? 'unknown cause'})`)
-          }
-          return finish('done', null)
-        }
+        const result = handleTurnFrame(turnState, { pricing, now }, frame, frameHooks)
+        if (result.kind === 'end') return finish(result.state, result.error)
       }
 
       // The stream ended without turn_end: the gateway keeps subscriptions open,
@@ -627,8 +499,8 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
         // Cancelled rather than released here: the session may still be wanted
         // (a chat turn that timed out is still a chat), and the release decision
         // belongs to the cleanup below, which knows whether it is.
-        if (sessionId !== null) {
-          await client.cancel(sessionId).catch((cancelError: unknown) => {
+        if (turnState.sessionId !== null) {
+          await client.cancel(turnState.sessionId).catch((cancelError: unknown) => {
             log?.warn(`run ${runId}: cancel failed: ${(cancelError as Error).message}`)
           })
         }
@@ -674,41 +546,38 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
       // For a new session, create first; for an existing one, just prompt.
       if (input.sessionId === undefined || input.sessionId === null) {
         const created = await upstream.createSession(agent.workspacePath, agent.preset)
-        sessionId = created.sessionId
-        provider = created.provider ?? agent.provider ?? null
-        model = created.model ?? agent.model ?? null
+        turnState.sessionId = created.sessionId
+        turnState.provider = created.provider ?? agent.provider ?? null
+        turnState.model = created.model ?? agent.model ?? null
         // 蜂群 P0：在首次 prompt 之前把沙箱模式钉在会话上（sandbox/mode 日志
         // 事件，冷醒 replay 恢复，一次即持久）。续接路径的模式在创建时已设过。
         if (agent.sandboxMode !== null) {
           // 端口可选能力：无此能力的插头跳过（facade 插头必实现）。
-          await upstream.setSandboxMode?.(sessionId, agent.sandboxMode)
+          await upstream.setSandboxMode?.(turnState.sessionId, agent.sandboxMode)
         }
         // 会话刚建 = live：延迟生效的沙箱覆盖在此刻钉入（chat.accessModeOverride，
         // 2026-09-11：宿主只允许钉 live 会话，回合间隙的切换请求由 runner 代劳）。
-        await applyAccessOverride(sessionId)
+        await applyAccessOverride(turnState.sessionId)
       } else {
-        sessionId = input.sessionId
-        provider = agent.provider ?? null
-        model = agent.model ?? null
+        turnState.sessionId = input.sessionId
+        turnState.provider = agent.provider ?? null
+        turnState.model = agent.model ?? null
       }
 
-      deps.db.update(schema.run).set({ dshSessionId: sessionId }).where(eq(schema.run.id, runId)).run()
-      if (sessionId !== null) input.onSession?.(sessionId)
-      log?.info(`run ${runId}: session ${sessionId} on ${upstream.id} (apiproxy), cwd=${agent.workspacePath}`)
+      deps.db.update(schema.run).set({ dshSessionId: turnState.sessionId }).where(eq(schema.run.id, runId)).run()
+      if (turnState.sessionId !== null) input.onSession?.(turnState.sessionId)
+      log?.info(`run ${runId}: session ${turnState.sessionId} on ${upstream.id} (apiproxy), cwd=${agent.workspacePath}`)
 
       // 债务 E10:显式收窄——create 分支保证 sessionId 非空,闭包前取局部避免 `!`
-      const sid = sessionId
+      const sid = turnState.sessionId
       if (sid === null) return finish('failed', 'no session id after create/continue')
 
       // Subscribe to mux BEFORE sending the prompt, so we catch all frames.
+      // 债务 R8:unsub 存进引用盒(闭包内赋值,外部 finally 读取)——prompt 拒绝/
+      // 抛错等提前返回路径不再遗留订阅(旧代码只在 turn_end/重连/abort 里退订)。
+      const unsubRef: { cleanup: (() => void) | null } = { cleanup: null }
       const turnDone = new Promise<RunOutcome>((resolveTurn) => {
         const unsub = upstream.subscribe(sid, (_sid, frame) => {
-          trackAwaiting(frame)
-          armSilence()
-
-          // All mux frames are live (no hello replay), safe to relay.
-          input.onFrame?.(frame)
-
           // 审计留痕：主脑/agent 问人、要授权的帧到达即记一行，方便事后追溯
           // 「卡没出现」类问题的断点定位（第一次踩坑 2026-09-05）。
           if (frame.kind === 'question_asked' || frame.kind === 'approval_pending') {
@@ -719,50 +588,27 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
             )
           }
 
-          if (frame.kind === 'stream_reconnected') {
-            // 债务 A4:流在回合中重连——turn_end 可能已丢在断线期间,结果未知。
-            // 显性失败而非静默等超时(钱花了,结果必须可见,请查会话历史)。
+          // 债务 E1:直播帧的共享处理在 handleTurnFrame;apiproxy 循环只留自己
+          // 的差异——重连显性失败(结果未知)与审计日志。All mux frames are
+          // live (no hello replay), safe to relay.
+          const result = handleTurnFrame(turnState, { pricing, now }, frame, {
+            relay: (liveFrame) => input.onFrame?.(liveFrame),
+            trackAwaiting,
+            armSilence,
+            onReconnect: () => {
+              // 债务 A4:流在回合中重连——turn_end 可能已丢在断线期间,结果未知。
+              // 显性失败而非静默等超时(钱花了,结果必须可见,请查会话历史)。
+              unsub()
+              resolveTurn(finish('failed', 'upstream stream reconnected mid-turn: outcome unknown (the turn may have completed); check the session history'))
+            },
+          })
+          if (result.kind === 'end') {
             unsub()
-            resolveTurn(finish('failed', 'upstream stream reconnected mid-turn: outcome unknown (the turn may have completed); check the session history'))
-            return
-          }
-
-          if (isLiveMessage(frame)) {
-            const frameUsage = normalizeUsage(frame.usage)
-            usage = sumUsage(usage, frameUsage)
-            if (frameUsage !== null) {
-              const cost = computeCost(frameUsage, provider, model, now(), pricing)
-              if (cost === null) costKnown = false
-              else {
-                accruedCost += cost.microUsd
-                if (cost.peak) accruedPeakCost += cost.microUsd
-              }
-            }
-            const text = typeof frame.text === 'string' ? frame.text : ''
-            if (text !== '') texts.push(text)
-            return
-          }
-
-          if (frame.kind === 'tool_call') {
-            toolCalls += 1
-            return
-          }
-
-          if (frame.kind === 'turn_end') {
-            unsub()
-            reason = typeof frame.reason === 'string' ? frame.reason : 'unknown'
-            const detail = frame.detail as { message?: string; cause?: string } | null
-            if (reason === 'error') {
-              resolveTurn(finish('failed', detail?.message ?? 'the turn ended with an error'))
-              return
-            }
-            if (reason === 'aborted') {
-              resolveTurn(finish('failed', `the turn was aborted (${detail?.cause ?? 'unknown cause'})`))
-              return
-            }
-            resolveTurn(finish('done', null))
+            resolveTurn(finish(result.state, result.error))
           }
         })
+        // 债务 R8:subscribe 返回后立即记下退订函数(finally 兜底用)。
+        unsubRef.cleanup = unsub
 
         // Abort handler: clean up the subscription
         const abortTurn = () => {
@@ -777,16 +623,22 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
         else controller.signal.addEventListener('abort', abortTurn, { once: true })
       })
 
-      armSilence()
-      // Send the prompt (also resumes cold sessions: P3 confirmed)
-      const promptResult = await upstream.prompt(sessionId, prompt)
-      if (!promptResult.accepted) {
-        return finish('failed', 'the prompt was not accepted by the upstream')
-      }
-      // prompt 附带挂载（冷会话已转 live）：此刻钉延迟覆盖成功率高；失败保留下次再试。
-      await applyAccessOverride(sessionId)
+      // 债务 R8:prompt 与等待结果整体进 try/finally——拒绝/抛错/回合结束/
+      // 超时/重连任何路径,最后都兜底退订一次(unsub 幂等,重复调用无害)。
+      try {
+        armSilence()
+        // Send the prompt (also resumes cold sessions: P3 confirmed)
+        const promptResult = await upstream.prompt(sid, prompt)
+        if (!promptResult.accepted) {
+          return finish('failed', 'the prompt was not accepted by the upstream')
+        }
+        // prompt 附带挂载（冷会话已转 live）：此刻钉延迟覆盖成功率高；失败保留下次再试。
+        await applyAccessOverride(sid)
 
-      return await turnDone
+        return await turnDone
+      } finally {
+        if (unsubRef.cleanup !== null) unsubRef.cleanup()
+      }
     } catch (error) {
       if (controller.signal.aborted) {
         return finish('failed', cancelledText())
@@ -865,12 +717,12 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
     // worst case is a slot that stays held until DSH restarts -- visible in the
     // log, and recoverable.
     // apiproxy has no slot management; only gateway sessions need releasing.
-    if ((input.driver ?? 'gateway') === 'gateway' && input.keepSession !== true && sessionId !== null) {
+    if ((input.driver ?? 'gateway') === 'gateway' && input.keepSession !== true && turnState.sessionId !== null) {
       try {
-        await client.release(sessionId)
+        await client.release(turnState.sessionId)
       } catch (error) {
         log?.warn(
-          `run ${runId}: could not hand session ${sessionId} back to the gateway, ` +
+          `run ${runId}: could not hand session ${turnState.sessionId} back to the gateway, ` +
             `so it still counts against maxSessions: ${(error as Error).message}`,
         )
       }
