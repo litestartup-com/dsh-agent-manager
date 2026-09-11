@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process'
 import net from 'node:net'
 import { pathToFileURL } from 'node:url'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
-import { writeFileAtomic } from '../config-store.js'
+import { withConfigLock, writeFileAtomic } from '../config-store.js'
 import type { ManagerConfigFile } from '../config.js'
 import { initWorkspace } from '../workspace/init.js'
 import { COMPAT_DSH_VERSION, DSH_INSTALL_COMMAND, GATEWAY_PACKAGE, GATEWAY_REF, dshCompatible } from '../dsh-version.js'
@@ -492,15 +492,17 @@ const usage = (): void => {
   console.log('  --nodes-home     节点目录根（每个节点一个独立 DSH_HOME，默认 ~/.dsh-ohdsh）')
 }
 
-const main = async (): Promise<void> => {
-  const { options, help, explicit } = parseArgs(process.argv.slice(2))
-  if (help) {
-    usage()
-    return
-  }
-  const configPath = 'manager.config.yaml'
+// ---------------------------------------------------------------------------
+// 债务 E4:main() 拆阶段函数——六段各司其职,main 只编排。
+// 每段的失败语义(process.exit(2) 红字)原样保留:setup 无半成功态。
+// ---------------------------------------------------------------------------
 
-  // ---- 前置检查 -----------------------------------------------------------
+/** ⓪-1 前置检查:已存在配置 / --force 保留定制工作区 / 模型凭据存在。 */
+const checkPreconditions = (
+  options: SetupOptions,
+  explicit: { personalWorkspace: boolean; brainWorkspace: boolean },
+): void => {
+  const configPath = 'manager.config.yaml'
   if (existsSync(configPath) && !options.force) {
     console.error(`已存在 ${configPath}。改配置请直接编辑；重装请加 --force（不会覆盖工作区，但会重写配置）。`)
     process.exit(2)
@@ -521,8 +523,10 @@ const main = async (): Promise<void> => {
     console.error(`未找到 ${options.dshHome}/.credentials.yaml —— 请先运行一次 DSH 并配置模型凭证，再执行 setup。`)
     process.exit(2)
   }
+}
 
-  // ---- 蜂群2计划 P1：自检表（缺件/版本不符/端口占用 → 红字退出，无半成功态）----
+/** ⓪-2 自检表:DSH bin / 工具版本 / 端口占用(缺件即红字退出)。返回 dshBin。 */
+const selfCheck = async (options: SetupOptions): Promise<string> => {
   console.log('⓪ 自检…')
   let dshBin: string
   try {
@@ -573,8 +577,11 @@ const main = async (): Promise<void> => {
     console.error(`   ❌ 端口被占用：${busyPorts.join('、')}。换端口：--ports 3081,3082；manager 端口改 manager.config.yaml 的 listen.port。`)
     process.exit(2)
   }
+  return dshBin
+}
 
-  // ---- 工作区（模板幂等，绝不覆盖已有文件） --------------------------------
+/** ① 初始化工作区(模板幂等,绝不覆盖已有文件;note-kaka 类只读权威)。 */
+const initWorkspaces = (options: SetupOptions): void => {
   console.log('① 初始化工作区…')
   // note-kaka 之类已有 RULE.md/CONTEXT.md 的笔记库是「只读权威」（TASKS 阶段二）：
   // 不写入任何模板文件，只确认目录存在——否则 AGENTS.md 会与 RULE.md 打架、
@@ -587,8 +594,10 @@ const main = async (): Promise<void> => {
     initWorkspace({ workspacePath: options.personalWorkspace, preset: 'personal' })
   }
   initWorkspace({ workspacePath: options.brainWorkspace, preset: 'brain' })
+}
 
-  // ---- 节点 profile（每节点一个独立 DSH_HOME） -----------------------------
+/** ② 节点 profile + 凭据 + 依赖安装(失败 = 红字退出,无半成功态)。返回节点 home 映射。 */
+const installNodeProfiles = (options: SetupOptions, dshBin: string): Map<string, string> => {
   console.log('② 生成节点目录与 profile…')
   const specs: ProfileSpec[] = [
     { name: 'ohdsh-personal', port: options.personalPort },
@@ -612,8 +621,7 @@ const main = async (): Promise<void> => {
       console.log(`   凭据已复制到 ${home}`)
     }
   }
-  const dshBinKnown = dshBin // 自检阶段已解析，直接复用
-  console.log(`   DSH bin: ${dshBinKnown}`)
+  console.log(`   DSH bin: ${dshBin}`)
   if (options.installProfiles) {
     let failures = 0
     for (const [name, home] of nodeHomes) {
@@ -638,8 +646,13 @@ const main = async (): Promise<void> => {
       process.exit(2)
     }
   }
+  return nodeHomes
+}
 
-  // ---- 密钥与 .env --------------------------------------------------------
+/** ③ 密钥与 .env(债务 R6:写入走锁入口)。返回 .env 值与两个 home(类型收窄后非空)。 */
+const writeSecrets = async (
+  nodeHomes: Map<string, string>,
+): Promise<{ envValues: Record<string, string>; personalHome: string; brainHome: string }> => {
   console.log('③ 生成密钥…')
   // 每个节点自己的 settings.yaml 里一把独立的 gateway 密钥；manager 分 ref 引用。
   // 债务 E10:ensureNodeProfiles 已保证两 home 必在 map,显式收窄替代 `!`
@@ -651,9 +664,18 @@ const main = async (): Promise<void> => {
   }
   const personalKey = resolveGatewayKey(personalHome, null)
   const brainKey = resolveGatewayKey(brainHome, null)
-  const envValues = mergeEnv('.env', setupEnvValues(personalKey, brainKey), ['GW_KEY_A', 'GW_KEY_B'])
+  const envValues = await withConfigLock(() => mergeEnv('.env', setupEnvValues(personalKey, brainKey), ['GW_KEY_A', 'GW_KEY_B']))
+  return { envValues, personalHome, brainHome }
+}
 
-  // ---- manager 配置 -------------------------------------------------------
+/** ④ 生成 manager.config.yaml(债务 R6:写入走锁入口)。 */
+const writeManagerConfig = async (
+  options: SetupOptions,
+  dshBin: string,
+  personalHome: string,
+  brainHome: string,
+  envValues: Record<string, string>,
+): Promise<void> => {
   console.log('④ 生成 manager.config.yaml…')
   const managerConfig = buildManagerConfig({
     personalWorkspace: resolve(options.personalWorkspace),
@@ -667,8 +689,11 @@ const main = async (): Promise<void> => {
     brainHome,
     brainToken: envValues.BRAIN_TOKEN ?? '',
   })
-  writeFileAtomic(configPath, stringifyYaml(managerConfig))
+  await withConfigLock(() => writeFileAtomic('manager.config.yaml', stringifyYaml(managerConfig)))
+}
 
+/** 完成打印:下一步指引。 */
+const printDone = (nodeHomes: Map<string, string>): void => {
   console.log('')
   console.log('完成。下一步：')
   console.log('  npm run build && npm start     # manager 启动时会自动拉起两个节点')
@@ -676,6 +701,21 @@ const main = async (): Promise<void> => {
   console.log('  每个节点有独立 DSH_HOME（会话/settings/附件互不可见）：')
   for (const [name, home] of nodeHomes) console.log(`    ${name}: ${home}`)
   console.log(`  访问 http://127.0.0.1:8080（登录用户 ${process.env.MANAGER_USERNAME ?? 'admin'}）`)
+}
+
+const main = async (): Promise<void> => {
+  const { options, help, explicit } = parseArgs(process.argv.slice(2))
+  if (help) {
+    usage()
+    return
+  }
+  checkPreconditions(options, explicit)
+  const dshBin = await selfCheck(options)
+  initWorkspaces(options)
+  const nodeHomes = installNodeProfiles(options, dshBin)
+  const { envValues, personalHome, brainHome } = await writeSecrets(nodeHomes)
+  await writeManagerConfig(options, dshBin, personalHome, brainHome, envValues)
+  printDone(nodeHomes)
 }
 
 // 只在被直接执行时运行（测试导入本模块时不应触发安装流程）。
