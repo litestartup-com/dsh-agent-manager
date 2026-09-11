@@ -56,8 +56,7 @@ export interface QuestionAnswer {
   custom?: string
 }
 
-export class GatewayError extends Error {
-  constructor(
+export class GatewayError extends Error {  constructor(
     readonly endpointId: string,
     readonly status: number,
     readonly detail: string,
@@ -296,3 +295,19 @@ export const buildClients = (endpoints: Record<string, ResolvedEndpoint>): Map<s
   for (const endpoint of Object.values(endpoints)) map.set(endpoint.id, new GatewayClient(endpoint))
   return map
 }
+
+/**
+ * 债务 E10:apiproxy 等不经过 gateway 的路径仍需一个占位 client(RunInput 等
+ * 类型要求非空)——它指向永不连通的地址,分支逻辑保证它绝不会被真调。
+ */
+export const dummyGatewayClient = (): GatewayClient =>
+  new GatewayClient({
+    id: 'dummy',
+    url: 'http://127.0.0.1:1',
+    driver: 'gateway',
+    prefix: '/api-gw/v1',
+    key: '',
+    sandboxBase: null,
+    sandboxKey: '',
+    spawn: null,
+  })

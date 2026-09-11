@@ -5,7 +5,7 @@ import { z } from 'zod'
 import type { AppConfig, ResolvedAgent } from '../config.js'
 import type { Db } from '../db/index.js'
 import { schema } from '../db/index.js'
-import { GatewayError, type GatewayClient, type HistoryEvent, type QuestionAnswer } from '../gateway/client.js'
+import { GatewayError, dummyGatewayClient, type GatewayClient, type HistoryEvent, type QuestionAnswer } from '../gateway/client.js'
 import { errorText } from '../errors.js'
 import type { GatewayFrame } from '../gateway/stream.js'
 import type { SessionDriver } from '../session-driver/port.js'
@@ -149,8 +149,8 @@ export const registerChatRoutes = (
     }
     // For gateway mode, client is always defined here; for apiproxy, we still
     // need a GatewayClient reference for routes that haven't been branched yet.
-    // Use a dummy that will never be called on the apiproxy path.
-    return { chat, agent, client: client!, upstream, driver }
+    // 债务 E10:占位 client 永不连通,分支逻辑保证不会被真调。
+    return { chat, agent, client: client ?? dummyGatewayClient(), upstream, driver }
   }
 
   // ---- history cache (avoids re-reading the same session log on every page open) ----

@@ -6,7 +6,7 @@ import { z } from 'zod'
 import type { AppConfig } from '../config.js'
 import type { Db } from '../db/index.js'
 import { schema } from '../db/index.js'
-import type { GatewayClient } from '../gateway/client.js'
+import { dummyGatewayClient, type GatewayClient } from '../gateway/client.js'
 import type { SessionDriver } from '../session-driver/port.js'
 import { listChats, getChat, bindSession, touchChat } from '../chat/store.js'
 import { publish } from './chat.js'
@@ -280,7 +280,7 @@ export const registerInternalRoutes = (
         },
         {
           agent,
-          client: client!,
+          client: client ?? dummyGatewayClient(),
           upstream,
           driver,
           prompt: parsed.data.text,
@@ -347,7 +347,7 @@ export const registerInternalRoutes = (
         },
         {
           agent,
-          client: client!,
+          client: client ?? dummyGatewayClient(),
           upstream,
           driver,
           prompt: body.prompt,

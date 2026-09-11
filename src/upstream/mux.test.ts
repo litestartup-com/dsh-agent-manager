@@ -100,8 +100,9 @@ describe('债务 A4: 连接级行为(注入假 socket)', () => {
     captured[0]!.onopen?.() // 首连
     assert.deepEqual(seen, [], '首连不广播 stream_reconnected')
 
-    captured[0]!.close() // 断线 → 3s 退避后重连
-    await new Promise((resolve) => setTimeout(resolve, 3_400))
+    captured[0]!.close() // 断线 → 退避后重连
+    // 首退避 = 3s ±25% 抖动,上浮可达 3750ms——等待必须留有全部余量
+    await new Promise((resolve) => setTimeout(resolve, 4_100))
     assert.equal(captured.length, 2, '断线后必须自动重连')
     captured[1]!.onopen?.() // 重连成功
     assert.deepEqual(seen, ['stream_reconnected'], '重连成功必须广播 stream_reconnected')

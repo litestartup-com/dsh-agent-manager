@@ -631,7 +631,12 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
   // ---- apiproxy turn (new path) ----
 
   const turnApiproxy = async (): Promise<RunOutcome> => {
-    const upstream = input.upstream!
+    // 债务 E10:显式判空——driver=apiproxy 而没有上游 client 是接线错误,必须
+    // 显性失败而不是让 undefined 在 subscribe 处炸成难懂的 TypeError。
+    const upstream = input.upstream
+    if (upstream === undefined) {
+      return finish('failed', 'apiproxy driver selected but no upstream client is wired for this endpoint')
+    }
 
     try {
       // apiproxy has no adopt/resume concept; prompt is the universal entry.
@@ -656,9 +661,13 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
       deps.db.update(schema.run).set({ dshSessionId: sessionId }).where(eq(schema.run.id, runId)).run()
       log?.info(`run ${runId}: session ${sessionId} on ${upstream.id} (apiproxy), cwd=${agent.workspacePath}`)
 
+      // 债务 E10:显式收窄——create 分支保证 sessionId 非空,闭包前取局部避免 `!`
+      const sid = sessionId
+      if (sid === null) return finish('failed', 'no session id after create/continue')
+
       // Subscribe to mux BEFORE sending the prompt, so we catch all frames.
       const turnDone = new Promise<RunOutcome>((resolveTurn) => {
-        const unsub = upstream.subscribe(sessionId!, (_sid, frame) => {
+        const unsub = upstream.subscribe(sid, (_sid, frame) => {
           trackAwaiting(frame)
           armSilence()
 
@@ -724,7 +733,7 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
         controller.signal.addEventListener('abort', () => {
           unsub()
           timedOut = true
-          upstream.cancel(sessionId!).catch((cancelError: unknown) => {
+          upstream.cancel(sid).catch((cancelError: unknown) => {
             log?.warn(`run ${runId}: cancel failed: ${(cancelError as Error).message}`)
           })
           resolveTurn(finish('failed', cancelledText()))

@@ -33,7 +33,8 @@ export default tseslint.config(
       '@typescript-eslint/await-thenable': 'error',
 
       // —— 债务计数类：warn，不阻塞 CI（清零后再升级为 error）——
-      '@typescript-eslint/no-non-null-assertion': 'warn',
+      // 债务 E10:生产代码非空断言已清零,升 error(测试文件豁免见下)
+      '@typescript-eslint/no-non-null-assertion': 'error',
       '@typescript-eslint/no-unnecessary-condition': 'off',
       // 多余的类型断言：真该清，但属于纯清理；先计数，别混进安全批次
       '@typescript-eslint/no-unnecessary-type-assertion': 'warn',
@@ -64,6 +65,8 @@ export default tseslint.config(
     rules: {
       '@typescript-eslint/no-floating-promises': 'off',
       '@typescript-eslint/no-misused-promises': 'off',
+      // 债务 E10:测试里的 `!` 是断言惯用法,豁免(生产代码已升 error)
+      '@typescript-eslint/no-non-null-assertion': 'off',
       // 测试里 await 一个非 async 的桩、throw 一个非 Error 的对象都无害：计数不拦
       '@typescript-eslint/await-thenable': 'warn',
       '@typescript-eslint/only-throw-error': 'warn',

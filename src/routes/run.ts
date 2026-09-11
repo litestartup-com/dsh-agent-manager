@@ -4,7 +4,7 @@ import { z } from 'zod'
 import type { AppConfig } from '../config.js'
 import type { Db } from '../db/index.js'
 import { schema } from '../db/index.js'
-import type { GatewayClient } from '../gateway/client.js'
+import { dummyGatewayClient, type GatewayClient } from '../gateway/client.js'
 import type { SessionDriver } from '../session-driver/port.js'
 import { activeRunCount, runAgent, runningRunId } from '../runner.js'
 
@@ -56,7 +56,7 @@ export const registerRunRoutes = (
           },
           {
             agent,
-            client: client!,
+            client: client ?? dummyGatewayClient(),
             upstream,
             driver,
             prompt: parsed.data.prompt,

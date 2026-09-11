@@ -329,7 +329,9 @@ export const registerProvisionRoutes = (
           docker: deps.docker,
         })
         supervisors.set(body.name, supervisor)
-        supervisor.start(endpoint.spawn!)
+        // 债务 E10:spawn 由上面的 spawnFor/字面量构造,恒非空;显式收窄替代 `!`
+        if (endpoint.spawn === null) throw new Error('internal: docker endpoint built without spawn')
+        supervisor.start(endpoint.spawn)
         supervisorStarted = supervisor
 
         if (agentSpec !== null) {
@@ -458,7 +460,12 @@ export const registerProvisionRoutes = (
       const startAfterInstall = (): void => {
         if (rolledBack) return
         supervisorStarted = supervisor
-        supervisor.start(endpoint.spawn!)
+        // 债务 E10:显式收窄(process 分支的 spawn 由 spawnFor 构造,恒非空)
+        if (endpoint.spawn === null) {
+          app.log.error(`node ${body.name}: internal error, spawn missing; supervisor stays cold`)
+          return
+        }
+        supervisor.start(endpoint.spawn)
       }
       installPromise.then(startAfterInstall).catch((installError: unknown) => {
         if (rolledBack) return
@@ -565,7 +572,10 @@ export const registerProvisionRoutes = (
 
     const bound = Object.values(config.agents).filter((a) => a.endpoint === request.params.id)
 
-    supervisors.get(request.params.id)!.stop()
+    // 债务 E10:569 行已判 supervisors.has,此处显式收窄替代 `!`
+    const supervisor = supervisors.get(request.params.id)
+    if (supervisor === undefined) return reply.code(409).send({ error: 'not_managed' })
+    supervisor.stop()
     supervisors.delete(request.params.id)
     delete config.endpoints[request.params.id]
     for (const a of bound) delete config.agents[a.id]

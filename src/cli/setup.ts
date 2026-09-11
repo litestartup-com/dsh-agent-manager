@@ -642,8 +642,15 @@ const main = async (): Promise<void> => {
   // ---- 密钥与 .env --------------------------------------------------------
   console.log('③ 生成密钥…')
   // 每个节点自己的 settings.yaml 里一把独立的 gateway 密钥；manager 分 ref 引用。
-  const personalKey = resolveGatewayKey(nodeHomes.get('ohdsh-personal')!, null)
-  const brainKey = resolveGatewayKey(nodeHomes.get('ohdsh-brain')!, null)
+  // 债务 E10:ensureNodeProfiles 已保证两 home 必在 map,显式收窄替代 `!`
+  const personalHome = nodeHomes.get('ohdsh-personal')
+  const brainHome = nodeHomes.get('ohdsh-brain')
+  if (personalHome === undefined || brainHome === undefined) {
+    console.error('内部错误:节点 home 未登记——ensureNodeProfiles 未按预期执行。')
+    process.exit(2)
+  }
+  const personalKey = resolveGatewayKey(personalHome, null)
+  const brainKey = resolveGatewayKey(brainHome, null)
   const envValues = mergeEnv('.env', setupEnvValues(personalKey, brainKey), ['GW_KEY_A', 'GW_KEY_B'])
 
   // ---- manager 配置 -------------------------------------------------------
@@ -656,8 +663,8 @@ const main = async (): Promise<void> => {
     dshBin,
     personalProfile: 'ohdsh-personal',
     brainProfile: 'ohdsh-brain',
-    personalHome: nodeHomes.get('ohdsh-personal')!,
-    brainHome: nodeHomes.get('ohdsh-brain')!,
+    personalHome,
+    brainHome,
     brainToken: envValues.BRAIN_TOKEN ?? '',
   })
   writeFileAtomic(configPath, stringifyYaml(managerConfig))

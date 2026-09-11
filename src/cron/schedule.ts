@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm'
 import type { AppConfig } from '../config.js'
 import type { Db } from '../db/index.js'
 import { schema } from '../db/index.js'
-import type { GatewayClient } from '../gateway/client.js'
+import { dummyGatewayClient, type GatewayClient } from '../gateway/client.js'
 import type { SessionDriver } from '../session-driver/port.js'
 import { runAgent, type RunInput, type RunOutcome, type RunnerDeps } from '../runner.js'
 import { currentDay, daySpend } from '../usage/store.js'
@@ -283,7 +283,7 @@ export class Scheduler {
         { db: this.deps.db, pricing: this.deps.config.pricing, log: this.deps.log },
         {
           agent,
-          client: client!,
+          client: client ?? dummyGatewayClient(),
           upstream,
           driver,
           prompt: row.prompt,

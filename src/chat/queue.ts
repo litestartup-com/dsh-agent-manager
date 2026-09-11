@@ -44,7 +44,12 @@ export const drainChatQueue = (chatId: string): void => {
     queues.delete(chatId)
     return
   }
-  const next = q.shift()!
+  const next = q.shift()
+  if (next === undefined) {
+    // 债务 E10:显式判空(前面查过 length>0,但 TS 收窄不到 shift 的返回)
+    queues.delete(chatId)
+    return
+  }
   draining.add(chatId)
   // The catch is load-bearing: a rejecting execute would otherwise surface as
   // an unhandledRejection and, on some runtimes, take the process down. The
