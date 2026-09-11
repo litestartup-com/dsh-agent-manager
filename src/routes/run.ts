@@ -12,6 +12,27 @@ const runBody = z.object({
   prompt: z.string().min(1, 'a prompt is required').max(20_000),
 })
 
+/**
+ * 债务 E9:API 面钱字段统一 MicroUsd 命名——旧代码把 usage 行裸列名
+ * (cost/peakCost,无单位后缀)直接透出,与全站 costMicroUsd 口径漂移。
+ */
+const usageApi = (u: (typeof schema.usageRecord.$inferSelect) | null | undefined) => {
+  if (u === undefined || u === null) return null
+  return {
+    runId: u.runId,
+    provider: u.provider,
+    model: u.model,
+    inputTokens: u.inputTokens,
+    outputTokens: u.outputTokens,
+    cacheReadTokens: u.cacheRead,
+    cacheWriteTokens: u.cacheWrite,
+    reasoningTokens: u.reasoningTokens,
+    costMicroUsd: u.cost,
+    peakCostMicroUsd: u.peakCost,
+    at: u.at,
+  }
+}
+
 export const registerRunRoutes = (
   app: FastifyInstance,
   config: AppConfig,
@@ -103,7 +124,7 @@ export const registerRunRoutes = (
         activeRuns: activeRunCount(agent.id),
         runs: rows.map((r) => ({
           ...r,
-          usage: byRun.get(r.id) ?? null,
+          usage: usageApi(byRun.get(r.id)),
         })),
       })
     },
@@ -145,7 +166,7 @@ export const registerRunRoutes = (
       const run = rows[0]
       if (run === undefined) return reply.code(404).send({ error: 'unknown_run' })
       const usage = db.select().from(schema.usageRecord).where(eq(schema.usageRecord.runId, run.id)).all()
-      return reply.send({ ...run, usage: usage[0] ?? null })
+      return reply.send({ ...run, usage: usageApi(usage[0]) })
     },
   )
 }

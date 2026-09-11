@@ -1,5 +1,5 @@
-import { sql } from 'drizzle-orm'
-import type { Db } from '../db/index.js'
+import { and, desc, eq, gte, lt, sql } from 'drizzle-orm'
+import { schema, type Db } from '../db/index.js'
 
 /**
  * Spend, read back out of the ledger.
@@ -33,10 +33,6 @@ export const dayRangeMs = (day: string): { start: number; end: number } => {
   const [y, m, d] = day.split('-').map(Number)
   return { start: new Date(y ?? 0, (m ?? 1) - 1, d ?? 1).getTime(), end: new Date(y ?? 0, (m ?? 1) - 1, (d ?? 1) + 1).getTime() }
 }
-
-/** 范围过滤片段的模板(sql 参数化,防注入)。 */
-const inRange = (range: { start: number; end: number }): ReturnType<typeof sql> =>
-  sql`at >= ${range.start} AND at < ${range.end}`
 
 export interface SpendTotals {
   runs: number

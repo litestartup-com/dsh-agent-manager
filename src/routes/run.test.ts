@@ -143,3 +143,23 @@ test('unauthenticated GET /api/runs is rejected by the requireUser hook', async 
   const res = await app.inject({ method: 'GET', url: '/api/runs' })
   assert.equal(res.statusCode, 401)
 })
+
+test('债务 E9: runs API 的钱字段统一 MicroUsd 命名(不泄露裸列名 cost/peakCost)', async () => {
+  const { app, db } = boot()
+  db.insert(schema.run)
+    .values({ id: 'r1', agentId: 'personal', trigger: 'manual', state: 'done', startedAt: 1, endedAt: 2 })
+    .run()
+  db.insert(schema.usageRecord)
+    .values({ runId: 'r1', provider: 'p', model: 'm', inputTokens: 10, outputTokens: 20, cost: 1234, peakCost: 456, at: 2 })
+    .run()
+
+  const res = await app.inject({ method: 'GET', url: '/api/agents/personal/runs' })
+  assert.equal(res.statusCode, 200)
+  const body = res.json() as { runs: Array<{ usage: Record<string, unknown> | null }> }
+  const usage = body.runs[0]?.usage
+  assert.ok(usage !== null && usage !== undefined)
+  assert.equal(usage.costMicroUsd, 1234, 'API 必须用 costMicroUsd')
+  assert.equal(usage.peakCostMicroUsd, 456, 'API 必须用 peakCostMicroUsd')
+  assert.equal('cost' in usage, false, 'API 不得再泄露裸列名 cost')
+  assert.equal('peakCost' in usage, false, 'API 不得再泄露裸列名 peakCost')
+})
