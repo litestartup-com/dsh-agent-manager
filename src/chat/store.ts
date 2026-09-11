@@ -74,18 +74,8 @@ export interface ChatListItem extends ChatRow {
  *
  * Removed chats are excluded rather than deleted; see `removeChat`.
  *
- * The turn counts are a second, grouped query rather than a correlated subquery
- * in the select list. An earlier version did the clever thing and was silently
- * wrong.
- *
- * Drizzle renders a column interpolated into a raw `sql` fragment of a
- * single-table select as bare `"id"`, producing
- * `... (SELECT COUNT(*) FROM run WHERE run.chat_id = "id") FROM chat`.
- * Inside that subquery the inner table wins name resolution, and `run` has an
- * `id` column of its own, so the predicate silently became
- * `run.chat_id = run.id` -- comparing a chat id to a run id, never true. Every
- * count came back 0 with no error, because the identifier did resolve; it just
- * resolved to the wrong table.
+ * 债务 E16:回合计数用二次分组查询而非相关子查询的原因(「聪明」写法静默
+ * 计 0 的事故复盘)见 docs/adr/0003-chat-turn-count-query.md。
  */
 export const listChats = (db: Db, agentId: string, limit = 100): ChatListItem[] => {
   const rows = db

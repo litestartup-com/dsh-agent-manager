@@ -21,36 +21,9 @@ import { handleTurnFrame, makeFinish, newTurnState } from './runner/turn.js'
  * subscribe, send the instruction, follow the stream to `turn_end`, and record
  * what it cost.
  *
- * A turn either starts a new session or continues an existing one (`sessionId`).
- * Continuing is what makes a multi-turn conversation possible at all: the model
- * sees the earlier turns only because the gateway session is the same one.
- *
- * Two ordering decisions matter:
- *
- * 1. The stream is subscribed to *before* the message is sent. The gateway
- *    replays history in its `hello` frame, so a late subscriber would still see
- *    the turn -- but it could not tell replayed events from live ones.
- * 2. Usage is therefore counted only from live `message` frames, and only live
- *    frames are relayed to browsers. Counting the `hello` log would bill every
- *    previous turn again on each run, which grows with the conversation.
- *
- * Each response is priced as it arrives rather than the whole turn being priced
- * once at the end. The provider bills by time of day at two rates, and a turn
- * can run long enough to cross a boundary, so a single end-of-turn timestamp
- * would put the entire turn on the wrong side of the clock.
- *
- * The workspace is committed after every turn, including a failed one -- see
- * workspace/snapshot.ts. 蜂群 P5.4 起回合并行：git 快照/提交由每 agent 的
- * 提交锁串行执行（落盘是唯一的排队点），运行期间被并发回合提交过的工作区
- * 会在 run 行上记 conflict——冲突显性化，绝不静默覆盖。
- *
- * The gateway session is handed back when the turn is done, unless the caller
- * asked to keep it (`keepSession`, which is what a conversation does). Sessions
- * are a capped resource on the gateway -- `maxSessions` -- and a one-shot turn
- * that keeps its slot never gives it back, so cron alone would eventually
- * exhaust the cap and block every conversation too. Releasing is not deleting:
- * the gateway keeps the transcript, so a released session can still be read and
- * can be adopted back.
+ * 债务 E16:回合驱动语义的完整论证(订阅先于发送/只计 live 帧/逐响应计价/
+ * 会话归还/静默超时≠总超时)已固化进 docs/adr/0001-runner-turn-semantics.md,
+ * 源码只留此引用。
  */
 
 export const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000

@@ -4,15 +4,8 @@ import { schema, type Db } from '../db/index.js'
 /**
  * Spend, read back out of the ledger.
  *
- * Two rules run through all of it:
- *
- * 1. **A missing rate is not zero.** Rows whose model had no configured rate are
- *    counted in `unpriced` and left out of the money, so a total is always
- *    reported as a floor with a visible gap beside it rather than as a
- *    confident number that happens to be too low.
- * 2. **Months are local.** Buckets come from SQLite's `localtime` modifier, so
- *    an evening run in UTC+8 lands in the month the operator thinks it did.
- *    Server timezone is the authority; there is one operator and one machine.
+ * 债务 E16:两条贯穿规则(缺费率不是零 / 月是本地)的论证已固化进
+ * docs/adr/0002-usage-accounting-rules.md,源码只留此引用。
  */
 
 /** `strftime` over an epoch-milliseconds column, in local time. */
