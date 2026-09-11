@@ -6,6 +6,7 @@ import net from 'node:net'
 import { pathToFileURL } from 'node:url'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { writeFileAtomic } from '../config-store.js'
+import type { ManagerConfigFile } from '../config.js'
 import { initWorkspace } from '../workspace/init.js'
 import { COMPAT_DSH_VERSION, DSH_INSTALL_COMMAND, GATEWAY_PACKAGE, GATEWAY_REF, dshCompatible } from '../dsh-version.js'
 
@@ -328,7 +329,10 @@ export const adoptOldWorkspaces = (
   }
 }
 
-/** 生成 manager.config.yaml 的配置对象（纯函数，可单测）。 */export const buildManagerConfig = (options: {
+/** 生成 manager.config.yaml 的配置对象（纯函数，可单测；债务 E7:返回类型 =
+ * config.ts 的 ManagerConfigFile,与 loadConfig 消费契约共用一份类型,不再
+ * Record<string, unknown> 裸奔）。 */
+export const buildManagerConfig = (options: {
   personalWorkspace: string
   brainWorkspace: string
   personalPort: number
@@ -341,8 +345,14 @@ export const adoptOldWorkspaces = (
   brainHome: string
   /** 主脑调内部 API 的令牌：必须注入 brain 节点进程环境，技能手册读 $BRAIN_TOKEN。 */
   brainToken: string
-}): Record<string, unknown> => {
-  const endpoint = (port: number, profile: string, home: string, keyRef: string, extraEnv: Record<string, string> = {}) => ({
+}): ManagerConfigFile => {
+  const endpoint = (
+    port: number,
+    profile: string,
+    home: string,
+    keyRef: string,
+    extraEnv: Record<string, string> = {},
+  ): ManagerConfigFile['endpoints'][string] => ({
     url: `http://127.0.0.1:${port}`,
     driver: 'apiproxy',
     prefix: '/api',
@@ -355,6 +365,10 @@ export const adoptOldWorkspaces = (
       // --no-open：节点是后台服务，不允许每次拉起都弹浏览器（web app 的自身参数）。
       args: [options.dshBin, '--profile', profile, '--no-open'],
       ready_timeout_ms: 30_000,
+      // 债务 E7:与 spawnSchema 必填默认值显式对齐(类型化抓出的漂移)
+      detached: false,
+      runner: 'process',
+      restart: { max_attempts: 3, base_delay_ms: 1_000, max_delay_ms: 30_000 },
       env: { DSH_HOME: home, ...extraEnv },
     },
   })
@@ -395,7 +409,13 @@ export const adoptOldWorkspaces = (
       daily_budget_usd: 1.0,
     },
     database: { path: './data/manager.db' },
+    // 债务 E7:与 fileSchema 默认值显式对齐(生成文件自带,不依赖下游默认)
+    reconcile_interval_minutes: 10,
+    backup: { docker_volumes: [] },
     pricing: {
+      // 债务 E7:与 pricingSchema 的默认值显式对齐(生成文件自带,不依赖下游默认)
+      weekends_off_peak: true,
+      timezone: 'Asia/Shanghai',
       peak_windows_utc: [
         { start: '01:00', end: '04:00' },
         { start: '06:00', end: '10:00' },

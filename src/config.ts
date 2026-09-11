@@ -113,7 +113,7 @@ const pricingSchema = z.object({
     .default({}),
 })
 
-const fileSchema = z.object({
+export const fileSchema = z.object({
   listen: z
     .object({ host: z.string().default('127.0.0.1'), port: z.number().int().positive().default(8080) })
     .default({ host: '127.0.0.1', port: 8080 }),
@@ -226,6 +226,9 @@ export interface ResolvedAgent {
  * 静默误读比不支持更危险 —— 所以纯数字一律视为无效，回落为不信任
  * （由 loadConfig 推一条启动警告）。
  */
+/** 债务 E7:manager.config.yaml 的文件契约类型(buildManagerConfig 等生成方共用)。 */
+export type ManagerConfigFile = z.infer<typeof fileSchema>
+
 export const parseTrustProxy = (raw: string | undefined): boolean | string => {
   const value = (raw ?? '').trim()
   if (value === '' || value.toLowerCase() === 'false' || /^\d+$/.test(value)) return false
