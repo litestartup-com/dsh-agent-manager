@@ -1286,16 +1286,22 @@ const renderComposer = () => {
   const turnRunning = state.turns.some((t) => t.state === 'running')
 
   el.input.disabled = lost
-  el.modes.hidden = capabilities.accessMode !== true
-  el.access.disabled = lost || sending || turnRunning || capabilities.accessMode !== true
-  if (composer.accessMode !== null) el.access.value = composer.accessMode
-  el.model.parentElement.hidden = capabilities.modelSelection !== true
-  el.model.disabled = lost || sending || turnRunning || capabilities.modelSelection !== true || modelChoices.size === 0
+  if (el.modes !== null) el.modes.hidden = capabilities.accessMode !== true
+  if (el.access !== null) {
+    el.access.disabled = lost || sending || turnRunning || capabilities.accessMode !== true
+    if (composer.accessMode !== null) el.access.value = composer.accessMode
+  }
+  if (el.model !== null) {
+    if (el.model.parentElement !== null) el.model.parentElement.hidden = capabilities.modelSelection !== true
+    el.model.disabled = lost || sending || turnRunning || capabilities.modelSelection !== true || modelChoices.size === 0
+  }
   const context = composer.context
-  el.context.hidden = context === null
-  if (context !== null) {
-    el.context.textContent = `上下文 ${context.percent}%`
-    el.context.title = `约 ${context.usedTokens.toLocaleString()} / ${context.contextWindow.toLocaleString()} tokens`
+  if (el.context !== null) {
+    el.context.hidden = context === null
+    if (context !== null) {
+      el.context.textContent = `上下文 ${context.percent}%`
+      el.context.title = `约 ${context.usedTokens.toLocaleString()} / ${context.contextWindow.toLocaleString()} tokens`
+    }
   }
   el.send.disabled = locked || el.input.value.trim() === ''
   // The stop button shows while this chat has a running turn — the POST itself
@@ -1405,7 +1411,7 @@ const loadDelegations = async () => {
 }
 
 const loadModels = async () => {
-  if (state === null || state.composer?.capabilities?.modelSelection !== true || state.chat.dshSessionId === null) return
+  if (el.model === null || state === null || state.composer?.capabilities?.modelSelection !== true || state.chat.dshSessionId === null) return
   if (modelCatalogSessionId === state.chat.dshSessionId) return
   try {
     const response = await apiFetch(`/api/chats/${encodeURIComponent(chatId)}/models`)
@@ -1708,57 +1714,61 @@ el.composer.addEventListener('submit', (event) => {
   void send()
 })
 
-el.access.addEventListener('change', () => {
-  const mode = el.access.value
-  if (mode !== 'read-only' && mode !== 'workspace-write') return
-  void (async () => {
-    el.access.disabled = true
-    try {
-      const response = await apiFetch(`/api/chats/${encodeURIComponent(chatId)}/sandbox-mode`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ mode }),
-      })
-      const body = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        toast(body.detail ?? `访问模式切换失败（${response.status}）`)
-        render()
-        return
+if (el.access !== null) {
+  el.access.addEventListener('change', () => {
+    const mode = el.access.value
+    if (mode !== 'read-only' && mode !== 'workspace-write') return
+    void (async () => {
+      el.access.disabled = true
+      try {
+        const response = await apiFetch(`/api/chats/${encodeURIComponent(chatId)}/sandbox-mode`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ mode }),
+        })
+        const body = await response.json().catch(() => ({}))
+        if (!response.ok) {
+          toast(body.detail ?? `访问模式切换失败（${response.status}）`)
+          render()
+          return
+        }
+        state.composer = { ...(state.composer ?? {}), accessMode: body.accessMode }
+        toast('访问模式已更新')
+      } catch (error) {
+        toast(`访问模式切换失败：${error.message}`)
       }
-      state.composer = { ...(state.composer ?? {}), accessMode: body.accessMode }
-      toast('访问模式已更新')
-    } catch (error) {
-      toast(`访问模式切换失败：${error.message}`)
-    }
-    render()
-  })()
-})
+      render()
+    })()
+  })
+}
 
-el.model.addEventListener('change', () => {
-  const selection = modelChoices.get(el.model.value)
-  if (selection === undefined) return
-  void (async () => {
-    el.model.disabled = true
-    try {
-      const response = await apiFetch(`/api/chats/${encodeURIComponent(chatId)}/model`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(selection),
-      })
-      const body = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        toast(body.detail ?? `模型切换失败（${response.status}）`)
-        render()
-        return
+if (el.model !== null) {
+  el.model.addEventListener('change', () => {
+    const selection = modelChoices.get(el.model.value)
+    if (selection === undefined) return
+    void (async () => {
+      el.model.disabled = true
+      try {
+        const response = await apiFetch(`/api/chats/${encodeURIComponent(chatId)}/model`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(selection),
+        })
+        const body = await response.json().catch(() => ({}))
+        if (!response.ok) {
+          toast(body.detail ?? `模型切换失败（${response.status}）`)
+          render()
+          return
+        }
+        state.composer = { ...(state.composer ?? {}), model: body.model }
+        toast('模型已更新，将在下一回合生效')
+      } catch (error) {
+        toast(`模型切换失败：${error.message}`)
       }
-      state.composer = { ...(state.composer ?? {}), model: body.model }
-      toast('模型已更新，将在下一回合生效')
-    } catch (error) {
-      toast(`模型切换失败：${error.message}`)
-    }
-    render()
-  })()
-})
+      render()
+    })()
+  })
+}
 
 el.input.addEventListener('input', () => {
   grow()
