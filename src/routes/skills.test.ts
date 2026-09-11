@@ -57,13 +57,9 @@ test('蜂群 P5.2: /api/skills lists each agent’s .skills with descriptions', 
 
   const res = await app.inject({ method: 'GET', url: '/api/skills' })
   assert.equal(res.statusCode, 200)
-  const body = res.json() as {
-    agents: Array<{ agentId: string; skills: Array<{ name: string; description: string; file: string }>; version: string | null }>
-    repo: unknown
-    note: string
-  }
+  const body = res.json()
 
-  const brain = body.agents.find((a) => a.agentId === 'brain')
+  const brain = body.agents.find((a: { agentId: string }) => a.agentId === 'brain')
   assert.equal(brain?.skills.length, 1)
   assert.equal(brain?.skills[0]?.name, 'brain-api')
   assert.equal(brain?.skills[0]?.description, '内部 API 手册')
@@ -71,7 +67,7 @@ test('蜂群 P5.2: /api/skills lists each agent’s .skills with descriptions', 
   // 非 git 工作区没有版本号
   assert.equal(brain?.version, null)
 
-  const personal = body.agents.find((a) => a.agentId === 'personal')
+  const personal = body.agents.find((a: { agentId: string }) => a.agentId === 'personal')
   assert.deepEqual(personal?.skills, [])
 
   // 技能仓库未创建时是 null；已创建时是带版本的对象（本机 ~/.dsh-ohdsh/skills 已建）

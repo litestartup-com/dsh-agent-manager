@@ -76,7 +76,7 @@ test('P1-5: 改密吊销其它设备的会话，当前设备换发新会话继�
   assert.ok(reissued !== '' && reissued !== mine.sid, '改密响应必须换发当前会话')
   const meAfter = await app.inject({ method: 'GET', url: '/api/me', headers: { cookie: `mgr_sid=${reissued}` } })
   assert.equal(meAfter.statusCode, 200)
-  assert.equal((meAfter.json() as { mustChangePassword: boolean }).mustChangePassword, false)
+  assert.equal((meAfter.json()).mustChangePassword, false)
   await app.close()
 })
 
@@ -109,7 +109,7 @@ test('蜂群2计划 P3: 登录成功种会话+CSRF cookie，报强制改密，�
   const { app, db } = await boot()
   const { response, sid, csrf } = await login(app, 'admin', 'initial-pass')
   assert.equal(response.statusCode, 200)
-  const body = response.json() as { ok: boolean; username: string; mustChangePassword: boolean }
+  const body = response.json()
   assert.equal(body.mustChangePassword, true)
   assert.ok(sid !== '')
   assert.ok(csrf !== '')
@@ -135,7 +135,7 @@ test('蜂群2计划 P3: 非 GET 请求缺 CSRF 令牌被拒，带一致令牌放
 
   const bare = await app.inject({ method: 'POST', url: '/api/logout', headers: { cookie: `mgr_sid=${sid}` } })
   assert.equal(bare.statusCode, 403)
-  assert.equal((bare.json() as { error: string }).error, 'csrf_token_missing_or_mismatch')
+  assert.equal((bare.json()).error, 'csrf_token_missing_or_mismatch')
 
   const mismatched = await app.inject({
     method: 'POST',
@@ -164,7 +164,7 @@ test('蜂群2计划 P3 自愈: 升级前老会话缺 CSRF cookie，403 补发 co
     headers: { cookie: `mgr_sid=${sid}` },
   })
   assert.equal(first.statusCode, 403)
-  assert.equal((first.json() as { error: string }).error, 'csrf_token_missing_or_mismatch')
+  assert.equal((first.json()).error, 'csrf_token_missing_or_mismatch')
   const healed = cookieOf(first, CSRF_COOKIE)
   assert.ok(healed !== '', '缺 cookie 的 403 必须补发 ohdsh_csrf')
 
@@ -186,7 +186,7 @@ test('蜂群2计划 P3: 强制改密期间业务 API 403，改密成功后放行
   // 改密前：业务 API 被 403 拦截
   const blocked = await app.inject({ method: 'GET', url: '/api/audit', headers: { cookie: `mgr_sid=${sid}` } })
   assert.equal(blocked.statusCode, 403)
-  assert.equal((blocked.json() as { error: string }).error, 'password_change_required')
+  assert.equal((blocked.json()).error, 'password_change_required')
 
   // 当前密码错 / 新密码太短
   const wrongCurrent = await app.inject({
@@ -218,11 +218,11 @@ test('蜂群2计划 P3: 强制改密期间业务 API 403，改密成功后放行
   assert.ok(sid2 !== '' && sid2 !== sid)
 
   const me = await app.inject({ method: 'GET', url: '/api/me', headers: { cookie: `mgr_sid=${sid2}` } })
-  assert.equal((me.json() as { mustChangePassword: boolean }).mustChangePassword, false)
+  assert.equal((me.json()).mustChangePassword, false)
 
   const auditOk = await app.inject({ method: 'GET', url: '/api/audit', headers: { cookie: `mgr_sid=${sid2}` } })
   assert.equal(auditOk.statusCode, 200)
-  const { entries } = auditOk.json() as { entries: Array<{ kind: string }> }
+  const { entries } = auditOk.json()
   assert.equal(entries[0]?.kind, 'password_change')
 
   // 旧密码已失效，新密码可登录

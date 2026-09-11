@@ -62,7 +62,7 @@ test('债务 B6 回归: /metrics 端点受 requireUser 保护并返回快照', a
   registerMetricsRoutes(app, db, async () => undefined)
   const ok = await app.inject({ method: 'GET', url: '/metrics' })
   assert.equal(ok.statusCode, 200)
-  const body = ok.json() as { runs: { total: number } }
+  const body = ok.json()
   assert.ok(body.runs.total >= 0)
   await app.close()
   sqlite.close()

@@ -72,7 +72,7 @@ test('蜂群 P5.5: provision creates a node (profile/key/config write-back/hot-l
 
   // 热加载：内存配置、监督器、yaml 写回、.env 密钥
   assert.ok(config.endpoints['product'] !== undefined)
-  assert.ok(config.endpoints['product']!.spawn !== null)
+  assert.ok(config.endpoints['product'].spawn !== null)
   assert.ok(supervisors.has('product'))
   const yaml = readFileSync(join(dir, 'manager.config.yaml'), 'utf8')
   assert.match(yaml, /product/)

@@ -115,7 +115,7 @@ export const readNoteData = (workspacePath: string): ReadResult => {
     } catch (error) {
       const file = KEY_OWNER[key]
       problems.push({
-        file: file ?? (NOTE_DATA_FILES[0] as NoteDataFile),
+        file: file ?? (NOTE_DATA_FILES[0]),
         kind: 'invalid',
         reason: `key "${key}" is not plain data: ${(error as Error).message}`,
       })

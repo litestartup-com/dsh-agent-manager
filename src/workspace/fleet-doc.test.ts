@@ -98,7 +98,7 @@ test('蜂群2计划 P6: syncFleetDocs 写入每个工作区、幂等、内容变
   // 拓扑变化 → 自动更新
   config.agents['product'] = { id: 'product', name: '产品', endpoint: 'personal', workspacePath: join(config.agents['brain']!.workspacePath, '..', 'product'), public: false, preset: 'standard', sandboxMode: null, gitRemote: null, provider: null, model: null }
   assert.deepEqual((await syncFleetDocs(config)).sort(), ['brain', 'personal', 'product'])
-  assert.match(readFileSync(join(config.agents['product']!.workspacePath, FLEET_FILE), 'utf8'), /product/)
+  assert.match(readFileSync(join(config.agents['product'].workspacePath, FLEET_FILE), 'utf8'), /product/)
 })
 
 test('债务 H3 回归: manager 只提交 fleet.md——用户已 staged 的其他文件绝不进它的提交', async () => {

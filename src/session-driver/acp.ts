@@ -51,8 +51,8 @@ export const acpSubprocessOpen = (
     if (child !== null) throw new Error('acp: transport already opened')
     child = spawn(command, args, { env: { ...process.env, ...env }, stdio: ['pipe', 'pipe', 'inherit'], windowsHide: true })
     const stream = ndJsonStream(
-      Writable.toWeb(child.stdin as unknown as Writable) as unknown as WritableStream<Uint8Array>,
-      Readable.toWeb(child.stdout as unknown as Readable) as unknown as ReadableStream<Uint8Array>,
+      Writable.toWeb(child.stdin as unknown as Writable),
+      Readable.toWeb(child.stdout as unknown as Readable),
     )
     const connection = app.connect(stream)
     void connection.closed.then(() => { child = null })

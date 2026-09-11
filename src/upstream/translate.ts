@@ -115,7 +115,7 @@ export const eventPayload = (event: unknown): HistoryEvent | null => {
       return {
         kind: 'tool_result',
         seq,
-        isError: Boolean(data && ((data as Record<string, unknown>).error || (block && block.isError))),
+        isError: Boolean(data && ((data).error || (block && block.isError))),
         text: block?.content ? extractBlocks(block.content).text : '',
       }
     }
@@ -174,7 +174,7 @@ export const muxFrameToEvent = (frame: MuxFrame): HistoryEvent | null => {
 export const muxFrameToGatewayFrame = (frame: MuxFrame): GatewayFrame | null => {
   const event = muxFrameToEvent(frame)
   if (event === null) return null
-  return event as GatewayFrame
+  return event
 }
 
 // ---- manager input → apiproxy params ----

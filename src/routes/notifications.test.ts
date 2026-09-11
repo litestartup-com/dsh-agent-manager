@@ -31,7 +31,7 @@ test('蜂群 P5.3: notifications list unread counts and mark read', async () => 
   assert.equal(body.items[0]?.title, '节点挂了')
   assert.equal(body.items[0]?.link, null)
 
-  const one = await app.inject({ method: 'POST', url: `/api/notifications/${body.items[0]!.id}/read` })
+  const one = await app.inject({ method: 'POST', url: `/api/notifications/${body.items[0].id}/read` })
   assert.equal(one.statusCode, 200)
 
   const after = (await app.inject({ method: 'GET', url: '/api/notifications' })).json() as { unread: number }

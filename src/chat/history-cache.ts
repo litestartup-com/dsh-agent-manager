@@ -38,7 +38,7 @@ export class HistoryCache<V> {
     this.map.delete(sessionId)
     this.map.set(sessionId, { v: value, at: now })
     while (this.map.size > this.max) {
-      const oldest = this.map.keys().next().value as string | undefined
+      const oldest = this.map.keys().next().value
       if (oldest === undefined) break
       this.map.delete(oldest)
     }

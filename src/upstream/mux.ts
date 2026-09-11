@@ -222,7 +222,7 @@ const openSocket = (conn: MuxConnection): WebSocket => {
   let ws: WebSocket
   if (conn.ep.key !== '') {
     try {
-      ws = new WebSocket(url, { headers: { 'x-api-key': conn.ep.key } } as never)
+      ws = new WebSocket(url, { headers: { 'x-api-key': conn.ep.key } })
     } catch {
       ws = new WebSocket(url)
     }

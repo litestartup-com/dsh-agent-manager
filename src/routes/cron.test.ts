@@ -88,14 +88,14 @@ const create = async (app: FastifyInstance, over: Record<string, unknown> = {}):
 const createId = async (app: FastifyInstance): Promise<string> => {
   const response = await create(app)
   assert.equal(response.statusCode, 201)
-  return (response.json() as { id: string }).id
+  return (response.json()).id
 }
 
 test('a valid schedule is created and gets a next run time', async () => {
   const { app } = await boot()
   const response = await create(app)
   assert.equal(response.statusCode, 201)
-  const body = response.json() as { id: string; nextRunAt: number | null }
+  const body = response.json()
   assert.ok(body.nextRunAt !== null && body.nextRunAt > Date.now(), 'it is actually scheduled')
 })
 
@@ -103,7 +103,7 @@ test('a malformed pattern is refused at the edit, not stored', async () => {
   const { app, db } = await boot()
   const response = await create(app, { schedule: 'every tuesday-ish' })
   assert.equal(response.statusCode, 400)
-  assert.equal((response.json() as { error: string }).error, 'invalid_schedule')
+  assert.equal((response.json()).error, 'invalid_schedule')
   // The point of validating here: a stored row the scheduler cannot load looks
   // active in the list and silently never fires.
   assert.equal(db.select().from(schema.cron).all().length, 0)
@@ -190,11 +190,7 @@ test('deleting a schedule keeps the run history it produced', async () => {
 test('the list reports the configured ceiling and budget so the UI need not guess', async () => {
   const { app } = await boot()
   await create(app)
-  const body = (await app.inject({ method: 'GET', url: '/api/crons' })).json() as {
-    maxConsecutiveFailures: number
-    dailyBudgetMicroUsd: number | null
-    crons: { nextRunAt: number | null; problem: string | null; enabled: boolean }[]
-  }
+  const body = (await app.inject({ method: 'GET', url: '/api/crons' })).json()
   assert.equal(body.maxConsecutiveFailures, 3)
   assert.equal(body.dailyBudgetMicroUsd, null)
   assert.equal(body.crons[0]?.enabled, true)

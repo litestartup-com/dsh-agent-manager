@@ -62,7 +62,7 @@ export const createChat = (db: Db, agentId: string, now = Date.now()): ChatRow =
 }
 
 export const getChat = (db: Db, id: string): ChatRow | null =>
-  (db.select().from(schema.chat).where(eq(schema.chat.id, id)).all()[0] as ChatRow | undefined) ?? null
+  (db.select().from(schema.chat).where(eq(schema.chat.id, id)).all()[0]) ?? null
 
 export interface ChatListItem extends ChatRow {
   /** Number of turns recorded against this chat. */

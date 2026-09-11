@@ -79,22 +79,14 @@ test('agent details name who else shares the endpoint', async () => {
   const { app } = boot()
   const response = await app.inject({ method: 'GET', url: '/api/agents/personal' })
   assert.equal(response.statusCode, 200)
-  const body = response.json() as {
-    agent: { id: string; name: string }
-    endpoint: { reachable: boolean; error: string | null }
-    sharedWith: { id: string; name: string }[]
-    chats: { active: number; archived: number }
-    month: { costMicroUsd: number; runs: number }
-    runs: unknown[]
-    warnings: string[]
-  }
+  const body = response.json()
 
   assert.equal(body.agent.id, 'personal')
   // A dead endpoint is a reported state, not a 500: the panel exists to say why.
   assert.equal(body.endpoint.reachable, false)
   assert.ok(body.endpoint.error !== null, 'the reason the endpoint is unreachable is included')
   assert.deepEqual(
-    body.sharedWith.map((a) => a.id),
+    body.sharedWith.map((a: { id: string }) => a.id),
     ['company'],
   )
   // The boot warning about a shared sandbox root has to be visible for as long
@@ -137,9 +129,7 @@ test('an apiproxy endpoint gets a row probed via host.describe, not /health', as
 
   const response = await app.inject({ method: 'GET', url: '/api/status' })
   assert.equal(response.statusCode, 200)
-  const body = response.json() as {
-    endpoints: Array<{ id: string; driver: string; reachable: boolean; error: string | null; dshVersion: string | null; dshCompatible: boolean | null }>
-  }
+  const body = response.json()
   assert.equal(body.endpoints.length, 1)
   assert.equal(body.endpoints[0]!.id, 'A')
   assert.equal(body.endpoints[0]!.driver, 'apiproxy')

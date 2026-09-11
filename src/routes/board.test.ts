@@ -61,11 +61,7 @@ test('returns the rendered board model for an initialised workspace', async () =
   const response = await app.inject({ method: 'GET', url: '/api/board/personal' })
 
   assert.equal(response.statusCode, 200)
-  const body = response.json() as {
-    agent: { id: string; preset: string }
-    initialized: boolean
-    board: { title: string; pages: { key: string }[]; problems: unknown[] }
-  }
+  const body = response.json()
   assert.equal(body.initialized, true)
   assert.equal(body.agent.preset, 'personal')
   assert.equal(body.board.title, '个人大盘')
@@ -80,7 +76,7 @@ test('an uninitialised workspace is reported as such, not as an error', async ()
   const response = await app.inject({ method: 'GET', url: '/api/board/personal' })
 
   assert.equal(response.statusCode, 200)
-  const body = response.json() as { initialized: boolean; board: { pages: unknown[] } }
+  const body = response.json()
   assert.equal(body.initialized, false)
   assert.deepEqual(body.board.pages, [])
 })
