@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { execFileSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type { FastifyInstance, preHandlerHookHandler } from 'fastify'
@@ -33,6 +33,27 @@ import { recordAudit } from '../audit.js'
 const GATEWAY_DEP = GATEWAY_REF // 0.1.2 线：钉 next-012 commit（dsh-version 单一真相源）
 const CONFIG_PATH = 'manager.config.yaml'
 const ENV_PATH = '.env'
+
+/**
+ * 债务 B1:节点依赖安装后台化——旧代码在请求处理里同步 execFileSync(npx pnpm@9
+ * install,注释自承"通常几十秒"),Node 单线程下全站(SSE 中继/cron/探活/登录)冻结。
+ * 本函数用异步 spawn:请求路径不再等待,安装完成/失败由调用方接线。
+ * spawnImpl 可注入(测试用假 spawn,不触网)。
+ */
+export const installNodeDepsAsync = (
+  dir: string,
+  spawnImpl: typeof spawn = spawn,
+): Promise<void> => {
+  const { cmd, args } = profileInstallCommand(process.platform)
+  return new Promise((resolve, reject) => {
+    const child = spawnImpl(cmd, [...args, '--prefer-offline'], { cwd: dir, shell: true, stdio: 'inherit' })
+    child.on('error', (error: Error) => reject(error))
+    child.on('exit', (code: number | null) => {
+      if (code === 0) resolve()
+      else reject(new Error(`dependency install failed (exit ${code ?? 'unknown'}) in ${dir}`))
+    })
+  })
+}
 const nodeNameSchema = z.string().regex(/^[a-z0-9][a-z0-9_-]{0,30}$/, '节点名只能是小写字母/数字/下划线/连字符')
 const provisionBody = z.object({
   name: nodeNameSchema,
@@ -178,6 +199,8 @@ export const registerProvisionRoutes = (
     let envSnap: string | null | undefined
     let yamlSnap: string | null = null
     let supervisorStarted: NodeSupervisor | null = null
+    // 债务 B1:回滚后禁止后台 install 完成时再拉起(防泄漏)
+    let rolledBack = false
 
     try {
       // 蜂群2计划 P6：容器模式分支——节点 = docker runner 工蜂（镜像 + 命名卷 +
@@ -340,18 +363,11 @@ export const registerProvisionRoutes = (
       ensureNodeCredentials(join(userHome(), '.dsh'), nodeHomePath)
       const key = resolveGatewayKey(nodeHomePath, null)
 
-      // 2. 依赖安装（同步；pnpm store 命中时通常几十秒）
-      // 蜂群2计划 P6：与 setup 同款——固定 npx pnpm@9（全局 pnpm ≥10 无视构建
-      // 白名单，实测 ERR_PNPM_IGNORED_BUILDS 导致原生依赖不构建）。
-      if (body.install !== false) {
-        const dir = join(nodeHomePath, 'profiles', body.name)
-        const { cmd, args } = profileInstallCommand(process.platform)
-        execFileSync(cmd, [...args, '--prefer-offline'], {
-          cwd: dir,
-          shell: true,
-          stdio: ['ignore', 'inherit', 'inherit'],
-        })
-      }
+      // 2. 依赖安装（债务 B1:后台化——数十秒的同步 pnpm 不再冻结全站）。
+      // 201 先返回;install 完成才拉起节点;失败 = 审计留痕 + 仍拉起(节点
+      // 缺依赖时崩溃,supervisor 状态机显性 offline,错误可见)。
+      const installDir = join(nodeHomePath, 'profiles', body.name)
+      const installPromise: Promise<void> = body.install !== false ? installNodeDepsAsync(installDir) : Promise.resolve()
 
       // 3. 工作区：目录 + git init + 通用 AGENTS.md（文件即真相，运行才有审计）
       let workspaceWarning: string | null = null
@@ -437,8 +453,20 @@ export const registerProvisionRoutes = (
         log: (line) => app.log.info(line),
       })
       supervisors.set(body.name, supervisor)
-      supervisor.start(endpoint.spawn!)
-      supervisorStarted = supervisor
+      // 债务 B1:拉起延后到依赖安装完成(201 先返回,请求路径不再等待安装)。
+      // 回滚后的迟到安装完成不得再拉起(rolledBack 防泄漏)。
+      const startAfterInstall = (): void => {
+        if (rolledBack) return
+        supervisorStarted = supervisor
+        supervisor.start(endpoint.spawn!)
+      }
+      installPromise.then(startAfterInstall).catch((installError: unknown) => {
+        if (rolledBack) return
+        const message = installError instanceof Error ? installError.message : String(installError)
+        recordAudit(db, { actor: request.currentUser?.username ?? 'unknown', kind: 'node_create', detail: `失败:节点 ${body.name} 依赖安装失败: ${message}` })
+        app.log.error(`node ${body.name}: dependency install failed: ${message}`)
+        startAfterInstall() // 仍拉起:缺依赖时节点崩溃,supervisor 状态机显性 offline
+      })
 
       if (agentSpec !== null) {
         config.agents[agentSpec.id] = {
@@ -463,6 +491,7 @@ export const registerProvisionRoutes = (
       })
     } catch (error) {
       // 债务 H2：全量回滚——按完成步骤反向撤销，绝不留下半开通的幽灵节点。
+      rolledBack = true
       if (supervisorStarted !== null) {
         try {
           supervisorStarted.stop()

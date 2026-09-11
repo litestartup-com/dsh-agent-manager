@@ -8,7 +8,7 @@ import type { AppConfig } from '../config.js'
 import { DEFAULT_PRICING } from '../pricing.js'
 import { openDb, schema, type Db } from '../db/index.js'
 import type { NodeSupervisor } from '../nodes/supervisor.js'
-import { registerProvisionRoutes } from './provision.js'
+import { registerProvisionRoutes, installNodeDepsAsync } from './provision.js'
 
 const configFor = (): AppConfig => ({
   listen: { host: '127.0.0.1', port: 8080 },
@@ -237,6 +237,55 @@ test('蜂群2计划 P6 回归: 容器模式新建节点同步镜像进 DB（chat
   assert.equal(created.statusCode, 201, JSON.stringify(created.body))
   const row = db.select().from(schema.agent).all().find((a) => a.id === 'product')
   assert.ok(row !== undefined, 'agent 镜像进 DB registry（chat 外键依赖它）')
+})
+
+test('债务 B1 回归: 依赖安装后台化——installNodeDepsAsync 不冻结事件循环,spawn 参数正确', async () => {
+  // TS 无法追踪闭包内赋值,用已断言类型的哨兵对象
+  const spawnArgs = {} as { cmd: string; args: string[]; cwd: string }
+  const fakeSpawn = (cmd: string, args: string[], opts: { cwd: string }): unknown => {
+    spawnArgs.cmd = cmd
+    spawnArgs.args = args
+    spawnArgs.cwd = opts.cwd
+    const listeners: Record<string, (code: number) => void> = {}
+    const child = {
+      on: (ev: string, fn: (code: number) => void) => {
+        listeners[ev] = fn
+        return child
+      },
+    }
+    setTimeout(() => listeners['exit']?.(0), 400) // 400ms 后 exit 0
+    return child
+  }
+  const promise = installNodeDepsAsync('/tmp/node-home/profiles/x', fakeSpawn as never)
+  // 事件循环未被冻结:install 完成前,立即排队的 timer 必须先触发(旧同步 execFileSync 会冻结)
+  let ticked = false
+  setTimeout(() => {
+    ticked = true
+  }, 50)
+  await promise
+  assert.ok(ticked, 'install 期间事件循环必须保持响应')
+  assert.ok(spawnArgs.cmd !== '')
+  assert.ok(spawnArgs.args.includes('--prefer-offline'), '必须带 --prefer-offline')
+  assert.equal(spawnArgs.cwd, '/tmp/node-home/profiles/x')
+})
+
+test('债务 B1 回归: 后台 install 非零退出 = reject(调用方据此审计留痕)', async () => {
+  const fakeSpawn = (): unknown => {
+    const listeners: Record<string, (code: number) => void> = {}
+    const child = {
+      on: (ev: string, fn: (code: number) => void) => {
+        listeners[ev] = fn
+        return child
+      },
+    }
+    setTimeout(() => listeners['exit']?.(1), 10) // 非零退出 = 失败
+    return child
+  }
+  await assert.rejects(
+    () => installNodeDepsAsync('/tmp/any', fakeSpawn as never),
+    /exit|失败|failed/i,
+    '非零退出必须 reject',
+  )
 })
 
 test('债务 H2 回归: DB 写入失败 → provision 全量回滚,无幽灵节点残留', async () => {
