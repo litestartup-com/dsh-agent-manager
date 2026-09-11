@@ -18,7 +18,7 @@
  *   版本串（只作信息展示，绝不用于兼容性告警——DSH-FACTS §6）。
  */
 import type { MuxListener } from '../upstream/mux.js'
-import type { UpstreamCreatedSession, UpstreamSessionHistory } from '../upstream/client.js'
+import type { UpstreamCreatedSession, UpstreamModelCatalog, UpstreamModelSelection, UpstreamSessionHistory } from '../upstream/client.js'
 import type { RpcReceipt } from '../upstream/respond.js'
 
 export interface SessionDriver {
@@ -32,6 +32,8 @@ export interface SessionDriver {
   subscribe(sessionId: string, listener: MuxListener): () => void
   /** 读历史（帧 + 投影 + 标题）。 */
   history(sessionId: string): Promise<UpstreamSessionHistory>
+  modelCatalog?(): Promise<UpstreamModelCatalog>
+  selectModel?(sessionId: string, selection: UpstreamModelSelection): Promise<UpstreamModelSelection>
   /** 取消当前回合。 */
   cancel(sessionId: string): Promise<void>
   /** 回答问题；rpcId = 该问题帧的应答标识。 */
@@ -49,6 +51,7 @@ export interface SessionDriver {
   release(sessionId: string): Promise<void>
   /** 探活：返回版本串；失败必须抛出。 */
   probeVersion(): Promise<string>
+  canSetSandboxMode?(): boolean
   /** 按会话钉沙箱模式（facade 线能力；可选）。 */
   setSandboxMode?(sessionId: string, mode: 'read-only' | 'workspace-write'): Promise<void>
 }

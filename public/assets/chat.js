@@ -31,8 +31,12 @@ const el = {
   log: $('chat-log'),
   composer: $('chat-composer'),
   identity: $('composer-identity'),
+  modes: $('composer-modes'),
   agent: $('composer-agent'),
   path: $('composer-path'),
+  access: $('composer-access'),
+  model: $('composer-model'),
+  context: $('composer-context'),
   input: $('chat-input'),
   send: $('chat-send'),
   stop: $('chat-stop'),
@@ -64,6 +68,8 @@ let sending = false
  * that resets on F5 is worse than no clock, because it says the wait just began.
  */
 let turnStartedAt = null
+let modelChoices = new Map()
+let modelCatalogSessionId = null
 
 const toast = (text) => {
   el.toast.textContent = text
@@ -1270,17 +1276,30 @@ const renderComposer = () => {
   el.path.textContent = shortPath(state.agent.workspacePath)
   el.path.title = state.agent.workspacePath ?? ''
 
+  const composer = state.composer ?? { capabilities: {}, model: null, context: null, accessMode: null }
+  const capabilities = composer.capabilities ?? {}
   const lost = state.sessionState === 'lost'
   const cold = state.sessionState === 'cold'
   // 蜂群 P5.4：跨会话不再互锁，composer 永不因别的会话而禁用；同会话的
   // 新消息在上一回合跑完前由服务端排队，dock 可见可删。
   const locked = lost || sending
+  const turnRunning = state.turns.some((t) => t.state === 'running')
 
   el.input.disabled = lost
+  el.modes.hidden = capabilities.accessMode !== true
+  el.access.disabled = lost || sending || turnRunning || capabilities.accessMode !== true
+  if (composer.accessMode !== null) el.access.value = composer.accessMode
+  el.model.parentElement.hidden = capabilities.modelSelection !== true
+  el.model.disabled = lost || sending || turnRunning || capabilities.modelSelection !== true || modelChoices.size === 0
+  const context = composer.context
+  el.context.hidden = context === null
+  if (context !== null) {
+    el.context.textContent = `上下文 ${context.percent}%`
+    el.context.title = `约 ${context.usedTokens.toLocaleString()} / ${context.contextWindow.toLocaleString()} tokens`
+  }
   el.send.disabled = locked || el.input.value.trim() === ''
   // The stop button shows while this chat has a running turn — the POST itself
   // returns immediately now, so `sending` alone no longer covers the run.
-  const turnRunning = state.turns.some((t) => t.state === 'running')
   el.stop.hidden = !(sending || turnRunning)
   el.send.hidden = sending
 
@@ -1385,6 +1404,41 @@ const loadDelegations = async () => {
   }
 }
 
+const loadModels = async () => {
+  if (state === null || state.composer?.capabilities?.modelSelection !== true || state.chat.dshSessionId === null) return
+  if (modelCatalogSessionId === state.chat.dshSessionId) return
+  try {
+    const response = await apiFetch(`/api/chats/${encodeURIComponent(chatId)}/models`)
+    if (!response.ok) return
+    const catalog = (await response.json()).catalog
+    const groups = Array.isArray(catalog?.groups) ? catalog.groups : []
+    const choices = new Map()
+    const options = []
+    for (const group of groups) {
+      if (typeof group?.id !== 'string' || !Array.isArray(group.models)) continue
+      for (const model of group.models) {
+        if (typeof model?.id !== 'string' || typeof model?.name !== 'string') continue
+        const key = `${group.id}\u0000${model.id}`
+        choices.set(key, { provider: group.id, model: model.id })
+        options.push({ key, label: `${group.name ?? group.id} · ${model.name}` })
+      }
+    }
+    modelChoices = choices
+    modelCatalogSessionId = state.chat.dshSessionId
+    el.model.replaceChildren(...options.map((option) => {
+      const node = document.createElement('option')
+      node.value = option.key
+      node.textContent = option.label
+      return node
+    }))
+    const selected = state.composer?.model ?? catalog?.current
+    if (selected !== null && selected !== undefined) el.model.value = `${selected.provider}\u0000${selected.model}`
+    render()
+  } catch {
+    modelCatalogSessionId = null
+  }
+}
+
 const load = async () => {
   // Set before the request, so frames delivered during it are buffered rather
   // than applied to a transcript that is about to be replaced.
@@ -1451,6 +1505,7 @@ const load = async () => {
   buffered = []
   loading = false
   render()
+  void loadModels()
   void loadDelegations()
 }
 
@@ -1514,6 +1569,11 @@ const connect = () => {
     // `hello` only says the relay is open. History came from the GET, and the
     // relay deliberately carries no replay.
     if (frame.kind === 'hello') return
+    if (frame.kind === 'composer_state' && state !== null) {
+      state.composer = { ...(state.composer ?? {}), ...frame }
+      render()
+      return
+    }
     // 蜂群 P2：派工结束帧——不是转录帧，刷新派工记录即可。
     if (frame.kind === 'delegation_done') {
       void loadDelegations()
@@ -1646,6 +1706,58 @@ const send = async () => {
 el.composer.addEventListener('submit', (event) => {
   event.preventDefault()
   void send()
+})
+
+el.access.addEventListener('change', () => {
+  const mode = el.access.value
+  if (mode !== 'read-only' && mode !== 'workspace-write') return
+  void (async () => {
+    el.access.disabled = true
+    try {
+      const response = await apiFetch(`/api/chats/${encodeURIComponent(chatId)}/sandbox-mode`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ mode }),
+      })
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        toast(body.detail ?? `访问模式切换失败（${response.status}）`)
+        render()
+        return
+      }
+      state.composer = { ...(state.composer ?? {}), accessMode: body.accessMode }
+      toast('访问模式已更新')
+    } catch (error) {
+      toast(`访问模式切换失败：${error.message}`)
+    }
+    render()
+  })()
+})
+
+el.model.addEventListener('change', () => {
+  const selection = modelChoices.get(el.model.value)
+  if (selection === undefined) return
+  void (async () => {
+    el.model.disabled = true
+    try {
+      const response = await apiFetch(`/api/chats/${encodeURIComponent(chatId)}/model`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(selection),
+      })
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        toast(body.detail ?? `模型切换失败（${response.status}）`)
+        render()
+        return
+      }
+      state.composer = { ...(state.composer ?? {}), model: body.model }
+      toast('模型已更新，将在下一回合生效')
+    } catch (error) {
+      toast(`模型切换失败：${error.message}`)
+    }
+    render()
+  })()
 })
 
 el.input.addEventListener('input', () => {

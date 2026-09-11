@@ -41,7 +41,7 @@ server ──► node (= one DSH agent process + its own DSH_HOME) ──► wor
 
 ## Features
 
-- **Chat UI**: multi-turn conversation, streaming output, tool-call cards, interactive question/authorization cards answered inline
+- **Chat UI**: multi-turn conversation, streaming output, tool-call cards, inline question/authorization answers, context usage, session model selection, and restricted read-only/workspace-write access switching when the endpoint supports it
 - **Brain dispatch**: conversational orchestration + delegation frames (click to jump to the delegated session) + session reuse
 - **Multi-node**: full UI control on `/nodes` (start/stop/restart/logs) + guided node wizard + `N/N` readiness count in the sidebar
 - **Concurrent sessions**: serial within a session, parallel across sessions (native DSH semantics + git commit locks + surfaced conflicts)

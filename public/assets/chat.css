@@ -1351,6 +1351,48 @@
   gap: 12px;
 }
 
+.composer-select-wrap {
+  min-width: 0;
+}
+
+.composer-select,
+.composer-context {
+  height: 28px;
+  max-width: 172px;
+  padding: 0 9px;
+  border: 1px solid var(--chat-line);
+  border-radius: 8px;
+  background: var(--surface-sunken);
+  color: var(--chat-text-2);
+  font: 500 12px/1 var(--font);
+}
+
+.composer-select {
+  cursor: pointer;
+}
+
+.composer-select:hover:not(:disabled),
+.composer-context:hover {
+  border-color: var(--chat-send);
+  color: var(--chat-text);
+}
+
+.composer-select:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.composer-model {
+  max-width: 190px;
+}
+
+.composer-context {
+  display: inline-flex;
+  align-items: center;
+  cursor: default;
+  white-space: nowrap;
+}
+
 .composer-trailing {
   flex: none;
   gap: 12px;

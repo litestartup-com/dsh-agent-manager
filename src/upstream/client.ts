@@ -20,11 +20,103 @@ import {
 } from './translate.js'
 import { compactHistory } from '../chat/replay.js'
 
+export interface UpstreamModelSelection {
+  provider: string
+  model: string
+  reasoningEffort?: string
+}
+
+export interface UpstreamModelCatalog {
+  current: UpstreamModelSelection | null
+  routable: boolean
+  groups: Array<{
+    id: string
+    name: string
+    models: Array<{
+      id: string
+      name: string
+      reasoning?: { efforts: Array<{ id: string; name: string }>; defaultEffort?: string }
+    }>
+  }>
+  failures: Array<{ id: string; name: string; message: string }>
+}
+
+export interface UpstreamComposerState {
+  model: UpstreamModelSelection | null
+  context: { usedTokens: number; contextWindow: number; percent: number; breakdown: { systemTokens: number; toolsTokens: number; messageTokens: number } | null } | null
+  accessMode: 'read-only' | 'workspace-write' | null
+}
+
 export interface UpstreamSessionHistory {
   sessionId: string
   sessionState: 'live' | 'cold'
   title: string | null
   events: HistoryEvent[]
+  composer: UpstreamComposerState
+}
+
+const recordOf = (value: unknown): Record<string, unknown> | null =>
+  value !== null && typeof value === 'object' ? value as Record<string, unknown> : null
+
+const selectionOf = (value: unknown): UpstreamModelSelection | null => {
+  const source = recordOf(value)
+  if (source === null || typeof source.provider !== 'string' || typeof source.model !== 'string') return null
+  return {
+    provider: source.provider,
+    model: source.model,
+    ...(typeof source.reasoningEffort === 'string' ? { reasoningEffort: source.reasoningEffort } : {}),
+  }
+}
+
+const composerStateOf = (values: Record<string, unknown> | undefined): UpstreamComposerState => {
+  const pressure = recordOf(values?.contextPressure)
+  const usedTokens = pressure?.projectedTokens ?? pressure?.pressureTokens
+  const contextWindow = pressure?.contextWindow
+  const breakdown = recordOf(values?.contextBreakdown)
+  const context = typeof usedTokens === 'number' && Number.isFinite(usedTokens) && usedTokens >= 0
+    && typeof contextWindow === 'number' && Number.isFinite(contextWindow) && contextWindow > 0
+    ? {
+        usedTokens,
+        contextWindow,
+        percent: Math.min(100, Math.round(usedTokens / contextWindow * 100)),
+        breakdown: typeof breakdown?.systemTokens === 'number' && typeof breakdown.toolsTokens === 'number' && typeof breakdown.messageTokens === 'number'
+          ? { systemTokens: breakdown.systemTokens, toolsTokens: breakdown.toolsTokens, messageTokens: breakdown.messageTokens }
+          : null,
+      }
+    : null
+  const permissions = recordOf(values?.permissions)
+  const currentValue = permissions?.currentValue
+  return {
+    model: selectionOf(recordOf(values?.modelSelection)?.next) ?? selectionOf(recordOf(values?.modelSelection)?.lastUsed),
+    context,
+    accessMode: currentValue === 'read-only' || currentValue === 'workspace-write' ? currentValue : null,
+  }
+}
+
+const modelCatalogOf = (value: unknown): UpstreamModelCatalog => {
+  const source = recordOf(value)
+  const groups = Array.isArray(source?.groups) ? source.groups.flatMap((group) => {
+    const value = recordOf(group)
+    if (value === null || typeof value.id !== 'string' || typeof value.name !== 'string' || !Array.isArray(value.models)) return []
+    const models = value.models.flatMap((model) => {
+      const row = recordOf(model)
+      if (row === null || typeof row.id !== 'string' || typeof row.name !== 'string') return []
+      const reasoning = recordOf(row.reasoning)
+      const efforts = Array.isArray(reasoning?.efforts)
+        ? reasoning.efforts.flatMap((effort) => {
+            const item = recordOf(effort)
+            return item === null || typeof item.id !== 'string' || typeof item.name !== 'string' ? [] : [{ id: item.id, name: item.name }]
+          })
+        : []
+      return [{ id: row.id, name: row.name, ...(reasoning === null ? {} : { reasoning: { efforts, ...(typeof reasoning.defaultEffort === 'string' ? { defaultEffort: reasoning.defaultEffort } : {}) } }) }]
+    })
+    return [{ id: value.id, name: value.name, models }]
+  }) : []
+  const failures = Array.isArray(source?.failures) ? source.failures.flatMap((failure) => {
+    const row = recordOf(failure)
+    return row === null || typeof row.id !== 'string' || typeof row.name !== 'string' || typeof row.message !== 'string' ? [] : [{ id: row.id, name: row.name, message: row.message }]
+  }) : []
+  return { current: selectionOf(source?.current), routable: source?.routable === true, groups, failures }
 }
 
 export interface UpstreamCreatedSession {
@@ -92,6 +184,10 @@ export class UpstreamClient implements SessionDriver {
    * a mode; this still guards the unconfigured case instead of sending to a
    * junk URL.
    */
+  canSetSandboxMode(): boolean {
+    return this.sandboxBase !== null
+  }
+
   async setSandboxMode(sessionId: string, mode: 'read-only' | 'workspace-write'): Promise<void> {
     if (this.sandboxBase === null) {
       throw new UpstreamError('sandbox_unconfigured', `endpoint ${this.id}: no sandbox_base configured`)
@@ -129,6 +225,18 @@ export class UpstreamClient implements SessionDriver {
     }
   }
 
+  async modelCatalog(): Promise<UpstreamModelCatalog> {
+    const result = await rpc<unknown>(this.ep, 'session.models', {}, { timeoutMs: 10_000 })
+    return modelCatalogOf(result.result.value)
+  }
+
+  async selectModel(sessionId: string, selection: UpstreamModelSelection): Promise<UpstreamModelSelection> {
+    const result = await rpc<unknown>(this.ep, 'session.selectModel', { sessionId, ...selection }, { timeoutMs: 10_000 })
+    const selected = selectionOf((result.result.value as { selected?: unknown } | null)?.selected)
+    if (selected === null) throw new UpstreamError('model_selection_invalid', `endpoint ${this.id}: selectModel returned no selection`)
+    return selected
+  }
+
   async history(sessionId: string): Promise<UpstreamSessionHistory> {
     // Real value shape: { events:[{ event, view? }], hasMore, projections? }
     // where projections = { asOfSeq, values: {...} }.
@@ -140,11 +248,12 @@ export class UpstreamClient implements SessionDriver {
     const v = result.result.value
     const events = compactHistory(mapEvents(unwrapHistoryEvents(v)))
     const title = typeof v.projections?.values?.title === 'string' ? v.projections.values.title : null
+    const composer = composerStateOf(v.projections?.values)
     // apiproxy doesn't have the adopted/live distinction; any session that
     // answers history is readable. Whether it's "live" depends on whether
     // the agent is currently attached, but for our purposes cold sessions
     // are auto-resumed by prompt, so we always report 'cold'.
-    return { sessionId, sessionState: 'cold', title, events }
+    return { sessionId, sessionState: 'cold', title, events, composer }
   }
 
   async listSessions(): Promise<Array<{ sessionId: string; title?: string }>> {

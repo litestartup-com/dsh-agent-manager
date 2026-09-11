@@ -22,6 +22,25 @@ export interface FakeScript {
   preset?: string | null
   provider?: string | null
   model?: string | null
+  composer?: {
+    model?: { provider: string; model: string; reasoningEffort?: string } | null
+    context?: { usedTokens: number; contextWindow: number; breakdown?: { systemTokens: number; toolsTokens: number; messageTokens: number } } | null
+    accessMode?: 'read-only' | 'workspace-write' | null
+  }
+  models?: {
+    current: { provider: string; model: string; reasoningEffort?: string } | null
+    routable: boolean
+    groups: Array<{
+      id: string
+      name: string
+      models: Array<{
+        id: string
+        name: string
+        reasoning?: { efforts: Array<{ id: string; name: string }>; defaultEffort?: string }
+      }>
+    }>
+    failures: Array<{ id: string; name: string; message: string }>
+  }
   /** 非空 = createSession 抛出该错误（模拟上游 5xx）。 */
   createError?: string
   /** probeVersion 返回值；null = 抛出（不可达）。 */
@@ -35,6 +54,7 @@ export class FakeSessionDriver implements SessionDriver {
   readonly prompts: string[] = []
   cancels = 0
   readonly sandboxPins: Array<{ sessionId: string; mode: string }> = []
+  readonly selectedModels: Array<{ sessionId: string; provider: string; model: string; reasoningEffort?: string }> = []
   readonly answered: Array<{ rpcId: string; sessionId: string; answer: unknown }> = []
   readonly declined: Array<{ rpcId: string; sessionId: string }> = []
   readonly decided: Array<{ rpcId: string; sessionId: string; approvalId: string; outcome: string }> = []
@@ -80,7 +100,28 @@ export class FakeSessionDriver implements SessionDriver {
   }
 
   async history(sessionId: string): Promise<UpstreamSessionHistory> {
-    return { sessionId, sessionState: 'cold', title: null, events: [] }
+    return {
+      sessionId,
+      sessionState: 'cold',
+      title: null,
+      events: [],
+      composer: {
+        model: this.script.composer?.model ?? null,
+        context: this.script.composer?.context === null || this.script.composer?.context === undefined
+          ? null
+          : { ...this.script.composer.context, breakdown: this.script.composer.context.breakdown ?? null, percent: Math.round(this.script.composer.context.usedTokens / this.script.composer.context.contextWindow * 100) },
+        accessMode: this.script.composer?.accessMode ?? null,
+      },
+    }
+  }
+
+  async modelCatalog() {
+    return this.script.models ?? { current: null, routable: false, groups: [], failures: [] }
+  }
+
+  async selectModel(sessionId: string, selection: { provider: string; model: string; reasoningEffort?: string }) {
+    this.selectedModels.push({ sessionId, ...selection })
+    return selection
   }
 
   async cancel(_sessionId: string): Promise<void> {
@@ -115,6 +156,10 @@ export class FakeSessionDriver implements SessionDriver {
     const version = this.script.probeVersion
     if (version === undefined || version === null) throw new Error('fake: upstream unreachable')
     return version
+  }
+
+  canSetSandboxMode(): boolean {
+    return true
   }
 
   async setSandboxMode(sessionId: string, mode: 'read-only' | 'workspace-write'): Promise<void> {

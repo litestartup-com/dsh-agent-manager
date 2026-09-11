@@ -46,8 +46,21 @@
       <span id="composer-agent" class="composer-agent"></span>
       <span id="composer-path" class="composer-path"></span>
     </div>
-    <div class="composer-modes" id="composer-modes" hidden></div>
+    <div class="composer-modes" id="composer-modes" hidden>
+      <span class="composer-select-wrap">
+        <select id="composer-access" class="composer-select" aria-label="访问模式" disabled>
+          <option value="read-only">只读</option>
+          <option value="workspace-write">工作区可写</option>
+        </select>
+      </span>
+    </div>
     <div class="composer-trailing">
+      <span class="composer-select-wrap">
+        <select id="composer-model" class="composer-select composer-model" aria-label="模型" disabled>
+          <option value="">默认模型</option>
+        </select>
+      </span>
+      <span id="composer-context" class="composer-context" hidden></span>
       <span id="composer-hint" class="composer-hint"></span>
       <button id="chat-stop" class="btn-quiet composer-send" type="button" hidden>停止</button>
       <button id="chat-send" class="btn-primary composer-send" type="submit" disabled aria-label="发送">

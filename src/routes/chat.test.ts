@@ -9,8 +9,11 @@ import type { AppConfig, ResolvedAgent } from '../config.js'
 import { openDb, schema, type Db } from '../db/index.js'
 import { GatewayClient } from '../gateway/client.js'
 import { startFakeGateway, type FakeGateway, type FakeScript } from '../gateway/fake.js'
+import { FakeSessionDriver } from '../session-driver/fake.js'
+import type { SessionDriver } from '../session-driver/port.js'
 import { DEFAULT_PRICING } from '../pricing.js'
 import { closeChatRelays, openChatRelays, registerChatRoutes } from './chat.js'
+import { bindSession } from '../chat/store.js'
 
 /**
  * The chat relay, over a real socket.
@@ -57,7 +60,7 @@ interface Harness {
   gateway: FakeGateway
 }
 
-const boot = async (script: FakeScript): Promise<Harness> => {
+const boot = async (script: FakeScript, upstream?: SessionDriver): Promise<Harness> => {
   const gw = await startFakeGateway(script, API_KEY)
   gateways.push(gw)
 
@@ -82,7 +85,10 @@ const boot = async (script: FakeScript): Promise<Harness> => {
   apps.push(app)
   const clients = new Map([['A', new GatewayClient({ id: 'A', url: gw.url, driver: 'gateway', prefix: gw.prefix, key: API_KEY, sandboxBase: null, sandboxKey: '', spawn: null })]])
   // Auth has its own tests; every request here counts as signed in.
-  registerChatRoutes(app, configFor(gw, agent), db, clients, async () => undefined)
+  const config = configFor(gw, agent)
+  const endpoint = config.endpoints.A
+  if (upstream !== undefined && endpoint !== undefined) endpoint.driver = 'apiproxy'
+  registerChatRoutes(app, config, db, clients, async () => undefined, upstream === undefined ? undefined : new Map([['A', upstream]]))
   await app.listen({ host: '127.0.0.1', port: 0 })
   const address = app.server.address()
   const port = typeof address === 'object' && address !== null ? address.port : 0
@@ -142,6 +148,52 @@ const newChat = async (base: string): Promise<string> => {
   const body = (await created.json()) as { chat: { id: string } }
   return body.chat.id
 }
+
+test('composer state exposes context, model selection, and restricted access controls', async () => {
+  const upstream = new FakeSessionDriver('A', {
+    frames: [],
+    composer: {
+      model: { provider: 'deepseek', model: 'chat' },
+      context: { usedTokens: 32_000, contextWindow: 128_000, breakdown: { systemTokens: 4_000, toolsTokens: 8_000, messageTokens: 20_000 } },
+      accessMode: 'workspace-write',
+    },
+    models: {
+      current: { provider: 'deepseek', model: 'chat' },
+      routable: true,
+      groups: [{ id: 'deepseek', name: 'DeepSeek', models: [{ id: 'chat', name: 'Chat' }, { id: 'reasoner', name: 'Reasoner' }] }],
+      failures: [],
+    },
+  })
+  const { base, db } = await boot({ frames: [] }, upstream)
+  const chatId = await newChat(base)
+  bindSession(db, chatId, 'fake-1')
+
+  const current = await fetch(`${base}/api/chats/${chatId}`)
+  assert.equal(current.status, 200)
+  const state = await current.json() as { composer?: { context?: { percent: number }; model?: { model: string }; accessMode?: string; capabilities?: { modelSelection: boolean; accessMode: boolean } } }
+  assert.equal(state.composer?.context?.percent, 25)
+  assert.equal(state.composer?.model?.model, 'chat')
+  assert.equal(state.composer?.accessMode, 'workspace-write')
+  assert.deepEqual(state.composer?.capabilities, { modelSelection: true, accessMode: true })
+
+  const models = await fetch(`${base}/api/chats/${chatId}/models`)
+  assert.equal(models.status, 200)
+  assert.equal(((await models.json()) as { catalog: { groups: unknown[] } }).catalog.groups.length, 1)
+
+  const selected = await fetch(`${base}/api/chats/${chatId}/model`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ provider: 'deepseek', model: 'reasoner' }),
+  })
+  assert.equal(selected.status, 200)
+  assert.deepEqual(upstream.selectedModels, [{ sessionId: 'fake-1', provider: 'deepseek', model: 'reasoner' }])
+
+  const access = await fetch(`${base}/api/chats/${chatId}/sandbox-mode`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ mode: 'read-only' }),
+  })
+  assert.equal(access.status, 200)
+  assert.deepEqual(upstream.sandboxPins, [{ sessionId: 'fake-1', mode: 'read-only' }])
+})
 
 // ---------------------------------------------------------------------------
 // the relay

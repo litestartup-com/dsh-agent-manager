@@ -9,6 +9,7 @@ import { GatewayError, dummyGatewayClient, type GatewayClient, type HistoryEvent
 import { errorText } from '../errors.js'
 import type { GatewayFrame } from '../gateway/stream.js'
 import type { SessionDriver } from '../session-driver/port.js'
+import type { UpstreamComposerState } from '../upstream/client.js'
 import { UpstreamError } from '../upstream/rpc.js'
 import { activeRunCount, runAgent, runningRunId, type RunOutcome } from '../runner.js'
 import { cancelQueuedTurn, cancelQueuedTurns, drainChatQueue, enqueueTurn } from '../chat/queue.js'
@@ -42,6 +43,8 @@ import {
 const sendBody = z.object({ text: z.string().min(1, 'a message is required').max(20_000) })
 const renameBody = z.object({ title: z.string().min(1).max(200) })
 const createBody = z.object({ agentId: z.string().min(1) })
+const modelBody = z.object({ provider: z.string().min(1), model: z.string().min(1), reasoningEffort: z.string().min(1).optional() })
+const sandboxModeBody = z.object({ mode: z.enum(['read-only', 'workspace-write']) })
 
 /**
  * Browsers watching one chat.
@@ -157,7 +160,7 @@ export const registerChatRoutes = (
   // 债务 B2(半项):容量上限 LRU + 惰性 TTL——旧裸 Map 无上限,大量
   // 「读过一次不再跑」的会话会让最贵的对象(整段历史数组)单调增长。
 
-  interface CachedHistory { events: HistoryEvent[]; sessionState: string; title: string | null }
+  interface CachedHistory { events: HistoryEvent[]; sessionState: string; title: string | null; composer: UpstreamComposerState }
   const historyCache = new HistoryCache<CachedHistory>({ max: 200, ttlMs: 30_000 }) // cold sessions don't change; 30s is safe
   const liveFrames = new Map<string, Array<Record<string, unknown>>>()
   const rememberLiveFrame = (chatId: string, frame: Record<string, unknown>): void => {
@@ -270,6 +273,11 @@ export const registerChatRoutes = (
     const found = resolve(request.params.id, reply)
     if (found === null) return reply
     const { chat, agent, client, upstream, driver } = found
+    const capabilities = {
+      modelSelection: upstream?.modelCatalog !== undefined && upstream.selectModel !== undefined,
+      accessMode: upstream?.canSetSandboxMode?.() === true && upstream.setSandboxMode !== undefined,
+    }
+    let composer: UpstreamComposerState = { model: null, context: null, accessMode: null }
 
     const base = {
       chat,
@@ -288,7 +296,7 @@ export const registerChatRoutes = (
     }
 
     if (chat.dshSessionId === null) {
-      return reply.header('cache-control', 'no-store').send({ ...base, sessionState: 'fresh', events: [] })
+      return reply.header('cache-control', 'no-store').send({ ...base, sessionState: 'fresh', events: [], composer: { ...composer, capabilities } })
     }
 
     let events: HistoryEvent[] = []
@@ -300,6 +308,7 @@ export const registerChatRoutes = (
     if (cached !== null) {
       events = cached.events
       sessionState = cached.sessionState
+      composer = cached.composer
       if (cached.title !== null && cached.title !== '') renameChat(db, chat.id, cached.title)
       app.log.info(`GET /api/chats/${chat.id}: history CACHED ${Date.now() - t0}ms, ${events.length} events`)
     } else {
@@ -310,8 +319,9 @@ export const registerChatRoutes = (
           const history = await upstream.history(chat.dshSessionId)
           events = history.events
           sessionState = history.sessionState
+          composer = history.composer
           if (history.title !== null && history.title !== '') renameChat(db, chat.id, history.title)
-          historyCache.set(chat.dshSessionId, { events, sessionState, title: history.title })
+          historyCache.set(chat.dshSessionId, { events, sessionState, title: history.title, composer })
         } else {
           // Read-only and does not wake the session, so opening an old chat costs
           // nothing on the gateway.
@@ -323,7 +333,7 @@ export const registerChatRoutes = (
           // The gateway names sessions itself; prefer its title over our guess.
           const title = history.header?.title
           if (typeof title === 'string' && title !== '') renameChat(db, chat.id, title)
-          historyCache.set(chat.dshSessionId, { events, sessionState, title: title ?? null })
+          historyCache.set(chat.dshSessionId, { events, sessionState, title: title ?? null, composer })
         }
         app.log.info(`GET /api/chats/${chat.id}: history ${driver} ${Date.now() - t0}ms, ${events.length} events`)
       } catch (error) {
@@ -342,7 +352,7 @@ export const registerChatRoutes = (
     }
 
     const refreshed = getChat(db, chat.id) ?? chat
-    return reply.header('cache-control', 'no-store').send({ ...base, chat: refreshed, sessionState, events })
+    return reply.header('cache-control', 'no-store').send({ ...base, chat: refreshed, sessionState, events, composer: { ...composer, capabilities } })
   })
 
   app.patch<{ Params: { id: string }; Body: unknown }>(
@@ -708,6 +718,54 @@ export const registerChatRoutes = (
           : error instanceof UpstreamError ? error.message
             : String(error),
       })
+    }
+  })
+
+  app.get<{ Params: { id: string } }>('/api/chats/:id/models', { preHandler: requireUser }, async (request, reply) => {
+    const found = resolve(request.params.id, reply)
+    if (found === null) return reply
+    if (found.chat.dshSessionId === null) return reply.code(409).send({ error: 'no_session' })
+    if (found.upstream?.modelCatalog === undefined) return reply.code(501).send({ error: 'model_selection_unsupported' })
+    try {
+      return reply.send({ catalog: await found.upstream.modelCatalog() })
+    } catch (error) {
+      return reply.code(502).send({ error: 'model_catalog_failed', detail: errorText(error) })
+    }
+  })
+
+  app.post<{ Params: { id: string }; Body: unknown }>('/api/chats/:id/model', { preHandler: requireUser }, async (request, reply) => {
+    const found = resolve(request.params.id, reply)
+    if (found === null) return reply
+    if (found.chat.dshSessionId === null) return reply.code(409).send({ error: 'no_session' })
+    if (chatTurns.has(found.chat.id)) return reply.code(409).send({ error: 'chat_busy', detail: '这个会话正在运行，等当前回合结束后再切换模型。' })
+    if (found.upstream?.selectModel === undefined) return reply.code(501).send({ error: 'model_selection_unsupported' })
+    const parsed = modelBody.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'invalid_body' })
+    try {
+      const model = await found.upstream.selectModel(found.chat.dshSessionId, parsed.data)
+      invalidateHistory(found.chat.dshSessionId)
+      publish(found.chat.id, { kind: 'composer_state', model })
+      return reply.send({ model })
+    } catch (error) {
+      return reply.code(502).send({ error: 'model_selection_failed', detail: errorText(error) })
+    }
+  })
+
+  app.post<{ Params: { id: string }; Body: unknown }>('/api/chats/:id/sandbox-mode', { preHandler: requireUser }, async (request, reply) => {
+    const found = resolve(request.params.id, reply)
+    if (found === null) return reply
+    if (found.chat.dshSessionId === null) return reply.code(409).send({ error: 'no_session' })
+    if (chatTurns.has(found.chat.id)) return reply.code(409).send({ error: 'chat_busy', detail: '这个会话正在运行，等当前回合结束后再切换访问模式。' })
+    if (found.upstream?.canSetSandboxMode?.() !== true || found.upstream.setSandboxMode === undefined) return reply.code(501).send({ error: 'access_mode_unsupported' })
+    const parsed = sandboxModeBody.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'invalid_body' })
+    try {
+      await found.upstream.setSandboxMode(found.chat.dshSessionId, parsed.data.mode)
+      invalidateHistory(found.chat.dshSessionId)
+      publish(found.chat.id, { kind: 'composer_state', accessMode: parsed.data.mode })
+      return reply.send({ accessMode: parsed.data.mode })
+    } catch (error) {
+      return reply.code(502).send({ error: 'access_mode_failed', detail: errorText(error) })
     }
   })
 

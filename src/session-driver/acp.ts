@@ -162,7 +162,7 @@ export class AcpSessionDriver implements SessionDriver {
 
   async history(sessionId: string): Promise<UpstreamSessionHistory> {
     // 窄面：ACP 无 transcript replay。
-    return { sessionId, sessionState: 'cold', title: null, events: [] }
+    return { sessionId, sessionState: 'cold', title: null, events: [], composer: { model: null, context: null, accessMode: null } }
   }
 
   async cancel(sessionId: string): Promise<void> {
