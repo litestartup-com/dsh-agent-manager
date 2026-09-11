@@ -25,7 +25,7 @@ export interface FakeScript {
   composer?: {
     model?: { provider: string; model: string; reasoningEffort?: string } | null
     context?: { usedTokens: number; contextWindow: number; breakdown?: { systemTokens: number; toolsTokens: number; messageTokens: number } } | null
-    accessMode?: 'read-only' | 'workspace-write' | null
+    accessMode?: 'read-only' | 'workspace-write' | 'danger-full-access' | null
   }
   /** 脚本可控：全量沙箱开锁状态（capabilities.fullAccess）。 */
   fullAccess?: boolean

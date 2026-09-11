@@ -285,6 +285,19 @@ export const registerChatRoutes = (
     }
     let composer: UpstreamComposerState = { model: null, context: null, accessMode: null }
 
+    // 权限展示真相源（2026-09-11）：宿主 permissions 投影的 preset 是意图标签，
+    // 沙箱旋钮漂移后推导值= custom，反推不出真实沙箱（read-only 标签 + 全量旋钮
+    // 的组合会显示成只读）。以 manager 记录的钉入值为准，退宿主推导值，再退
+    // agent 配置默认（runner 建会话时会钉它）。历史读取前后各套一次：fresh 分支
+    // 与主路径的 composer 来源不同。
+    const withEffectiveAccess = (current: UpstreamComposerState): UpstreamComposerState => {
+      const rowAccess = db.select().from(schema.chat).where(eq(schema.chat.id, chat.id)).get()?.accessMode
+      const resolved = rowAccess === 'read-only' || rowAccess === 'workspace-write' || rowAccess === 'danger-full-access'
+        ? rowAccess
+        : current.accessMode ?? agent.sandboxMode
+      return resolved === null ? current : { ...current, accessMode: resolved }
+    }
+
     const base = {
       chat,
       // `workspacePath` is here rather than left to /api/status because the
@@ -302,7 +315,7 @@ export const registerChatRoutes = (
     }
 
     if (chat.dshSessionId === null) {
-      return reply.header('cache-control', 'no-store').send({ ...base, sessionState: 'fresh', events: [], composer: { ...composer, capabilities } })
+      return reply.header('cache-control', 'no-store').send({ ...base, sessionState: 'fresh', events: [], composer: { ...withEffectiveAccess(composer), capabilities } })
     }
 
     let events: HistoryEvent[] = []
@@ -358,7 +371,7 @@ export const registerChatRoutes = (
     }
 
     const refreshed = getChat(db, chat.id) ?? chat
-    return reply.header('cache-control', 'no-store').send({ ...base, chat: refreshed, sessionState, events, composer: { ...composer, capabilities } })
+    return reply.header('cache-control', 'no-store').send({ ...base, chat: refreshed, sessionState, events, composer: { ...withEffectiveAccess(composer), capabilities } })
   })
 
   app.patch<{ Params: { id: string }; Body: unknown }>(
@@ -769,8 +782,8 @@ export const registerChatRoutes = (
       await found.upstream.setSandboxMode(found.chat.dshSessionId, parsed.data.mode)
       invalidateHistory(found.chat.dshSessionId)
       publish(found.chat.id, { kind: 'composer_state', accessMode: parsed.data.mode })
-      // 成功钉入：清掉可能残留的延迟覆盖（直连成功 = 已生效）。
-      db.update(schema.chat).set({ accessModeOverride: null }).where(eq(schema.chat.id, found.chat.id)).run()
+      // 成功钉入：清掉可能残留的延迟覆盖（直连成功 = 已生效），并记下展示真相。
+      db.update(schema.chat).set({ accessModeOverride: null, accessMode: parsed.data.mode }).where(eq(schema.chat.id, found.chat.id)).run()
       // 全量沙箱切换留痕：用户决策 + 事后可追溯（2026-09-11 拍板）。
       if (parsed.data.mode === 'danger-full-access') {
         audit?.(request.currentUser?.username ?? 'unknown', 'sandbox_mode', `会话 ${found.chat.id} 开启全量沙箱（danger-full-access）`)
@@ -780,7 +793,7 @@ export const registerChatRoutes = (
       // 会话转冷（回合间隙宿主已卸载）：记下覆盖，下回合创建/唤醒时由 runner 钉入。
       const detail = errorText(error)
       if (detail.includes('session_not_live')) {
-        db.update(schema.chat).set({ accessModeOverride: parsed.data.mode }).where(eq(schema.chat.id, found.chat.id)).run()
+        db.update(schema.chat).set({ accessModeOverride: parsed.data.mode, accessMode: parsed.data.mode }).where(eq(schema.chat.id, found.chat.id)).run()
         publish(found.chat.id, { kind: 'composer_state', accessMode: parsed.data.mode })
         if (parsed.data.mode === 'danger-full-access') {
           audit?.(request.currentUser?.username ?? 'unknown', 'sandbox_mode', `会话 ${found.chat.id} 请求全量沙箱（danger-full-access，延迟到下回合生效）`)

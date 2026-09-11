@@ -222,6 +222,41 @@ test('sandbox switch on a cold session is recorded and deferred to the next turn
   assert.equal(upstream.sandboxPins.length, 0)
   const row = db.select().from(schema.chat).where(eq(schema.chat.id, chatId)).get()
   assert.equal(row?.accessModeOverride, 'danger-full-access')
+  // 展示真相：刷新后 composer 报的是 manager 记录的钉入值，不是宿主推导值。
+  const state = (await (await fetch(`${base}/api/chats/${chatId}`)).json()) as { composer?: { accessMode?: string } }
+  assert.equal(state.composer?.accessMode, 'danger-full-access')
+})
+
+// ---------------------------------------------------------------------------
+// composer access-mode truth (2026-09-11: host preset label drifts from the
+// sandbox knob; the manager must never display the drifted label)
+// ---------------------------------------------------------------------------
+
+test('composer reports a full-access pin after reload even when the host view would say otherwise', async () => {
+  const upstream = new FakeSessionDriver('A', { frames: [], composer: { accessMode: null } })
+  const { base, db } = await boot({ frames: [] }, upstream)
+  const chatId = await newChat(base)
+  bindSession(db, chatId, 'fake-1')
+
+  const access = await fetch(`${base}/api/chats/${chatId}/sandbox-mode`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ mode: 'danger-full-access' }),
+  })
+  assert.equal(access.status, 200)
+  assert.equal(upstream.sandboxPins.length, 1)
+
+  const state = (await (await fetch(`${base}/api/chats/${chatId}`)).json()) as { composer?: { accessMode?: string } }
+  assert.equal(state.composer?.accessMode, 'danger-full-access')
+})
+
+test('composer passes a host-derived full-access mode through (no pin involved)', async () => {
+  const upstream = new FakeSessionDriver('A', { frames: [], composer: { accessMode: 'danger-full-access' } })
+  const { base, db } = await boot({ frames: [] }, upstream)
+  const chatId = await newChat(base)
+  bindSession(db, chatId, 'fake-1')
+
+  const state = (await (await fetch(`${base}/api/chats/${chatId}`)).json()) as { composer?: { accessMode?: string } }
+  assert.equal(state.composer?.accessMode, 'danger-full-access')
 })
 
 // ---------------------------------------------------------------------------

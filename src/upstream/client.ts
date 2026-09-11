@@ -44,7 +44,7 @@ export interface UpstreamModelCatalog {
 export interface UpstreamComposerState {
   model: UpstreamModelSelection | null
   context: { usedTokens: number; contextWindow: number; percent: number; breakdown: { systemTokens: number; toolsTokens: number; messageTokens: number } | null } | null
-  accessMode: 'read-only' | 'workspace-write' | null
+  accessMode: 'read-only' | 'workspace-write' | 'danger-full-access' | null
 }
 
 export interface UpstreamSessionHistory {
@@ -89,7 +89,10 @@ const composerStateOf = (values: Record<string, unknown> | undefined): UpstreamC
   return {
     model: selectionOf(recordOf(values?.modelSelection)?.next) ?? selectionOf(recordOf(values?.modelSelection)?.lastUsed),
     context,
-    accessMode: currentValue === 'read-only' || currentValue === 'workspace-write' ? currentValue : null,
+    // 三档全映射（2026-09-11 补 danger-full-access：早前漏了，全量会话刷新后会被
+    // 显示成只读）。宿主推导值 custom（preset 标签与旋钮漂移）时交给路由层用
+    // chat.access_mode 覆盖。
+    accessMode: currentValue === 'read-only' || currentValue === 'workspace-write' || currentValue === 'danger-full-access' ? currentValue : null,
   }
 }
 

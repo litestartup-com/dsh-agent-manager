@@ -233,6 +233,14 @@ const MIGRATIONS: readonly string[][] = [
   [
     `ALTER TABLE chat ADD COLUMN access_mode_override TEXT`,
   ],
+  // 15 -- 权限展示真相源（2026-09-11）：chat 行记 manager 最后一次钉入的沙箱模式。
+  // 宿主的 permissions 投影里 preset 是「最后选择预置」的意图标签，旋钮漂移后
+  // （preset=read-only + sandbox=danger-full-access）推导值= custom，反推不出真实
+  // 沙箱。用户拍板的权限真相以 manager 为准：钉入成功或延迟时落此列，composer
+  // 展示用它覆盖宿主推导值，再退 agent 配置默认。
+  [
+    `ALTER TABLE chat ADD COLUMN access_mode TEXT`,
+  ],
 ]
 
 export interface OpenDbResult {

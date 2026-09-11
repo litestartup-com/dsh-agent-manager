@@ -93,6 +93,12 @@ export const chat = sqliteTable('chat', {
    * 由 runner 应用后清空。null = 无待生效覆盖。
    */
   accessModeOverride: text('access_mode_override'),
+  /**
+   * 最后一次经 manager 钉入的沙箱模式（权限展示真相源，2026-09-11）：宿主
+   * permissions 投影的 preset 是意图标签，旋钮漂移后推导值为 custom，反推不出
+   * 真实沙箱，故以本列为准。null = 尚未经 manager 钉入（退宿主推导/agent 默认）。
+   */
+  accessMode: text('access_mode'),
 })
 
 export const run = sqliteTable('run', {
