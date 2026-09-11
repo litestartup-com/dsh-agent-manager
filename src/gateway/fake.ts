@@ -76,6 +76,7 @@ export interface FakeGateway {
   calls: { method: string; path: string; body?: unknown }[]
   /** Bodies delivered to /messages. */
   messages: unknown[]
+  questionAnswers: unknown[]
   cancels: number
   /** Sessions adopted, in order, so a test can assert revival happened once. */
   adopts: string[]
@@ -99,6 +100,7 @@ export const startFakeGateway = async (initial: FakeScript, apiKey = 'test-key')
   const state: FakeScript = { gapMs: 1, ...initial }
   const calls: FakeGateway['calls'] = []
   const messages: unknown[] = []
+  const questionAnswers: unknown[] = []
   const adopts: string[] = []
   const releases: string[] = []
   let cancels = 0
@@ -331,6 +333,16 @@ export const startFakeGateway = async (initial: FakeScript, apiKey = 'test-key')
         return
       }
 
+      const answerMatch = /^\/sessions\/([^/]+)\/questions\/([^/]+)\/answer$/.exec(rest)
+      if (answerMatch !== null && method === 'POST') {
+        const body = await readBody(req)
+        calls.push({ method, path: rest, body })
+        questionAnswers.push(body)
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ ok: true }))
+        return
+      }
+
       const releaseMatch = /^\/sessions\/([^/]+)$/.exec(rest)
       if (releaseMatch !== null && method === 'DELETE') {
         const sessionId = releaseMatch[1] ?? ''
@@ -385,6 +397,7 @@ export const startFakeGateway = async (initial: FakeScript, apiKey = 'test-key')
     prefix: PREFIX,
     calls,
     messages,
+    questionAnswers,
     adopts,
     releases,
     get cancels() {

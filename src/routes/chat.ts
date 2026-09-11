@@ -505,6 +505,9 @@ export const registerChatRoutes = (
         silenceMs: config.runner.silenceMs,
         chatId: chat.id,
         sessionId: chat.dshSessionId,
+        onSession: (sessionId) => {
+          if (getChat(db, chat.id)?.dshSessionId === null) bindSession(db, chat.id, sessionId)
+        },
         // A conversation continues on this session, so it keeps its slot.
         // Releasing here would make the next message pay for a cold resume.
         keepSession: true,

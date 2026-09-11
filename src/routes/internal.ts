@@ -287,6 +287,9 @@ export const registerInternalRoutes = (
           trigger: 'brain',
           chatId: chat.id,
           sessionId: chat.dshSessionId,
+          onSession: (sessionId) => {
+            if (getChat(db, chat.id)?.dshSessionId === null) bindSession(db, chat.id, sessionId)
+          },
           keepSession: true,
           timeoutMs: config.runner.timeoutMs,
           silenceMs: config.runner.silenceMs,

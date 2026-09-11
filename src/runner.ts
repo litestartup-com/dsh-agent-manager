@@ -131,6 +131,7 @@ export interface RunInput {
   keepSession?: boolean
   /** The chat this turn belongs to, recorded on the run row. */
   chatId?: string | null
+  onSession?: (sessionId: string) => void
   /**
    * 蜂群 P2：主脑派工时所在的会话（delegation 帧归属）。与 `chatId` 不同——
    * 后者是「run 写入哪个工作会话」，前者是「谁发起的」。
@@ -540,6 +541,7 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
       }
 
       deps.db.update(schema.run).set({ dshSessionId: sessionId }).where(eq(schema.run.id, runId)).run()
+      if (sessionId !== null) input.onSession?.(sessionId)
       log?.info(`run ${runId}: session ${sessionId} on ${client.id}, cwd=${agent.workspacePath}`)
 
       const frames = streamFrames(client.streamUrl(sessionId), {
@@ -659,6 +661,7 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
       }
 
       deps.db.update(schema.run).set({ dshSessionId: sessionId }).where(eq(schema.run.id, runId)).run()
+      if (sessionId !== null) input.onSession?.(sessionId)
       log?.info(`run ${runId}: session ${sessionId} on ${upstream.id} (apiproxy), cwd=${agent.workspacePath}`)
 
       // 债务 E10:显式收窄——create 分支保证 sessionId 非空,闭包前取局部避免 `!`

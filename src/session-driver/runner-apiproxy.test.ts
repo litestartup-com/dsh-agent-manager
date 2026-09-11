@@ -48,6 +48,7 @@ test('apiproxy turn: create → sandbox → prompt → frames → turn_end，全
   const fake = new FakeSessionDriver('A', SUCCESS)
   const workspace = mkdtempSync(join(tmpdir(), 'apiproxy-ws-'))
   const seen: string[] = []
+  const timeline: string[] = []
 
   const outcome = await runAgent({ db }, {
     agent: agentFor(workspace, 'workspace-write'),
@@ -56,7 +57,11 @@ test('apiproxy turn: create → sandbox → prompt → frames → turn_end，全
     driver: 'apiproxy',
     prompt: '只回复：收到',
     trigger: 'manual',
-    onFrame: (frame) => seen.push(frame.kind),
+    onSession: (sessionId) => timeline.push(`session:${sessionId}`),
+    onFrame: (frame) => {
+      seen.push(frame.kind)
+      timeline.push(`frame:${frame.kind}`)
+    },
   })
 
   assert.equal(outcome.state, 'done')
@@ -69,6 +74,7 @@ test('apiproxy turn: create → sandbox → prompt → frames → turn_end，全
   assert.deepEqual(fake.sandboxPins, [{ sessionId: outcome.sessionId, mode: 'workspace-write' }], '端口可选能力：首次 prompt 前钉沙箱')
   assert.deepEqual(fake.prompts, ['只回复：收到'])
   assert.deepEqual(seen, ['turn_start', 'message', 'turn_end'], '直播帧经端口到达 onFrame')
+  assert.deepEqual(timeline, ['session:fake-1', 'frame:turn_start', 'frame:message', 'frame:turn_end'])
 
   const run = db.select().from(schema.run).where(eq(schema.run.id, outcome.runId)).all()[0]
   assert.equal(run?.state, 'done')

@@ -54,6 +54,7 @@ const gateways: FakeGateway[] = []
 interface Harness {
   base: string
   db: Db
+  gateway: FakeGateway
 }
 
 const boot = async (script: FakeScript): Promise<Harness> => {
@@ -85,7 +86,7 @@ const boot = async (script: FakeScript): Promise<Harness> => {
   await app.listen({ host: '127.0.0.1', port: 0 })
   const address = app.server.address()
   const port = typeof address === 'object' && address !== null ? address.port : 0
-  return { base: `http://127.0.0.1:${port}`, db }
+  return { base: `http://127.0.0.1:${port}`, db, gateway: gw }
 }
 
 after(async () => {
@@ -180,6 +181,38 @@ test('the user message is relayed once, not twice', async () => {
     'the assistant reply is still relayed',
   )
   assert.ok(frames.some((f) => f.kind === 'turn_done'))
+})
+
+test('the first-turn question can be answered before the turn ends', async () => {
+  const { base, db, gateway } = await boot({
+    gapMs: 20,
+    frames: [
+      { kind: 'question_asked', questionId: 'q-1', questions: [{ id: 'choice', question: '继续吗？', options: [{ label: '继续' }] }] },
+      { kind: 'sleep', ms: 400 },
+      { kind: 'question_resolved', questionId: 'q-1', outcome: 'answered' },
+      { kind: 'turn_end', reason: 'completed', detail: null },
+    ],
+  })
+  const chatId = await newChat(base)
+  const stream = await fetch(`${base}/api/chats/${chatId}/events`)
+  const question = collectFrames(stream, (frame) => frame.kind === 'question_asked')
+
+  const sent = await fetch(`${base}/api/chats/${chatId}/messages`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: '请询问我' }),
+  })
+  assert.equal(sent.status, 202)
+  await question
+
+  const answer = await fetch(`${base}/api/chats/${chatId}/questions/q-1`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ answers: [{ id: 'choice', selected: ['继续'] }] }),
+  })
+  assert.equal(answer.status, 200)
+  assert.equal(db.select().from(schema.chat).where(eq(schema.chat.id, chatId)).all()[0]?.dshSessionId, 'sess-1')
+  assert.deepEqual(gateway.questionAnswers, [{ answers: [{ id: 'choice', selected: ['继续'] }] }])
 })
 
 test('a browser that walks away frees its connection', async () => {
