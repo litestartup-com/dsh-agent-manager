@@ -4,6 +4,7 @@ import dotenv from 'dotenv'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 import { DEFAULT_PRICING, parseUtcTime, type ModelPricing, type PricingTable } from './pricing.js'
+import { USD_TO_MICRO } from './usage/store.js'
 import type { ValidateRules } from './workspace/validate.js'
 
 dotenv.config()
@@ -518,7 +519,7 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
       // Money is integer micro-USD everywhere past this line, so no float ever
       // reaches a comparison or the database.
       dailyBudgetMicroUsd:
-        file.runner.daily_budget_usd === undefined ? null : Math.round(file.runner.daily_budget_usd * 1e6),
+        file.runner.daily_budget_usd === undefined ? null : Math.round(file.runner.daily_budget_usd * USD_TO_MICRO),
     },
     databasePath: resolve(file.database.path),
     // 债务 A5:真相源路径只此一处推导,全项目读取
@@ -526,7 +527,7 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
     envPath: resolve('.env'),
     reconcileIntervalMs: file.reconcile_interval_minutes * 60_000,
     brainDailyBudgetMicroUsd:
-      file.brain.daily_budget_usd === undefined ? null : Math.round(file.brain.daily_budget_usd * 1e6),
+      file.brain.daily_budget_usd === undefined ? null : Math.round(file.brain.daily_budget_usd * USD_TO_MICRO),
     pricing,
     backupDockerVolumes: file.backup.docker_volumes,
     sessionSecret,

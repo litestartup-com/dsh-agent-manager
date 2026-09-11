@@ -112,6 +112,9 @@ export const spendMonths = (db: Db): string[] => {
   return rows.map((r) => r.month)
 }
 
+/** 债务 E15:美元 ↔ 微美元换算因子(钱领域唯一来源,不再散落 1e6 字面量)。 */
+export const USD_TO_MICRO = 1_000_000
+
 export const monthTotals = (db: Db, month: string): SpendTotals => {
   const rows = db.all<RawTotals>(
     sql`SELECT ${AGGREGATES} FROM usage_record WHERE ${inRange(monthRangeMs(month))}`,

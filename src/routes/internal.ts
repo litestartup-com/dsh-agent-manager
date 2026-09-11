@@ -13,7 +13,7 @@ import { publish } from './chat.js'
 import { readBoard } from '../board/store.js'
 import { notify } from '../notify.js'
 import { activeRunCount, runAgent, runningRunId } from '../runner.js'
-import { monthTotals, monthByAgent, monthByModel, currentMonth } from '../usage/store.js'
+import { USD_TO_MICRO, monthTotals, monthByAgent, monthByModel, currentMonth } from '../usage/store.js'
 import { scheduleProblem, type Scheduler } from '../cron/schedule.js'
 
 /**
@@ -250,7 +250,7 @@ export const registerInternalRoutes = (
 
     const cap = config.brainDailyBudgetMicroUsd ?? null
     if (cap !== null && brainSpendToday() >= cap) {
-      const detail = `主脑今日派工预算已用完（${(brainSpendToday() / 1e6).toFixed(2)} / ${(cap / 1e6).toFixed(2)} USD），请明天再试或人工直接操作。`
+      const detail = `主脑今日派工预算已用完（${(brainSpendToday() / USD_TO_MICRO).toFixed(2)} / ${(cap / USD_TO_MICRO).toFixed(2)} USD），请明天再试或人工直接操作。`
       notify(db, { kind: 'brain_budget', title: '主脑今日派工预算用完', body: detail, link: '/spend' })
       return reply.code(409).send({ error: 'brain_budget_exhausted', detail })
     }
@@ -319,7 +319,7 @@ export const registerInternalRoutes = (
     if (cap !== null) {
       const spent = brainSpendToday()
       if (spent >= cap) {
-        const detail = `主脑今日派工预算已用完（${(spent / 1e6).toFixed(2)} / ${(cap / 1e6).toFixed(2)} USD），请明天再试或人工直接操作。`
+        const detail = `主脑今日派工预算已用完（${(spent / USD_TO_MICRO).toFixed(2)} / ${(cap / USD_TO_MICRO).toFixed(2)} USD），请明天再试或人工直接操作。`
         notify(db, { kind: 'brain_budget', title: '主脑今日派工预算用完', body: detail, link: '/spend' })
         return reply.code(409).send({
           error: 'brain_budget_exhausted',

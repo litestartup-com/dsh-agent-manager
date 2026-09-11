@@ -7,7 +7,7 @@ import { schema } from '../db/index.js'
 import { dummyGatewayClient, type GatewayClient } from '../gateway/client.js'
 import type { SessionDriver } from '../session-driver/port.js'
 import { runAgent, type RunInput, type RunOutcome, type RunnerDeps } from '../runner.js'
-import { currentDay, daySpend } from '../usage/store.js'
+import { USD_TO_MICRO, currentDay, daySpend } from '../usage/store.js'
 import { notify } from '../notify.js'
 
 /**
@@ -221,7 +221,7 @@ export class Scheduler {
         reason: 'budget',
         message:
           `today's spend has reached the daily budget ` +
-          `($${(spent.costMicroUsd / 1e6).toFixed(4)} of $${(budget / 1e6).toFixed(2)}). ` +
+          `($${(spent.costMicroUsd / USD_TO_MICRO).toFixed(4)} of $${(budget / USD_TO_MICRO).toFixed(2)}). ` +
           'Scheduled runs resume tomorrow; a manual run is still allowed.',
       }
     }
