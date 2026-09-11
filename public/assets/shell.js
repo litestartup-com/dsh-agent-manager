@@ -40,9 +40,10 @@ const renderEndpointLines = (status) => {
     status.endpoints
       .map((ep) => {
         const health = endpointHealth(ep)
-        const label = `${ep.id} · ${ep.reachable ? `会话 ${ep.sessions ?? 0}` : '不可达'}${
-          ep.apiKeySet === false ? ' · 未校验密钥' : ''
-        }`
+        // apiproxy 端点没有会话数来源（gateway 老 /health 才有）——未知就
+        // 不显示，不拿 0 冒充真数（2026-09-11）。
+        const reach = ep.reachable ? (typeof ep.sessions === 'number' ? ` · 会话 ${ep.sessions}` : '') : ' · 不可达'
+        const label = `${ep.id}${reach}${ep.apiKeySet === false ? ' · 未校验密钥' : ''}`
         const detail = ep.reachable ? '' : ` — ${ep.error ?? '未知错误'}`
         return `<span class="endpoint-line" title="${esc(ep.url)}${esc(detail)}">
           <span class="dot ${health}"></span>${esc(label)}
@@ -914,7 +915,7 @@ const panelBody = (data) => {
     kv(
       '端点状态',
       endpoint.reachable
-        ? `可达 · ${endpoint.sessions ?? '?'} 个会话${endpoint.apiKeySet === false ? ' · <span class="warn">未设密钥</span>' : ''}`
+        ? `可达${typeof endpoint.sessions === 'number' ? ` · ${endpoint.sessions} 个会话` : ''}${endpoint.apiKeySet === false ? ' · <span class="warn">未设密钥</span>' : ''}`
         : `<span class="error">不可达：${esc(endpoint.error ?? '未知原因')}</span>`,
     ),
     // 容器形态：镜像标签即节点 DSH 版本的真相，先于版本行展示。
