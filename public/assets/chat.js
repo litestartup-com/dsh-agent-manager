@@ -141,7 +141,7 @@ optionsPanel.addEventListener('keydown', (event) => {
     rows[(index - 1 + rows.length) % rows.length]?.focus()
   } else if (event.key === 'Enter') {
     event.preventDefault()
-    ;(document.activeElement as HTMLElement | null)?.click()
+    if (document.activeElement instanceof HTMLElement) document.activeElement.click()
   } else if (event.key === 'Escape') {
     const button = openDropdownBtn
     closeDropdown()
