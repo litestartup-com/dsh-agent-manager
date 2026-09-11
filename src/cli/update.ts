@@ -4,6 +4,7 @@ import { dirname, join, resolve } from 'node:path'
 import net from 'node:net'
 import { fileURLToPath } from 'node:url'
 import { backupNow } from '../backup.js'
+import { loadConfig } from '../config.js'
 
 /**
  * 蜂群 P6：`npm run update` —— manager 自更新（备份 → 拉新 → 构建 → 探活，
@@ -135,11 +136,15 @@ const realDeps = (rootDir: string): UpdateDeps => {
       attempt()
     })
   const backup = async (): Promise<string> => {
+    // 债务 R3:备份路径只来自一次成功的 loadConfig——自定义 database.path /
+    // 部署布局不再备错文件;配置不可读时显性失败(更新前配置必须健康)。
+    const cfg = loadConfig()
     const result = await backupNow(
-      resolve(rootDir, 'data', 'manager.db'),
-      resolve(rootDir, 'manager.config.yaml'),
-      resolve(rootDir, '.env'),
-      resolve(rootDir, 'data', 'backups'),
+      cfg.databasePath,
+      cfg.configPath ?? resolve(rootDir, 'manager.config.yaml'),
+      cfg.envPath ?? resolve(rootDir, '.env'),
+      join(dirname(cfg.databasePath), 'backups'),
+      cfg.sessionSecret,
     )
     return result.snapshot.file
   }

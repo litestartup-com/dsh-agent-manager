@@ -45,7 +45,7 @@ try {
 
   // ---- 2. 备份 ----
   const startedAt = Date.now()
-  const result = await backupNow(dbPath, configPath, envPath, backupDir)
+  const result = await backupNow(dbPath, configPath, envPath, backupDir, SECRET)
   console.log(`备份：${result.snapshot.file}`)
   const entry: NodeHomeEntry = { nodeId: 'personal', kind: 'dir', home: nodeHome }
   const packed = await packNodeHomes([entry], backupDir, SECRET, undefined)
@@ -58,14 +58,14 @@ try {
   if (existsSync(dbPath) || existsSync(nodeHome)) fail('删除不彻底，演练环境不干净')
 
   // ---- 4. 恢复 ----
-  const restored = restoreSnapshot(dbPath, backupDir, 'latest', () => false)
+  const restored = await restoreSnapshot(dbPath, backupDir, 'latest', () => false, SECRET)
   if (!restored.ok) fail(restored.detail)
   await restoreNodeHome(entry, packed[0] ?? '', backupDir, SECRET, undefined)
 
   // ---- 5. 断言 ----
   const { db, sqlite: sqlite2 } = openDb(dbPath)
   const count = sqlite2.prepare('SELECT COUNT(*) AS c FROM user').get() as { c: number }
-  db // drizzle 实例仅用于确认可正常查询类型
+  void db // drizzle 实例仅用于确认可正常查询类型
   sqlite2.close()
   if (count.c !== 1) fail('恢复后用户行数不是 1')
 

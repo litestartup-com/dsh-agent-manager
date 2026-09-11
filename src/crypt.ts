@@ -77,27 +77,36 @@ const versionOf = (encPath: string): 'v1' | 'v2' => {
  * 加密文件 → 明文文件。按 magic 自动分流:
  * - v2:密钥 = BACKUP_KEY 或 HKDF 派生;GCM 认证,篡改/密钥错一律抛错;
  * - v1:密钥 = legacy 派生,兼容线上既有归档。
+ * 先写 `<out>.tmp` 再改名:解密中途失败(篡改/密钥错)绝不留下会被当成
+ * 恢复成功的半成品目标文件(债务 R2 复查发现)。
  */
 export const decryptFile = async (encPath: string, outPath: string, sessionSecret: string): Promise<void> => {
-  if (versionOf(encPath) === 'v2') {
-    const size = statSync(encPath).size
-    if (size < HEADER_LEN + V2_TAG_LEN) throw new Error(`归档损坏:长度不足(${size} 字节)`)
-    const fd = openSync(encPath, 'r')
-    const iv = Buffer.alloc(V2_IV_LEN)
-    readSync(fd, iv, 0, iv.length, V2_MAGIC.length)
-    const tag = Buffer.alloc(V2_TAG_LEN)
-    readSync(fd, tag, 0, tag.length, size - V2_TAG_LEN)
-    closeSync(fd)
-    const decipher = createDecipheriv('aes-256-gcm', v2Key(sessionSecret), iv)
-    decipher.setAuthTag(tag)
-    await pipeline(createReadStream(encPath, { start: HEADER_LEN, end: size - V2_TAG_LEN - 1 }), decipher, createWriteStream(outPath))
-    return
+  const tmpPath = `${outPath}.tmp`
+  try {
+    if (versionOf(encPath) === 'v2') {
+      const size = statSync(encPath).size
+      if (size < HEADER_LEN + V2_TAG_LEN) throw new Error(`归档损坏:长度不足(${size} 字节)`)
+      const fd = openSync(encPath, 'r')
+      const iv = Buffer.alloc(V2_IV_LEN)
+      readSync(fd, iv, 0, iv.length, V2_MAGIC.length)
+      const tag = Buffer.alloc(V2_TAG_LEN)
+      readSync(fd, tag, 0, tag.length, size - V2_TAG_LEN)
+      closeSync(fd)
+      const decipher = createDecipheriv('aes-256-gcm', v2Key(sessionSecret), iv)
+      decipher.setAuthTag(tag)
+      await pipeline(createReadStream(encPath, { start: HEADER_LEN, end: size - V2_TAG_LEN - 1 }), decipher, createWriteStream(tmpPath))
+    } else {
+      // v1(历史 CBC,无认证):密钥 = legacy 派生;密钥错/截断由 padding 抛错兜底
+      const fd = openSync(encPath, 'r')
+      const iv = Buffer.alloc(16)
+      readSync(fd, iv, 0, 16, 0)
+      closeSync(fd)
+      const decipher = createDecipheriv('aes-256-cbc', deriveLegacyBackupKey(sessionSecret), iv)
+      await pipeline(createReadStream(encPath, { start: 16 }), decipher, createWriteStream(tmpPath))
+    }
+    renameSync(tmpPath, outPath)
+  } catch (error) {
+    rmSync(tmpPath, { force: true })
+    throw error
   }
-  // v1(历史 CBC,无认证):密钥 = legacy 派生;密钥错/截断由 padding 抛错兜底
-  const fd = openSync(encPath, 'r')
-  const iv = Buffer.alloc(16)
-  readSync(fd, iv, 0, 16, 0)
-  closeSync(fd)
-  const decipher = createDecipheriv('aes-256-cbc', deriveLegacyBackupKey(sessionSecret), iv)
-  await pipeline(createReadStream(encPath, { start: 16 }), decipher, createWriteStream(outPath))
 }
