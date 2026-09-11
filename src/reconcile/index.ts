@@ -66,10 +66,14 @@ export const removeAgentRow = (db: Db, id: string): void => {
 }
 
 /**
- * DB 注册表 = 配置的派生品：逐 agent 镜像（insert/update），并从表里删除
+ * DB 注册表 = 配置的派生品：逐 agent 镜像（insert/update），并按需从表里删除
  * 配置已不存在的行——唯一真相源是 manager.config.yaml。
+ *
+ * removeStale=false（债务 R9：provision 热变更路径）：只镜像、不收敛删除——
+ * 节点删除后其 agent 行在进程存活期内保留（账单与审计的 FK 引用），
+ * boot / 周期对账的 reconcileAll 才做收敛删除。
  */
-export const mirrorAgents = (db: Db, config: AppConfig): MirrorResult => {
+export const mirrorAgents = (db: Db, config: AppConfig, removeStale = true): MirrorResult => {
   const known = new Set(Object.keys(config.agents))
   let inserted = 0
   let updated = 0
@@ -78,13 +82,15 @@ export const mirrorAgents = (db: Db, config: AppConfig): MirrorResult => {
     if (result === 'inserted') inserted += 1
     else updated += 1
   }
-  // 收敛删除：配置里没有的 agent 行不再保留（FK 教训——别让派生品记住已删的真相）。
-  const all = db.select({ id: schema.agent.id }).from(schema.agent).all()
   let deleted = 0
-  for (const row of all) {
-    if (!known.has(row.id)) {
-      removeAgentRow(db, row.id)
-      deleted += 1
+  if (removeStale) {
+    // 收敛删除：配置里没有的 agent 行不再保留（FK 教训——别让派生品记住已删的真相）。
+    const all = db.select({ id: schema.agent.id }).from(schema.agent).all()
+    for (const row of all) {
+      if (!known.has(row.id)) {
+        removeAgentRow(db, row.id)
+        deleted += 1
+      }
     }
   }
   return { inserted, updated, deleted }
@@ -128,8 +134,12 @@ export const convergeNodes = async (
   docker: DockerRunnerType | null,
   log: (line: string) => void,
   healOnly = false,
+  only: Set<string> | null = null,
 ): Promise<void> => {
   for (const [id, supervisor] of supervisors) {
+    // 债务 R9:热变更路径只收敛指定节点(provision 新节点/回滚重同步),
+    // 绝不借机把用户手动停掉的其它冷节点抢拉起来。null = 全部(boot 语义)。
+    if (only !== null && !only.has(id)) continue
     const spec = config.endpoints[id]?.spawn
     if (spec === null || spec === undefined) continue
     if (healOnly) {
@@ -185,10 +195,20 @@ export const convergeNodes = async (
 /** 唯一对账入口。runHygiene 只在 boot 打开（变更事件路径不需要收敛历史行）。 */
 export const reconcileAll = async (
   deps: ReconcileContext,
-  opts: { runHygiene?: boolean; healOnly?: boolean } = {},
+  opts: {
+    runHygiene?: boolean
+    healOnly?: boolean
+    /**
+     * 债务 R9:节点收敛范围。undefined = 全部(boot/周期对账);
+     * Set(可为空)= 只收敛集合内节点(provision 热变更:空集 = 本轮不动任何节点)。
+     */
+    onlyNodes?: Set<string>
+    /** 债务 R9:false = 只镜像不收敛删除(热变更路径,进程存活期保留已删 agent 行)。 */
+    removeStaleAgents?: boolean
+  } = {},
 ): Promise<void> => {
   const { db, config, supervisors, docker, log } = deps
-  const mirror = mirrorAgents(db, config)
+  const mirror = mirrorAgents(db, config, opts.removeStaleAgents !== false)
   if (mirror.inserted + mirror.updated + mirror.deleted > 0) {
     log(`registry mirror: +${mirror.inserted} ~${mirror.updated} -${mirror.deleted}`)
   }
@@ -200,7 +220,7 @@ export const reconcileAll = async (
   }
   const fleet = await convergeFleet(config, log)
   if (fleet.length > 0) log(`fleet.md synced: ${fleet.join(', ')}`)
-  await convergeNodes(supervisors, config, docker, log, opts.healOnly === true)
+  await convergeNodes(supervisors, config, docker, log, opts.healOnly === true, opts.onlyNodes ?? null)
 }
 
 /**

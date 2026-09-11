@@ -313,3 +313,51 @@ test('债务 H2 回归: DB 写入失败 → provision 全量回滚,无幽灵节�
     'DB agent 行不得残留',
   )
 })
+
+test('债务 R9: 热变更经 reconcile 收敛——不借 provision 抢拉用户手动停掉的其它冷节点', async () => {
+  const { app, config, supervisors } = await boot()
+  // 预置一个既有托管节点(用户手动停掉 = cold),其 supervisor 用桩观察是否被 start
+  const starts: string[] = []
+  const stub = {
+    current: { state: 'cold' },
+    start: () => {
+      starts.push('personal')
+    },
+  } as unknown as NodeSupervisor
+  supervisors.set('personal', stub)
+  config.endpoints['personal'] = {
+    id: 'personal',
+    url: 'http://127.0.0.1:3081',
+    driver: 'apiproxy',
+    prefix: '/api',
+    key: '',
+    sandboxBase: null,
+    sandboxKey: '',
+    spawn: {
+      managed: true,
+      command: 'node',
+      args: ['x'],
+      cwd: null,
+      readyTimeoutMs: 1_000,
+      detached: false,
+      logFile: null,
+      env: {},
+      restart: { maxAttempts: 3, baseDelayMs: 1_000, maxDelayMs: 30_000 },
+      runner: 'process',
+      docker: null,
+    },
+  }
+
+  const created = await app.inject({
+    method: 'POST',
+    url: '/api/nodes',
+    payload: { name: 'product', install: false },
+  })
+  assert.equal(created.statusCode, 201, JSON.stringify(created.body))
+  // install:false 的微任务链(installPromise.then → reconcile)走完
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  assert.deepEqual(starts, [], '热变更不得拉起其它冷节点(onlyNodes 范围化)')
+  assert.ok(supervisors.has('product'), '新节点自己的监督器必须入册')
+  const supervisor = supervisors.get('product')!
+  stopped.push(supervisor)
+})

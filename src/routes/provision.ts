@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type { FastifyInstance, preHandlerHookHandler } from 'fastify'
 import { z } from 'zod'
-import { mutateYamlFile, writeFileAtomic } from '../config-store.js'
+import { mutateYamlFile, withConfigLock, writeFileAtomic } from '../config-store.js'
 import type { AppConfig, ResolvedEndpoint, ResolvedSpawnSpec } from '../config.js'
 import type { Db } from '../db/index.js'
 import { schema } from '../db/index.js'
@@ -16,8 +16,7 @@ import type { DockerRunner } from '../nodes/docker-runner.js'
 import { makeSupervisor } from '../nodes/registry.js'
 import { detectDshBin, ensureNodeCredentials, ensureNodeProfiles, mergeEnv, profileInstallCommand, resolveGatewayKey } from '../cli/setup.js'
 import { ensureWorkspaceGit } from '../workspace/init.js'
-import { syncFleetDocs } from '../workspace/fleet-doc.js'
-import { mirrorAgentRow, removeAgentRow } from '../reconcile/index.js'
+import { reconcileAll, removeAgentRow } from '../reconcile/index.js'
 import { GATEWAY_REF } from '../dsh-version.js'
 import { recordAudit } from '../audit.js'
 
@@ -28,11 +27,109 @@ import { recordAudit } from '../audit.js'
  * manager.config.yaml，**最后才动内存**；中途任何一步失败即回滚（删节点
  * 目录），配置与内存都保持原样。删除 = 解除托管（不删磁盘目录），要求
  * 节点上没有 agent（迁移是后话）。
+ *
+ * 债务 E3：docker/process 双分支共享「开通流水线」（准备 → DB → 真相文件
+ * → 内存 → 进程），形态差异（url/沙箱地址、spawn 规格、镜像 vs bin）参数化；
+ * 回滚台账（H2 顺序）与 B1 异步 install 流程留在分支内。
  */
 
 const GATEWAY_DEP = GATEWAY_REF // 0.1.2 线：钉 next-012 commit（dsh-version 单一真相源）
 const CONFIG_PATH = 'manager.config.yaml'
 const ENV_PATH = '.env'
+
+/** 债务 E3:新节点携带的 agent 规格（两分支同形）。 */
+interface NewAgentSpec {
+  id: string
+  name: string
+  workspace: string
+  preset: string | null
+  sandboxMode: 'read-only' | 'workspace-write' | null
+}
+
+/** 流水线第 1 步：工作区目录 + git 初始化（返回警告文案）。 */
+const prepareWorkspace = (agentSpec: NewAgentSpec | null): string | null => {
+  if (agentSpec === null) return null
+  mkdirSync(agentSpec.workspace, { recursive: true })
+  const git = ensureWorkspaceGit(agentSpec.workspace, agentSpec.name)
+  return git.warning
+}
+
+/**
+ * 流水线第 2 步：DB 先行记账。镜像本身由 reconcileAll 的 mirrorAgents 完成
+ * （债务 R9，单一实现），这里只记「行是否存在」供回滚台账用。
+ */
+const markDbFirst = (db: Db, agentSpec: NewAgentSpec | null): boolean => {
+  if (agentSpec === null) return false
+  const row = db.select({ id: schema.agent.id }).from(schema.agent).all().find((a) => a.id === agentSpec.id)
+  return row === undefined
+}
+
+/**
+ * 流水线第 3 步：真相文件写入（.env 密钥 + yaml；债务 A3 原子写 + 保注释，
+ * 债务 R6 锁入口）。返回写前快照供 H2 回滚。
+ */
+const writeNodeTruth = async (
+  paths: { envPath: string; configPath: string },
+  spec: {
+    keyRef: string
+    key: string
+    name: string
+    url: string
+    sandboxBase: string
+    agentSpec: NewAgentSpec | null
+    /** 形态差异：docker spec 或 process spawn 块，原样写进 yaml 的 spawn。 */
+    spawnYaml: unknown
+  },
+): Promise<{ envSnap: string | null; yamlSnap: string }> => {
+  const envSnap = existsSync(paths.envPath) ? readFileSync(paths.envPath, 'utf8') : null
+  const yamlSnap = readFileSync(paths.configPath, 'utf8')
+  await withConfigLock(() => {
+    mergeEnv(paths.envPath, { [spec.keyRef]: spec.key }, [spec.keyRef])
+    mutateYamlFile(
+      paths.configPath,
+      (doc) => {
+        doc.setIn(['endpoints', spec.name], {
+          url: spec.url,
+          driver: 'apiproxy',
+          prefix: '/api',
+          key_ref: '',
+          sandbox_base: spec.sandboxBase,
+          sandbox_key_ref: spec.keyRef,
+          spawn: spec.spawnYaml,
+        })
+        if (spec.agentSpec !== null) {
+          doc.setIn(['agents', spec.agentSpec.id], {
+            name: spec.agentSpec.name,
+            endpoint: spec.name,
+            workspace: spec.agentSpec.workspace,
+            public: false,
+            preset: spec.agentSpec.preset,
+            sandbox_mode: spec.agentSpec.sandboxMode,
+          })
+        }
+      },
+    )
+  })
+  return { envSnap, yamlSnap }
+}
+
+/** 流水线第 4 步：工作区热加载进内存配置（两分支逐字相同）。 */
+const hotLoadAgent = (config: AppConfig, endpointId: string, agentSpec: NewAgentSpec | null): void => {
+  if (agentSpec === null) return
+  config.agents[agentSpec.id] = {
+    id: agentSpec.id,
+    name: agentSpec.name,
+    endpoint: endpointId,
+    workspacePath: agentSpec.workspace,
+    public: false,
+    preset: agentSpec.preset,
+    sandboxMode: agentSpec.sandboxMode,
+    gitRemote: null,
+    provider: null,
+    model: null,
+    validate: null,
+  }
+}
 
 /**
  * 债务 B1:节点依赖安装后台化——旧代码在请求处理里同步 execFileSync(npx pnpm@9
@@ -153,6 +250,17 @@ export const registerProvisionRoutes = (
   const configPath = config.configPath ?? resolve(CONFIG_PATH)
   const envPath = config.envPath ?? resolve(ENV_PATH)
 
+  // 债务 R9:派生状态(DB 镜像 / fleet.md / 节点生命周期)统一交给 reconcile 收敛,
+  // provision 只做真相源变更(配置文件)+ 内存热加载。onlyNodes 范围化:
+  // - 空集 = 本轮不动任何节点(镜像与 fleet 照跑);
+  // - {新节点} = 只拉起新节点——绝不借热变更把用户手动停掉的其它冷节点抢拉起来。
+  // removeStaleAgents=false:热删除后 agent 行在进程存活期内保留(账单/审计 FK)。
+  const reconcile = (onlyNodes: Set<string>): Promise<void> =>
+    reconcileAll(
+      { db, config, supervisors, docker: deps.docker ?? null, log: (line) => app.log.info(line) },
+      { onlyNodes, removeStaleAgents: false },
+    )
+
   app.post<{ Body: unknown }>('/api/nodes', { preHandler: requireUser }, async (request, reply) => {
     const parsed = provisionBody.safeParse(request.body)
     if (!parsed.success) {
@@ -208,12 +316,8 @@ export const registerProvisionRoutes = (
       if (dockerMode) {
         const key = 'apigw-' + randomBytes(24).toString('hex')
 
-        let workspaceWarning: string | null = null
-        if (agentSpec !== null) {
-          mkdirSync(agentSpec.workspace, { recursive: true })
-          const git = ensureWorkspaceGit(agentSpec.workspace, agentSpec.name)
-          workspaceWarning = git.warning
-        }
+        // 流水线 1:工作区
+        const workspaceWarning = prepareWorkspace(agentSpec)
 
         // 宿主机侧工作区路径：从既有 docker 端点的 host_volumes 推导前缀
         // （install.sh 已把示例里的宿主路径钉成真实路径，这里照抄同一前缀）。
@@ -227,66 +331,30 @@ export const registerProvisionRoutes = (
           named_volumes: { [`ohdsh-${body.name}`]: '/data' },
         }
 
-        // 债务 H2：DB 先行——真相文件与内存都排在它后面，它失败时无任何外部副作用。
-        // 镜像进 DB registry：chat.run 等表的外键指向 agent 表，缺行会
-        // SQLITE_CONSTRAINT_FOREIGNKEY（容器模式分支首测踩坑）。镜像逻辑 =
-        // src/reconcile 的 mirrorAgentRow（单一实现，A 清单 #2）。
-        if (agentSpec !== null) {
-          const row = db
-            .select({ id: schema.agent.id })
-            .from(schema.agent)
-            .all()
-            .find((a) => a.id === agentSpec.id)
-          if (row === undefined) {
-            mirrorAgentRow(db, {
-              id: agentSpec.id,
-              name: agentSpec.name,
-              workspacePath: agentSpec.workspace,
-              endpoint: body.name,
-              preset: agentSpec.preset,
-              gitRemote: null,
-              public: false,
-            })
-            dbRowInserted = true
-          }
-        }
+        // 流水线 2:DB 先行(债务 H2/R9)
+        dbRowInserted = markDbFirst(db, agentSpec)
         recordAudit(db, { actor: request.currentUser?.username ?? 'unknown', kind: 'node_create', detail: `节点 ${body.name}（docker 工蜂，端口 ${port}，工作区 ${agentSpec?.workspace ?? '—'}）` })
 
-        // 真相文件（带快照，失败可还原）:.env 密钥 → yaml（债务 A3:原子写 + 保注释;syntax 校验
-        // 防磁盘级损坏——loadConfig 依赖 process.env 快照,写后立即 full 校验会误报,语义完整性
-        // 由 H2 快照回滚 + 下次 boot fail-loud 兜底）
-        envSnap = existsSync(envPath) ? readFileSync(envPath, 'utf8') : null
-        mergeEnv(envPath, { [keyRef]: key }, [keyRef])
-        yamlSnap = readFileSync(configPath, 'utf8')
-        mutateYamlFile(
-          configPath,
-          (doc) => {
-            doc.setIn(['endpoints', body.name], {
-              url: `http://node-${body.name}:${port}`,
-              driver: 'apiproxy',
-              prefix: '/api',
-              key_ref: '',
-              sandbox_base: `http://node-${body.name}:${port}/api-gw/v1`,
-              sandbox_key_ref: keyRef,
-              spawn: {
-                managed: true,
-                runner: 'docker',
-                ready_timeout_ms: 30_000,
-                docker: dockerSpec,
-              },
-            })
-            if (agentSpec !== null) {
-              doc.setIn(['agents', agentSpec.id], {
-                name: agentSpec.name,
-                endpoint: body.name,
-                workspace: agentSpec.workspace,
-                public: false,
-                preset: agentSpec.preset,
-                sandbox_mode: agentSpec.sandboxMode,
-              })
-            }
+        // 流水线 3:真相文件(带快照,失败可还原;债务 A3 原子写 + R6 锁入口)
+        const snaps = await writeNodeTruth(
+          { envPath, configPath },
+          {
+            keyRef,
+            key,
+            name: body.name,
+            url: `http://node-${body.name}:${port}`,
+            sandboxBase: `http://node-${body.name}:${port}/api-gw/v1`,
+            agentSpec,
+            spawnYaml: {
+              managed: true,
+              runner: 'docker',
+              ready_timeout_ms: 30_000,
+              docker: dockerSpec,
+            },
           },
         )
+        envSnap = snaps.envSnap
+        yamlSnap = snaps.yamlSnap
 
         const spawn: ResolvedSpawnSpec = {
           managed: true,
@@ -329,28 +397,16 @@ export const registerProvisionRoutes = (
           docker: deps.docker,
         })
         supervisors.set(body.name, supervisor)
-        // 债务 E10:spawn 由上面的 spawnFor/字面量构造,恒非空;显式收窄替代 `!`
-        if (endpoint.spawn === null) throw new Error('internal: docker endpoint built without spawn')
-        supervisor.start(endpoint.spawn)
+        // 债务 R9:节点拉起交给 reconcile(convergeNodes 对 docker runner 走认领/
+        // 补拉),这里只记台账供回滚 stop。
         supervisorStarted = supervisor
 
-        if (agentSpec !== null) {
-          config.agents[agentSpec.id] = {
-            id: agentSpec.id,
-            name: agentSpec.name,
-            endpoint: body.name,
-            workspacePath: agentSpec.workspace,
-            public: false,
-            preset: agentSpec.preset,
-            sandboxMode: agentSpec.sandboxMode,
-            gitRemote: null,
-            provider: null,
-            model: null,
-  validate: null,
-}
-        }
+        // 流水线 4:agent 热加载进内存配置
+        hotLoadAgent(config, body.name, agentSpec)
 
-        await syncFleetDocs(config, (line) => app.log.info(line))
+        // 债务 R9:派生状态统一交 reconcile——镜像/fleet 立即跑,节点经
+        // convergeNodes 拉起(docker 分支无 install 延迟)。
+        await reconcile(new Set([body.name]))
         return reply.code(201).send({
           node: { id: body.name, port, home: `ohdsh-${body.name}` },
           workspace: agentSpec === null ? null : { id: agentSpec.id, path: agentSpec.workspace },
@@ -372,67 +428,35 @@ export const registerProvisionRoutes = (
       const installDir = join(nodeHomePath, 'profiles', body.name)
       const installPromise: Promise<void> = body.install !== false ? installNodeDepsAsync(installDir) : Promise.resolve()
 
-      // 3. 工作区：目录 + git init + 通用 AGENTS.md（文件即真相，运行才有审计）
-      let workspaceWarning: string | null = null
-      if (agentSpec !== null) {
-        mkdirSync(agentSpec.workspace, { recursive: true })
-        const git = ensureWorkspaceGit(agentSpec.workspace, agentSpec.name)
-        workspaceWarning = git.warning
-      }
+      // 流水线 1:工作区（目录 + git init + 通用 AGENTS.md,文件即真相,运行才有审计）
+      const workspaceWarning = prepareWorkspace(agentSpec)
 
-      // 债务 H2：DB 先行——真相文件与内存都排在它后面，它失败时无任何外部副作用。
-      if (agentSpec !== null) {
-        const row = db.select({ id: schema.agent.id }).from(schema.agent).all().find((a) => a.id === agentSpec.id)
-        if (row === undefined) {
-          mirrorAgentRow(db, {
-            id: agentSpec.id,
-            name: agentSpec.name,
-            workspacePath: agentSpec.workspace,
-            endpoint: body.name,
-            preset: agentSpec.preset,
-            gitRemote: null,
-            public: false,
-          })
-          dbRowInserted = true
-        }
-      }
+      // 流水线 2:DB 先行(债务 H2/R9)
+      dbRowInserted = markDbFirst(db, agentSpec)
       // 蜂群2计划 P3：审计留痕（创建节点）
       recordAudit(db, { actor: request.currentUser?.username ?? 'unknown', kind: 'node_create', detail: `节点 ${body.name}（端口 ${port}，工作区 ${agentSpec?.workspace ?? '—'}）` })
 
-      // 真相文件（带快照，失败可还原）:.env 密钥 → yaml（债务 A3:原子写 + 保注释 + full 校验,失败自动还原）
-      envSnap = existsSync(envPath) ? readFileSync(envPath, 'utf8') : null
-      mergeEnv(envPath, { [keyRef]: key }, [keyRef])
-      yamlSnap = readFileSync(configPath, 'utf8')
-      mutateYamlFile(
-        configPath,
-        (doc) => {
-          doc.setIn(['endpoints', body.name], {
-            url: `http://127.0.0.1:${port}`,
-            driver: 'apiproxy',
-            prefix: '/api',
-            key_ref: '',
-            sandbox_base: `http://127.0.0.1:${port}/api-gw/v1`,
-            sandbox_key_ref: keyRef,
-            spawn: {
-              managed: true,
-              command: 'node',
-              args: [dshBin, '--profile', body.name, '--no-open'],
-              ready_timeout_ms: 30_000,
-              env: { DSH_HOME: nodeHomePath },
-            },
-          })
-          if (agentSpec !== null) {
-            doc.setIn(['agents', agentSpec.id], {
-              name: agentSpec.name,
-              endpoint: body.name,
-              workspace: agentSpec.workspace,
-              public: false,
-              preset: agentSpec.preset,
-              sandbox_mode: agentSpec.sandboxMode,
-            })
-          }
+      // 流水线 3:真相文件（带快照，失败可还原;债务 A3 原子写 + R6 锁入口）
+      const snaps = await writeNodeTruth(
+        { envPath, configPath },
+        {
+          keyRef,
+          key,
+          name: body.name,
+          url: `http://127.0.0.1:${port}`,
+          sandboxBase: `http://127.0.0.1:${port}/api-gw/v1`,
+          agentSpec,
+          spawnYaml: {
+            managed: true,
+            command: 'node',
+            args: [dshBin, '--profile', body.name, '--no-open'],
+            ready_timeout_ms: 30_000,
+            env: { DSH_HOME: nodeHomePath },
+          },
         },
       )
+      envSnap = snaps.envSnap
+      yamlSnap = snaps.yamlSnap
 
       // 热加载：endpoint + 工作区进内存配置，监督器入册并拉起
       const endpoint: ResolvedEndpoint = {
@@ -461,12 +485,10 @@ export const registerProvisionRoutes = (
       const startAfterInstall = (): void => {
         if (rolledBack) return
         supervisorStarted = supervisor
-        // 债务 E10:显式收窄(process 分支的 spawn 由 spawnFor 构造,恒非空)
-        if (endpoint.spawn === null) {
-          app.log.error(`node ${body.name}: internal error, spawn missing; supervisor stays cold`)
-          return
-        }
-        supervisor.start(endpoint.spawn)
+        // 债务 R9:节点拉起也走 reconcile(单一入口),不再自己 supervisor.start。
+        void reconcile(new Set([body.name])).catch((error: unknown) => {
+          app.log.error(`node ${body.name}: reconcile after install failed: ${error instanceof Error ? error.message : String(error)}`)
+        })
       }
       installPromise.then(startAfterInstall).catch((installError: unknown) => {
         if (rolledBack) return
@@ -476,23 +498,12 @@ export const registerProvisionRoutes = (
         startAfterInstall() // 仍拉起:缺依赖时节点崩溃,supervisor 状态机显性 offline
       })
 
-      if (agentSpec !== null) {
-        config.agents[agentSpec.id] = {
-          id: agentSpec.id,
-          name: agentSpec.name,
-          endpoint: body.name,
-          workspacePath: agentSpec.workspace,
-          public: false,
-          preset: agentSpec.preset,
-          sandboxMode: agentSpec.sandboxMode,
-          gitRemote: null,
-          provider: null,
-          model: null,
-  validate: null,
-}
-      }
+      // 流水线 4:agent 热加载进内存配置
+      hotLoadAgent(config, body.name, agentSpec)
 
-      await syncFleetDocs(config, (line) => app.log.info(line))
+      // 债务 R9:派生状态统一交 reconcile——镜像/fleet 立即跑;节点拉起延后到
+      // 依赖安装完成(startAfterInstall 里的 reconcile,见上)。
+      await reconcile(new Set())
       return reply.code(201).send({
         node: { id: body.name, port, home: nodeHomePath, state: supervisor.current.state },
         workspace: agentSpec === null ? null : { id: agentSpec.id, path: agentSpec.workspace },
@@ -551,6 +562,13 @@ export const registerProvisionRoutes = (
           // 目录残留由下次 boot 的对账收敛
         }
       }
+      // 债务 R9:回滚后重跑收敛——按还原后的真相源重镜像/fleet 重同步
+      // (fleet.md 不残留失败节点条目;agent 行恢复旧值)。
+      try {
+        await reconcile(new Set())
+      } catch (rollbackError) {
+        app.log.warn(`provision rollback: reconcile failed: ${(rollbackError as Error).message}`)
+      }
       try {
         recordAudit(db, { actor: request.currentUser?.username ?? 'unknown', kind: 'node_create', detail: `失败：${(error as Error).message}` })
       } catch {
@@ -582,13 +600,15 @@ export const registerProvisionRoutes = (
     delete config.endpoints[request.params.id]
     for (const a of bound) delete config.agents[a.id]
 
-    // 债务 A3:删除也走原子写(syntax 校验,防磁盘级损坏)
-    mutateYamlFile(
-      configPath,
-      (doc) => {
-        doc.deleteIn(['endpoints', request.params.id])
-        for (const a of bound) doc.deleteIn(['agents', a.id])
-      },
+    // 债务 A3:删除也走原子写(syntax 校验,防磁盘级损坏);债务 R6:统一锁入口
+    await withConfigLock(() =>
+      mutateYamlFile(
+        configPath,
+        (doc) => {
+          doc.deleteIn(['endpoints', request.params.id])
+          for (const a of bound) doc.deleteIn(['agents', a.id])
+        },
+      ),
     )
 
     app.log.info(
@@ -596,7 +616,9 @@ export const registerProvisionRoutes = (
     )
     // 蜂群2计划 P3：审计留痕（删除节点）
     recordAudit(db, { actor: request.currentUser?.username ?? 'unknown', kind: 'node_delete', detail: `节点 ${request.params.id} 删除（磁盘目录保留）` })
-    await syncFleetDocs(config, (line) => app.log.info(line))
+    // 债务 R9:镜像与 fleet 的收敛统一走 reconcile(空节点集 = 不动节点生命周期;
+    // removeStaleAgents=false = agent 行在进程存活期内保留,账单/审计不丢)。
+    await reconcile(new Set())
     return reply.send({ ok: true, removedWorkspaces: bound.map((a) => a.id) })
   })
 }
