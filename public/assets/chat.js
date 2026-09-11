@@ -1794,11 +1794,6 @@ const connect = () => {
       render()
       return
     }
-    if (frame.kind === 'goal' && state !== null) {
-      state.goal = frame.goal ?? null
-      render()
-      return
-    }
     // 蜂群 P2：派工结束帧——不是转录帧，刷新派工记录即可。
     if (frame.kind === 'delegation_done') {
       void loadDelegations()
@@ -1816,6 +1811,15 @@ const connect = () => {
     }
     if (loading) {
       buffered.push(frame)
+      return
+    }
+
+    // goal 帧放在 loading 缓冲之后：加载中收到的目标变化先进 buffer，
+    // load() 完成时经 pendingFrames 拾取（见 load 里的 'goal' 分支）——
+    // 直接应用会打在半截的旧快照上，且 GET 的历史缓存可能还没带上它。
+    if (frame.kind === 'goal' && state !== null) {
+      state.goal = frame.goal ?? null
+      render()
       return
     }
 
