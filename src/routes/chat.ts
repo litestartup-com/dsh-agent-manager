@@ -159,6 +159,16 @@ export const registerChatRoutes = (
 
   interface CachedHistory { events: HistoryEvent[]; sessionState: string; title: string | null }
   const historyCache = new HistoryCache<CachedHistory>({ max: 200, ttlMs: 30_000 }) // cold sessions don't change; 30s is safe
+  const liveFrames = new Map<string, Array<Record<string, unknown>>>()
+  const rememberLiveFrame = (chatId: string, frame: Record<string, unknown>): void => {
+    if (frame.kind === 'turn_done') {
+      liveFrames.delete(chatId)
+      return
+    }
+    const frames = liveFrames.get(chatId) ?? []
+    frames.push(frame)
+    liveFrames.set(chatId, frames)
+  }
 
   const invalidateHistory = (sessionId: string): void => { historyCache.delete(sessionId) }
 
@@ -274,6 +284,7 @@ export const registerChatRoutes = (
       busyRunId: runningRunId(agent.id),
       activeRuns: activeRunCount(agent.id),
       turns: chatRuns(db, chat.id),
+      liveFrames: liveFrames.get(chat.id) ?? [],
     }
 
     if (chat.dshSessionId === null) {
@@ -483,6 +494,7 @@ export const registerChatRoutes = (
     upstream: SessionDriver | null,
     driver: 'gateway' | 'apiproxy',
     text: string,
+    signal: AbortSignal,
   ): Promise<RunOutcome> => {
     const outcome = await runAgent(
       {
@@ -505,6 +517,7 @@ export const registerChatRoutes = (
         silenceMs: config.runner.silenceMs,
         chatId: chat.id,
         sessionId: chat.dshSessionId,
+        signal,
         onSession: (sessionId) => {
           if (getChat(db, chat.id)?.dshSessionId === null) bindSession(db, chat.id, sessionId)
         },
@@ -518,6 +531,7 @@ export const registerChatRoutes = (
         // exists, so the upstream copy is the redundant one.
         onFrame: (frame: GatewayFrame) => {
           if (frame.kind === 'user') return
+          rememberLiveFrame(chat.id, frame)
           publish(chat.id, frame)
         },
       },
@@ -534,7 +548,9 @@ export const registerChatRoutes = (
       touchChat(db, chat.id)
     }
 
-    publish(chat.id, { kind: 'turn_done', runId: outcome.runId, state: outcome.state, error: outcome.error })
+    const doneFrame = { kind: 'turn_done', runId: outcome.runId, state: outcome.state, error: outcome.error }
+    rememberLiveFrame(chat.id, doneFrame)
+    publish(chat.id, doneFrame)
     return outcome
   }
 
@@ -547,6 +563,7 @@ export const registerChatRoutes = (
    * 仍是全局上限，满了的失败如实透给用户。
    */
   const chatTurns = new Map<string, Promise<unknown>>()
+  const chatCancels = new Map<string, AbortController>()
 
   const startChatTurn = (
     chat: NonNullable<ReturnType<typeof getChat>>,
@@ -556,17 +573,22 @@ export const registerChatRoutes = (
     driver: 'gateway' | 'apiproxy',
     text: string,
   ): Promise<unknown> => {
+    const controller = new AbortController()
+    chatCancels.set(chat.id, controller)
     const tracked = (async () => {
       try {
-        await runChatTurn(chat, agent, client, upstream, driver, text)
+        await runChatTurn(chat, agent, client, upstream, driver, text, controller.signal)
       } catch (error) {
         // No HTTP reply carries the failure any more; the relay does.
-        publish(chat.id, {
+        const doneFrame = {
           kind: 'turn_done',
           state: 'failed',
           error: error instanceof Error ? error.message : String(error),
-        })
+        }
+        rememberLiveFrame(chat.id, doneFrame)
+        publish(chat.id, doneFrame)
       } finally {
+        if (chatCancels.get(chat.id) === controller) chatCancels.delete(chat.id)
         chatTurns.delete(chat.id)
         drainChatQueue(chat.id)
       }
@@ -601,7 +623,9 @@ export const registerChatRoutes = (
 
       // Echoed to watchers immediately: the sender already has it on screen, but
       // a second tab should not sit blank until the assistant replies.
-      publish(chat.id, { kind: 'user', text, at: Date.now() })
+      const userFrame = { kind: 'user', text, at: Date.now() }
+      rememberLiveFrame(chat.id, userFrame)
+      publish(chat.id, userFrame)
 
       // DSH's own queue semantics: accept immediately, run the turn in the
       // background, and report progress through the relay. A synchronous POST
@@ -664,6 +688,11 @@ export const registerChatRoutes = (
     const found = resolve(request.params.id, reply)
     if (found === null) return reply
     const { chat, client, upstream, driver } = found
+    const controller = chatCancels.get(chat.id)
+    if (controller !== undefined) {
+      controller.abort()
+      return reply.code(202).send({ ok: true })
+    }
     if (chat.dshSessionId === null) return reply.code(409).send({ error: 'no_session' })
     try {
       if (driver === 'apiproxy' && upstream !== null) {

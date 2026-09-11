@@ -1425,6 +1425,7 @@ const load = async () => {
   else if (!sending) turnStartedAt = null
   const maxSeq = state.events.reduce((max, e) => (typeof e.seq === 'number' && e.seq > max ? e.seq : max), -1)
   const rebuilt = build(state.events, state.turns)
+  const liveFrames = Array.isArray(state.liveFrames) ? state.liveFrames : []
   // Queued (or just-sent) messages are not in the DSH history yet — draw them
   // locally until the history contains them, the same way DSH keeps a queued
   // bubble visible above the composer.
@@ -1437,7 +1438,7 @@ const load = async () => {
   pendingUserTexts = stillPending
   // Anything that arrived mid-fetch and is not in the history yet still belongs
   // on screen, so it is replayed on top rather than thrown away.
-  const pendingFrames = buffered.filter((f) => !alreadyLoaded(f, maxSeq, rebuilt))
+  const pendingFrames = [...liveFrames, ...buffered].filter((f) => !alreadyLoaded(f, maxSeq, rebuilt))
   for (const f of pendingFrames) {
     if (f.kind === 'turn_queued') queuedItems.push({ id: typeof f.id === 'string' ? f.id : '', text: typeof f.text === 'string' ? f.text : '', at: Date.now() })
     if (f.kind === 'turn_start' && queuedItems.length > 0) {
@@ -1446,8 +1447,7 @@ const load = async () => {
     }
   }
   blocks = pendingFrames.filter((f) => f.kind !== 'turn_queued').reduce((list, frame) => reduce(list, frame), rebuilt)
-  // Replayed through the ask tracker too: a question that opened while the
-  // history was loading is the one most likely to be waiting right now.
+  asks.clear()
   for (const frame of pendingFrames) trackAsks(frame)
   buffered = []
   loading = false

@@ -135,6 +135,23 @@ test('apiproxy turn: question/approval 帧照常到达 onFrame，回合照常收
   assert.deepEqual(seen, ['question_asked', 'approval_pending', 'turn_end'])
 })
 
+test('apiproxy turn: an external stop ends a question-waiting run locally', async () => {
+  const db = makeDb()
+  const fake = new FakeSessionDriver('A', { frames: [] })
+  const controller = new AbortController()
+  const pending = runAgent({ db }, {
+    agent: agentFor(mkdtempSync(join(tmpdir(), 'apiproxy-ws-'))),
+    client: dummyClient(), upstream: fake, driver: 'apiproxy', prompt: 'hi', trigger: 'manual',
+    signal: controller.signal, silenceMs: 0, timeoutMs: 10_000,
+  })
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  controller.abort()
+  const outcome = await pending
+  assert.equal(outcome.state, 'failed')
+  assert.equal(outcome.error, 'the turn was stopped by the user')
+  assert.equal(fake.cancels, 1)
+})
+
 test('apiproxy turn: 静默超时 = cancelled，且经端口调用 cancel', async () => {
   const db = makeDb()
   const fake = new FakeSessionDriver('A', { frames: [] })

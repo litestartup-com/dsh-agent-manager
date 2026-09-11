@@ -215,6 +215,64 @@ test('the first-turn question can be answered before the turn ends', async () =>
   assert.deepEqual(gateway.questionAnswers, [{ answers: [{ id: 'choice', selected: ['继续'] }] }])
 })
 
+test('a refresh restores the current turn and its unanswered question', async () => {
+  const { base } = await boot({
+    gapMs: 20,
+    frames: [
+      { kind: 'question_asked', questionId: 'q-refresh', questions: [{ id: 'choice', question: '继续吗？', options: [{ label: '继续' }] }] },
+      { kind: 'sleep', ms: 500 },
+      { kind: 'turn_end', reason: 'completed', detail: null },
+    ],
+  })
+  const chatId = await newChat(base)
+  const stream = await fetch(`${base}/api/chats/${chatId}/events`)
+  const question = collectFrames(stream, (frame) => frame.kind === 'question_asked')
+
+  const sent = await fetch(`${base}/api/chats/${chatId}/messages`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: '请询问我' }),
+  })
+  assert.equal(sent.status, 202)
+  await question
+
+  const reloaded = await fetch(`${base}/api/chats/${chatId}`)
+  assert.equal(reloaded.status, 200)
+  const body = (await reloaded.json()) as { liveFrames?: Array<{ kind: string }> }
+  assert.deepEqual(body.liveFrames?.map((frame) => frame.kind), ['user', 'question_asked'])
+})
+
+test('stopping a question-waiting turn finishes the local run even when its stream stays open', async () => {
+  const { base, db } = await boot({
+    gapMs: 20,
+    frames: [
+      { kind: 'question_asked', questionId: 'q-stop', questions: [{ id: 'choice', question: '继续吗？', options: [{ label: '继续' }] }] },
+      { kind: 'sleep', ms: 1_000 },
+      { kind: 'turn_end', reason: 'completed', detail: null },
+    ],
+  })
+  const chatId = await newChat(base)
+  const stream = await fetch(`${base}/api/chats/${chatId}/events`)
+  const question = collectFrames(stream, (frame) => frame.kind === 'question_asked')
+
+  const sent = await fetch(`${base}/api/chats/${chatId}/messages`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: '请询问我' }),
+  })
+  assert.equal(sent.status, 202)
+  await question
+
+  const stopped = await fetch(`${base}/api/chats/${chatId}/cancel`, { method: 'POST' })
+  assert.equal(stopped.status, 202)
+  for (let i = 0; i < 25; i += 1) {
+    const state = db.select({ state: schema.run.state }).from(schema.run).where(eq(schema.run.chatId, chatId)).all()[0]?.state
+    if (state === 'failed') break
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  assert.equal(db.select({ state: schema.run.state }).from(schema.run).where(eq(schema.run.chatId, chatId)).all()[0]?.state, 'failed')
+})
+
 test('a browser that walks away frees its connection', async () => {
   // The failure this guards against does not look like a bug in the relay: a
   // subscriber that is never dropped keeps one of the six connections HTTP/1.1

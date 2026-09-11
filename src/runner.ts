@@ -132,6 +132,7 @@ export interface RunInput {
   /** The chat this turn belongs to, recorded on the run row. */
   chatId?: string | null
   onSession?: (sessionId: string) => void
+  signal?: AbortSignal
   /**
    * 蜂群 P2：主脑派工时所在的会话（delegation 帧归属）。与 `chatId` 不同——
    * 后者是「run 写入哪个工作会话」，前者是「谁发起的」。
@@ -295,7 +296,14 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
     throw new Error(`could not record run ${runId}: ${(error as Error).message}`)
   }
 
+  let stoppedByUser = false
   const controller = new AbortController()
+  const stopFromCaller = () => {
+    stoppedByUser = true
+    controller.abort()
+  }
+  if (input.signal?.aborted) stopFromCaller()
+  else input.signal?.addEventListener('abort', stopFromCaller, { once: true })
   const timer = setTimeout(() => controller.abort(new Error('run timed out')), timeoutMs)
 
   // Armed when the stream opens and pushed forward by every frame, so it only
@@ -356,8 +364,10 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
 
   /** Why the turn was cancelled, phrased for whoever has to act on it. */
   const cancelledText = (): string =>
-    silenced
-      ? `nothing happened for ${Math.round(silenceMs / 1000)}s, so the turn was cancelled. ` +
+    stoppedByUser
+      ? 'the turn was stopped by the user'
+      : silenced
+        ? `nothing happened for ${Math.round(silenceMs / 1000)}s, so the turn was cancelled. ` +
         'A turn that goes quiet this long is usually waiting on something this side never saw -- ' +
         'an interactive question or a permission prompt that went somewhere else. Ask again, and if it ' +
         "keeps happening set the gateway's questions/approvals to 'gateway' so they arrive here, and " +
@@ -733,14 +743,16 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
         })
 
         // Abort handler: clean up the subscription
-        controller.signal.addEventListener('abort', () => {
+        const abortTurn = () => {
           unsub()
           timedOut = true
           upstream.cancel(sid).catch((cancelError: unknown) => {
             log?.warn(`run ${runId}: cancel failed: ${(cancelError as Error).message}`)
           })
           resolveTurn(finish('failed', cancelledText()))
-        }, { once: true })
+        }
+        if (controller.signal.aborted) abortTurn()
+        else controller.signal.addEventListener('abort', abortTurn, { once: true })
       })
 
       armSilence()
@@ -818,6 +830,7 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
       conflict: conflictRow[0]?.conflict ?? null,
     }
   } finally {
+    input.signal?.removeEventListener('abort', stopFromCaller)
     // Handed back before the lock is dropped, so the next run cannot be refused
     // by `maxSessions` over a session this run has finished with.
     //
