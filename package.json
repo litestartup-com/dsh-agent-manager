@@ -21,7 +21,7 @@
     "release:bundle": "node scripts/make-release.mjs",
     "backfill-cost": "tsx src/cli/backfill-cost.ts",
     "test": "tsx --test \"src/**/*.test.ts\"",
-    "test:coverage": "tsx --test --experimental-test-coverage \"src/**/*.test.ts\"",
+    "test:coverage": "tsx --test --experimental-test-coverage --test-coverage-include=src/** --test-coverage-exclude=**/*.test.ts --test-coverage-lines=80 --test-coverage-branches=70 --test-coverage-functions=75 \"src/**/*.test.ts\"",
     "test:web": "node --test \"public/assets/*.test.mjs\"",
     "lint": "eslint src scripts",
     "smoke": "node scripts/smoke.mjs",
@@ -47,7 +47,7 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.12",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/dockerode": "^4.0.1",
     "@types/node": "^22.10.5",
     "eslint": "^9.39.5",
