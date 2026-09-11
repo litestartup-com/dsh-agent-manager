@@ -22,7 +22,7 @@
  */
 
 import type { HistoryEvent } from '../gateway/client.js'
-import type { TokenUsage, GatewayFrame } from '../gateway/stream.js'
+import { normalizeUsage, type TokenUsage, type GatewayFrame } from '../gateway/stream.js'
 
 // ---- mux frame → HistoryEvent ----
 
@@ -69,25 +69,9 @@ const extractBlocks = (content: unknown): { text: string; reasoning: string } =>
   return { text, reasoning }
 }
 
-const OPTIONAL_USAGE_KEYS = ['cacheReadTokens', 'cacheWriteTokens', 'reasoningTokens'] as const
-
-const normalizeUsageLocal = (usage: unknown): TokenUsage | null => {
-  if (usage === null || typeof usage !== 'object') return null
-  const source = usage as Record<string, unknown>
-  const count = (key: string): number | undefined => {
-    const value = source[key]
-    return typeof value === 'number' && Number.isFinite(value) ? value : undefined
-  }
-  const inputTokens = count('inputTokens')
-  const outputTokens = count('outputTokens')
-  if (inputTokens === undefined && outputTokens === undefined) return null
-  const out: TokenUsage = { inputTokens: inputTokens ?? 0, outputTokens: outputTokens ?? 0 }
-  for (const key of OPTIONAL_USAGE_KEYS) {
-    const value = count(key)
-    if (value !== undefined) out[key] = value
-  }
-  return out
-}
+// 债务 E5:用量归一化不再本地复制(原 normalizeUsage 与 stream.ts 的
+// normalizeUsage 逐字重复,连 OPTIONAL_USAGE_KEYS 都两份)——直接复用 gateway
+// 侧单一实现,两侧行为永远一致。
 
 const chunkJson = (chunk: unknown): Record<string, unknown> | null => {
   if (chunk === null || typeof chunk !== 'object') return null
@@ -96,7 +80,7 @@ const chunkJson = (chunk: unknown): Record<string, unknown> | null => {
     case 'text-delta': return { type: 'text-delta', text: String(c.text) }
     case 'reasoning-delta': return { type: 'reasoning-delta', text: String(c.text) }
     case 'tool-call-delta': return { type: 'tool-call-delta', id: c.id == null ? null : String(c.id), name: c.name == null ? null : String(c.name), argumentsDelta: String(c.argumentsDelta ?? '') }
-    case 'usage': return { type: 'usage', usage: normalizeUsageLocal(c.usage) }
+    case 'usage': return { type: 'usage', usage: normalizeUsage(c.usage) }
     case 'finish': return { type: 'finish', reason: (c.reason as Record<string, unknown>)?.kind ? String((c.reason as Record<string, unknown>).kind) : 'unknown' }
     default: return null
   }
@@ -121,7 +105,7 @@ export const eventPayload = (event: unknown): HistoryEvent | null => {
     }
     case 'assistant/message': {
       const parts = extractBlocks((data?.message as Record<string, unknown>)?.content)
-      return { kind: 'message', seq, text: parts.text, reasoning: parts.reasoning !== '' ? parts.reasoning : null, usage: normalizeUsageLocal(data?.usage) }
+      return { kind: 'message', seq, text: parts.text, reasoning: parts.reasoning !== '' ? parts.reasoning : null, usage: normalizeUsage(data?.usage) }
     }
     case 'tool/call':
       return { kind: 'tool_call', seq, name: data ? String(data.name) : '', arguments: data ? String(data.arguments) : '' }
@@ -238,7 +222,7 @@ export const listSessionsParams = (): Record<string, unknown> => ({})
 export const extractProjectionUsage = (frame: MuxFrame): { sessionId: string; usage: TokenUsage } | null => {
   if (frame.type !== 'session/projection' || frame.sessionId === undefined) return null
   if (frame.key !== 'tokenUsage') return null
-  const usage = normalizeUsageLocal(frame.value)
+  const usage = normalizeUsage(frame.value)
   if (usage === null) return null
   return { sessionId: frame.sessionId, usage }
 }
