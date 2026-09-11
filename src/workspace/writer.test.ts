@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { NOTE_DATA_DIR, readNoteData } from './notedata.js'
-import { WriteRejected, appendMarkdown, applyWrites, resolveInside, writeNoteData } from './writer.js'
+import { WriteRejected, appendMarkdown, applyWrites, resolveInside, writeNoteData, type ApplyOptions } from './writer.js'
 import type { ValidateRules } from './validate.js'
 
 /** 债务 E12:note-kaka 规则(外置后由调用方传入)。 */
@@ -297,4 +297,21 @@ test('a write is atomic: no temp files are left behind', async () => {
 test('applyWrites rejects an empty batch', async () => {
   const root = makeRepo()
   await assert.rejects(() => applyWrites(root, [], opts), WriteRejected)
+})
+
+test('债务 R7: applyWrites 落盘后二次校验必须按传入规则拒绝(不得退化为 DEFAULT_RULES)', async () => {
+  const root = makeRepo()
+  const overflowing =
+    'window.NOTE_DATA = window.NOTE_DATA || {};\nwindow.NOTE_DATA.trade = { history: [' +
+    Array.from({ length: 9 }, (_, i) => `{ d:"08-${String(i + 1).padStart(2, '0')}", pos:${i}, cash:1, note:"n" }`).join(', ') +
+    '] };\n'
+  // 变量形态携带额外 rules 字段(与 ApplyOptions 结构兼容),旧实现会忽略它
+  // 改用 DEFAULT_RULES 回读校验 → 违规数据照样落盘 → 本测试红。
+  const r7opts: ApplyOptions & { rules?: ValidateRules } = { message: 'r7', commit: false, rules: RULES }
+  await assert.rejects(
+    () => applyWrites(root, [{ relPath: `${NOTE_DATA_DIR}/trade.js`, contents: overflowing }], r7opts),
+    (error: unknown) =>
+      error instanceof WriteRejected && error.violations.some((v) => v.rule === 'governance-window'),
+    '带治理规则的写,落盘内容违规必须按规则拒绝',
+  )
 })

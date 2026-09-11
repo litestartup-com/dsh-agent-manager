@@ -92,6 +92,13 @@ export interface ApplyOptions {
   originalRequest?: string
   /** Skip the commit; used by tests and dry runs. */
   commit?: boolean
+  /**
+   * 债务 R7:落盘后二次校验的治理规则(per-agent,来自 manager.config.yaml)。
+   * 缺省 = DEFAULT_RULES(只做通用凭证检查)。writeNoteData 会把写前校验用的
+   * 同一份规则透传到这里——回读校验与写前校验必须同一标准,否则落盘内容
+   * 偏离(并发/序列化差异)时按默认规则放行。
+   */
+  rules?: ValidateRules
 }
 
 export interface ApplyResult {
@@ -205,7 +212,9 @@ export const applyWrites = async (
         corrupt.map((p) => `${p.file}: ${p.reason}`),
       )
     }
-    const violations = validateNoteData(data)
+    // 债务 R7:回读校验与写前校验同一套规则(writeNoteData 透传),不得退化
+    // 为 DEFAULT_RULES——否则带治理规则的 agent 在落盘偏离时会被放行。
+    const violations = validateNoteData(data, { rules: options.rules })
     if (violations.length > 0) {
       rollback()
       throw new WriteRejected(
@@ -314,7 +323,8 @@ export const writeNoteData = async (
 
   if (writes.length === 0) return { files: [], commit: null }
 
-  return applyWrites(workspacePath, writes, options)
+  // 债务 R7:把写前校验的同一份规则透传进 applyWrites(回读校验同标准)。
+  return applyWrites(workspacePath, writes, { ...options, rules })
 }
 
 /** Appends a line to a markdown file, creating it if needed. */
