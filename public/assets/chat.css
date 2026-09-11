@@ -1685,6 +1685,43 @@
   transition: background-color 0.1s;
 }
 
+/* 方案 C（2026-09-11）：发送/停止同一槽位叠放，busy 时只显示其一，位置不跳。 */
+.composer-slot {
+  position: relative;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+}
+
+.composer-slot .composer-send {
+  position: absolute;
+  inset: 0;
+}
+
+/* 排队发送：回合运行中浮现的 ghost 小按钮，与主槽同尺寸（箭头）。 */
+.composer-queue {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--chat-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--chat-send);
+  cursor: pointer;
+  transform: translateY(-2px);
+  transition: border-color 0.1s, background-color 0.1s;
+}
+
+.composer-queue:hover {
+  border-color: var(--dsw-static-deepseek-400);
+  background: var(--dsw-alias-button-info-fill);
+  color: #fff;
+}
+
 .composer-send.btn-primary,
 .composer-send.btn-quiet {
   width: 34px;

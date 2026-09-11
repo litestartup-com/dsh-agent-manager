@@ -50,6 +50,7 @@ const el = {
   input: $('chat-input'),
   send: $('chat-send'),
   stop: $('chat-stop'),
+  queue: $('chat-queue'),
   hint: $('composer-hint'),
   toast: $('chat-toast'),
 }
@@ -1481,10 +1482,13 @@ const renderComposer = () => {
   syncEffort()
   renderContext(composer.context)
   el.send.disabled = locked || el.input.value.trim() === ''
-  // The stop button shows while this chat has a running turn — the POST itself
-  // returns immediately now, so `sending` alone no longer covers the run.
-  el.stop.hidden = !(sending || turnRunning)
-  el.send.hidden = sending
+  // 方案 C（2026-09-11）：发送/停止同槽变身——busy 时槽里只有停止方块，
+  // 空闲时只有发送箭头，主 CTA 位置永不跳动。排队发送是回合运行中输入非空
+  // 才浮现的 ghost 小按钮（P5.4 排队能力保留）。
+  const busy = sending || turnRunning
+  el.send.hidden = busy
+  el.stop.hidden = !busy
+  el.queue.hidden = !(turnRunning && !lost && el.input.value.trim() !== '')
 
   el.input.placeholder = lost
     ? '这个会话已无法继续'
@@ -2022,6 +2026,9 @@ if (el.context !== null && el.contextPopover !== null && el.contextWrap !== null
 el.input.addEventListener('input', () => {
   grow()
   el.send.disabled = el.input.value.trim() === '' || sending
+  // 排队按钮：回合运行中输入非空时浮现（方案 C，2026-09-11）。
+  const turnRunning = state?.turns.some((t) => t.state === 'running') ?? false
+  el.queue.hidden = !(turnRunning && !sending && el.input.value.trim() !== '')
 })
 
 el.input.addEventListener('keydown', (event) => {
@@ -2045,6 +2052,9 @@ const cancel = async () => {
 
 el.stop.addEventListener('click', () => void cancel())
 
+// 排队发送：回合运行中主槽被停止方块占用，这个 ghost 箭头补上「再发一条」。
+el.queue.addEventListener('click', () => void send())
+
 // Queued-turn dock actions: edit (undo into the composer) and delete.
 el.queueDock.addEventListener('click', (event) => {
   const button = event.target.closest('.queue-act')
@@ -2065,7 +2075,9 @@ document.addEventListener('keydown', (event) => {
     el.context?.setAttribute('aria-expanded', 'false')
     return
   }
-  if (event.key === 'Escape' && sending) void cancel()
+  // Esc = 停止生成：与主槽停止方块的可见窗口一致（发送中 + 整个回合运行期）。
+  const turnRunning = state?.turns.some((t) => t.state === 'running') ?? false
+  if (event.key === 'Escape' && (sending || turnRunning)) void cancel()
 })
 
 // ---------------------------------------------------------------------------

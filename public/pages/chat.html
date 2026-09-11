@@ -78,12 +78,17 @@
         <svg width="16" height="16" aria-hidden="true"><use href="#i-more-v" /></svg>
       </button>
       <span id="composer-hint" class="composer-hint"></span>
-      <button id="chat-stop" class="btn-quiet composer-send" type="button" aria-label="停止生成" title="停止生成" hidden>
-        <svg width="16" height="16" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor" /></svg>
-      </button>
-      <button id="chat-send" class="btn-primary composer-send" type="submit" disabled aria-label="发送">
+      <button id="chat-queue" class="composer-queue" type="button" aria-label="排队发送" title="排队发送" hidden>
         <svg width="16" height="16" aria-hidden="true"><use href="#i-up" /></svg>
       </button>
+      <span class="composer-slot">
+        <button id="chat-stop" class="btn-quiet composer-send" type="button" aria-label="停止生成" title="停止生成" hidden>
+          <svg width="16" height="16" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor" /></svg>
+        </button>
+        <button id="chat-send" class="btn-primary composer-send" type="submit" disabled aria-label="发送">
+          <svg width="16" height="16" aria-hidden="true"><use href="#i-up" /></svg>
+        </button>
+      </span>
     </div>
   </div>
 </form>
