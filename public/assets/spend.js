@@ -1,6 +1,6 @@
 // Plain fetch + DOM, matching the rest of the front end: no build step.
 
-import { $, esc, moneyAdaptive, apiFetch, banner, bannerHtml } from './ui.js'
+import { $, esc, moneyAdaptive, apiJson, showError, bannerHtml } from './ui.js'
 
 // 金额显示走 ui.js 的 moneyAdaptive(债务 F2 收口):$0 / <1 分 4 位 / <$1 3 位 / 其余 2 位。
 // 一个回合花费只有几厘,固定 2 位会把一整天的工作显示成 "$0.00"。
@@ -150,17 +150,17 @@ const renderBanners = (data) => {
 
 const load = async (month) => {
   const query = month === null || month === undefined ? '' : `?month=${encodeURIComponent(month)}`
-  const res = await apiFetch(`/api/usage${query}`, { credentials: 'same-origin' })
-  if (res.status === 401) {
+  // 债务 F6:统一 Result 层——错误 banner 走共享 showError,不再手写样板。
+  const r = await apiJson(`/api/usage${query}`, { credentials: 'same-origin' })
+  if (r.status === 401) {
     window.location.href = '/login'
     return
   }
-  if (!res.ok) {
-    // 债务 F6:错误 banner 同样走共享 helper(banner 自动 esc)
-    $('banners').innerHTML = banner('bad', '读取花费失败', `HTTP ${res.status}`)
+  if (!r.ok) {
+    $('banners').innerHTML = showError(r, '读取花费失败')
     return
   }
-  const data = await res.json()
+  const data = r.data
 
   const options = data.months.includes(data.month) ? data.months : [data.month, ...data.months]
   $('month').innerHTML = options

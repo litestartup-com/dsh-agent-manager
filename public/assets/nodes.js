@@ -2,7 +2,7 @@
 //
 // 两个列表：全部节点（托管读监督器状态机，外管读探活）+ 全局最近任务
 // 流。15 秒轮询，与侧栏同一数据源 /api/nodes，不另起真相。
-import { $, ago, esc, setHtml, apiFetch, poll } from './ui.js'
+import { $, ago, esc, setHtml, apiJson, poll } from './ui.js'
 
 const NODE_STATE_DOT = { live: 'ok', cold: 'muted', starting: 'warn', restarting: 'warn', offline: 'bad' }
 const NODE_STATE_LABEL = { live: 'live', cold: '未启动', starting: '启动中', restarting: '重启中', offline: 'offline' }
@@ -80,11 +80,9 @@ const runRow = (r) => {
 // 蜂群 P5.1：节点管控（起/停/重启）+ 日志抽屉。
 const nodeAction = async (id, action) => {
   try {
-    const response = await apiFetch(`/api/nodes/${encodeURIComponent(id)}/${action}`, { method: 'POST' })
-    const body = await response.json().catch(() => ({}))
-    if (!response.ok) {
-      alert(body.detail ?? `操作失败（${response.status}）`)
-    }
+    // 债务 F6:统一 Result 层——失败 alert 读 r.detail,不再手拼 body 与状态码。
+    const r = await apiJson(`/api/nodes/${encodeURIComponent(id)}/${action}`, { method: 'POST' })
+    if (!r.ok) alert(r.detail)
   } catch (error) {
     alert(`操作失败：${error.message}`)
   }
@@ -97,8 +95,8 @@ let logsTimer = null
 const refreshLogs = async () => {
   if (logsNode === null) return
   try {
-    const response = await apiFetch(`/api/nodes/${encodeURIComponent(logsNode)}/logs`)
-    const body = await response.json().catch(() => ({}))
+    const r = await apiJson(`/api/nodes/${encodeURIComponent(logsNode)}/logs`)
+    const body = r.ok ? r.data : {}
     $('node-logs-body').textContent = typeof body.logs === 'string' && body.logs !== '' ? body.logs : '（暂无输出）'
     $('node-logs-body').scrollTop = $('node-logs-body').scrollHeight
   } catch {
@@ -143,10 +141,10 @@ $('node-logs-close').addEventListener('click', closeLogs)
 const removeNode = async (id) => {
   if (!window.confirm(`解除节点「${id}」的托管？\n\n- 进程会停止\n- 配置里会删掉「节点 + 它绑定的工作区」两行\n- 磁盘上的目录全部保留`)) return
   try {
-    const response = await apiFetch(`/api/nodes/${encodeURIComponent(id)}`, { method: 'DELETE' })
-    const body = await response.json().catch(() => ({}))
-    if (!response.ok) {
-      alert(body.detail ?? `删除失败（${response.status}）`)
+    // 债务 F6:统一 Result 层。
+    const r = await apiJson(`/api/nodes/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    if (!r.ok) {
+      alert(r.detail)
       return
     }
     await load()
@@ -213,16 +211,17 @@ $('node-form').addEventListener('submit', async (event) => {
   save.disabled = true
   save.textContent = '创建中（安装依赖，可能需要一两分钟）…'
   try {
-    const response = await apiFetch('/api/nodes', {
+    // 债务 F6:统一 Result 层——创建失败提示读 r.detail。
+    const r = await apiJson('/api/nodes', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(payload),
     })
-    const body = await response.json().catch(() => ({}))
-    if (!response.ok) {
-      $('f-warn').textContent = body.detail ?? `创建失败（${response.status}）`
+    if (!r.ok) {
+      $('f-warn').textContent = r.detail
       return
     }
+    const body = r.data
     $('f-warn').textContent =
       body.workspaceWarning === null || body.workspaceWarning === undefined
         ? ''
@@ -241,9 +240,10 @@ $('node-form').addEventListener('submit', async (event) => {
 
 const load = async () => {
   try {
-    const [nodesResponse, runsResponse] = await Promise.all([apiFetch('/api/nodes'), apiFetch('/api/runs')])
-    if (!nodesResponse.ok) return
-    const { nodes, dockerMode: isDocker } = await nodesResponse.json()
+    // 债务 F6:统一 Result 层。
+    const [nodesResult, runsResult] = await Promise.all([apiJson('/api/nodes'), apiJson('/api/runs')])
+    if (!nodesResult.ok) return
+    const { nodes, dockerMode: isDocker } = nodesResult.data
     dockerMode = isDocker === true
     const live = nodes.filter((n) => n.state === 'live').length
     const abnormal = nodes.filter((n) => n.state !== 'live').length
@@ -255,8 +255,8 @@ const load = async () => {
         : nodes.map(nodeRow).join(''),
     )
 
-    if (runsResponse.ok) {
-      const { runs } = await runsResponse.json()
+    if (runsResult.ok) {
+      const { runs } = runsResult.data
       setHtml('runs-list', runs.length === 0 ? '<p class="muted small">还没有任务记录。</p>' : runs.map(runRow).join(''))
     }
     $('nodes-refresh').textContent = `刷新于 ${new Date().toLocaleTimeString('zh-CN', { hour12: false })} · 15 秒自动`

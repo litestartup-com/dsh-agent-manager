@@ -191,6 +191,62 @@ export const apiFetch = async (url, options = {}) => {
 }
 
 /**
+ * 债务 F6:统一 Result 层。JSON API 页面一律走它,不再手写
+ * "status 判断 + 读 JSON + 拼 banner" 三段样板。
+ *
+ * 成功 → `{ ok:true, status, data }`;
+ * 失败 → `{ ok:false, status, error, detail }`,detail 已是可展示文案
+ * (JSON 错误体优先,非 JSON 或异常回退 `HTTP <status>`)。
+ *
+ * 401 不做跳转——是否跳 /login 是页面的决定(测试页/内嵌页不需要)。
+ *
+ * @template T
+ * @param {string} url
+ * @param {RequestInit} [options]
+ * @returns {Promise<{ ok: true; status: number; data: T } | { ok: false; status: number; error: string; detail: string }>}
+ */
+export const apiJson = async (url, options = {}) => {
+  const response = await apiFetch(url, options)
+  if (response.ok) {
+    const data = await response.json().catch(() => null)
+    return { ok: true, status: response.status, data }
+  }
+  let detail = `HTTP ${response.status}`
+  let error = 'http_error'
+  try {
+    const body = await response.clone().json()
+    if (body !== null && typeof body === 'object') {
+      error = typeof body.error === 'string' ? body.error : error
+      detail = typeof body.detail === 'string' && body.detail !== '' ? body.detail : detail
+    }
+  } catch {
+    // 非 JSON 错误体：保留 HTTP 回退文案
+  }
+  return { ok: false, status: response.status, error, detail }
+}
+
+/**
+ * 债务 F6:共享失败 banner。`showError(r, title)` 把 Result 渲染成
+ * banner 骨架(bannerHtml 同款,detal 自动转义)——页面只需
+ * `if (!r.ok) { $('x').innerHTML = showError(r, '…'); return }`,不再手写样板。
+ * ok Result 返回空串(调用方可用 `if (r.ok)` 短路,双保险)。
+ *
+ * @param {{ ok: boolean; status: number; error?: string; detail?: string }} r
+ * @param {string} title
+ * @returns {string}
+ */
+export const showError = (r, title) => {
+  if (r.ok) return ''
+  const detail =
+    r.detail !== undefined && r.detail !== ''
+      ? r.detail
+      : r.error !== undefined && r.error !== '' && r.error !== 'http_error'
+        ? r.error
+        : `HTTP ${r.status}`
+  return banner('bad', title, detail)
+}
+
+/**
  * 债务 F3：SSE 自动重连 helper——board.js 与 chat.js 两份逐字相同的
  * retryTimer/retryDelay 机制收敛到此（3s → ×2 → 30s 封顶）。
  *

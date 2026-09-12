@@ -1,4 +1,4 @@
-import { $, bannerHtml, esc, money, apiFetch } from './ui.js'
+import { $, bannerHtml, esc, money, apiJson, showError } from './ui.js'
 
 /** Shorter than ui.js's when(): these are schedule times, always this year. */
 const when = (ms) => {
@@ -121,17 +121,18 @@ const render = () => {
 // --- loading -----------------------------------------------------------------
 
 const load = async () => {
-  const [cronRes, statusRes] = await Promise.all([apiFetch('/api/crons'), apiFetch('/api/status')])
-  if (!cronRes.ok) {
-    $('banners').innerHTML = bannerHtml({ level: 'bad', title: '读取失败', body: `HTTP ${cronRes.status}` })
+  // 债务 F6:统一 Result 层。
+  const [cronResult, statusResult] = await Promise.all([apiJson('/api/crons'), apiJson('/api/status')])
+  if (!cronResult.ok) {
+    $('banners').innerHTML = showError(cronResult, '读取失败')
     return
   }
-  const data = await cronRes.json()
+  const data = cronResult.data
   crons = data.crons
   maxFailures = data.maxConsecutiveFailures
 
-  if (statusRes.ok) {
-    const status = await statusRes.json()
+  if (statusResult.ok) {
+    const status = statusResult.data
     agents = status.agents ?? []
   }
   const sel = $('f-agent')
@@ -210,25 +211,21 @@ $('cron-form').addEventListener('submit', async (event) => {
   }
   $('f-save').disabled = true
   try {
-    const response =
+    // 债务 F6:统一 Result 层——保存失败 banner 走共享 showError。
+    const r =
       id === ''
-        ? await apiFetch('/api/crons', {
+        ? await apiJson('/api/crons', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ agentId: $('f-agent').value, ...body }),
           })
-        : await apiFetch(`/api/crons/${encodeURIComponent(id)}`, {
+        : await apiJson(`/api/crons/${encodeURIComponent(id)}`, {
             method: 'PATCH',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify(body),
           })
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}))
-      $('f-warn').innerHTML = bannerHtml({
-        level: 'bad',
-        title: '没保存成功',
-        body: esc(String(err.detail ?? err.error ?? response.status)),
-      })
+    if (!r.ok) {
+      $('f-warn').innerHTML = showError(r, '没保存成功')
       return
     }
     closeEditor()
@@ -254,7 +251,7 @@ $('list').addEventListener('click', async (event) => {
   }
 
   if (act === 'toggle') {
-    await apiFetch(`/api/crons/${encodeURIComponent(id)}`, {
+    await apiJson(`/api/crons/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ enabled: !cron.enabled }),
@@ -266,7 +263,7 @@ $('list').addEventListener('click', async (event) => {
   if (act === 'delete') {
     // The prompt is the thing worth losing, so it is named in the question.
     if (!window.confirm(`删除「${cron.name}」？运行记录和花费会保留，只是不再自动运行。`)) return
-    await apiFetch(`/api/crons/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    await apiJson(`/api/crons/${encodeURIComponent(id)}`, { method: 'DELETE' })
     await load()
     return
   }
@@ -276,17 +273,17 @@ $('list').addEventListener('click', async (event) => {
     button.disabled = true
     box.innerHTML = '<span class="muted small">正在跑，可能要几分钟…</span>'
     try {
-      const response = await apiFetch(`/api/crons/${encodeURIComponent(id)}/run`, { method: 'POST' })
-      const result = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        box.innerHTML = bannerHtml({ level: 'bad', title: '没跑起来', body: esc(String(result.error ?? response.status)) })
-      } else if (result.ran && result.state === 'done') {
+      // 债务 F6:统一 Result 层——失败 banner 走共享 showError。
+      const r = await apiJson(`/api/crons/${encodeURIComponent(id)}/run`, { method: 'POST' })
+      if (!r.ok) {
+        box.innerHTML = showError(r, '没跑起来')
+      } else if (r.data.ran && r.data.state === 'done') {
         box.innerHTML = bannerHtml({ level: 'ok', title: '跑完了', body: '结果在任务记录里' })
       } else {
         box.innerHTML = bannerHtml({
           level: 'bad',
-          title: result.ran ? '跑了但失败了' : '没有运行',
-          body: esc(String(result.message ?? '未知原因')),
+          title: r.data.ran ? '跑了但失败了' : '没有运行',
+          body: esc(String(r.data.message ?? '未知原因')),
         })
       }
     } finally {

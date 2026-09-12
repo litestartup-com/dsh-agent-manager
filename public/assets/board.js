@@ -5,7 +5,7 @@
 // attacker-influenced text. Unescaped, one crafted note becomes stored XSS on
 // manager's own origin -- the origin holding the session cookie.
 
-import { esc, apiFetch, autoReconnect } from './ui.js'
+import { esc, apiJson, autoReconnect } from './ui.js'
 
 /** Tone is a closed set, so it is safe in a class attribute once checked. */
 const TONES = new Set(['good', 'warn', 'bad', 'info', 'muted'])
@@ -314,24 +314,26 @@ const toast = (text, hold) => {
 }
 
 const load = async () => {
-  let response
+  // 债务 F6:统一 Result 层——404(未知 agent)保留定制文案,其余错误走共享 showError。
+  let r
   try {
-    response = await apiFetch(`/api/board/${encodeURIComponent(agentId)}`, { headers: { accept: 'application/json' } })
+    r = await apiJson(`/api/board/${encodeURIComponent(agentId)}`, { headers: { accept: 'application/json' } })
   } catch (error) {
     renderError(`连不上 manager：${error.message}`)
     return
   }
 
-  if (response.status === 401) {
+  if (r.status === 401) {
     window.location.href = '/login'
     return
   }
-  if (!response.ok) {
-    renderError(response.status === 404 ? `没有名为 ${agentId} 的 agent` : `服务端返回 ${response.status}`)
+  if (!r.ok) {
+    // renderError 整体转义输出到 <p>,故传纯文本 detail(统一 Result 的文案)。
+    renderError(r.status === 404 ? `没有名为 ${agentId} 的 agent` : r.detail)
     return
   }
 
-  const payload = await response.json()
+  const payload = r.data
   board = payload.board
   document.title = `${payload.board.title} · ${payload.agent.name}`
   el.title.textContent = payload.board.title

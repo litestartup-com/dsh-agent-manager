@@ -4,7 +4,7 @@
 // indistinguishable from a real one. This page is what makes 「归档」 an honest
 // word: everything hidden from the sidebar is listed here, with the way back.
 
-import { $, ago, banner, bannerHtml, esc, setHtml, when, apiFetch } from './ui.js'
+import { $, ago, banner, bannerHtml, esc, setHtml, when, apiJson, showError } from './ui.js'
 
 const notice = (level, title, body) => {
   $('archive-notice').innerHTML = banner(level, title, body)
@@ -36,12 +36,13 @@ const row = (chat) => {
 
 const load = async () => {
   try {
-    const response = await apiFetch('/api/chats/archived')
-    if (!response.ok) {
-      notice('bad', '读不到归档列表', `服务端返回 ${response.status}`)
+    // 债务 F6:统一 Result 层——notice 也走共享 showError(detail 自动转义)。
+    const r = await apiJson('/api/chats/archived')
+    if (!r.ok) {
+      $('archive-notice').innerHTML = showError(r, '读不到归档列表')
       return
     }
-    const { chats } = await response.json()
+    const { chats } = r.data
     $('archive-count').textContent = chats.length === 0 ? '' : `${chats.length} 条`
     setHtml(
       'archive-list',
@@ -60,11 +61,10 @@ $('archive-list').addEventListener('click', async (event) => {
   const id = button.closest('.arch-row').dataset.id
   button.disabled = true
   try {
-    const response = await apiFetch(`/api/chats/${encodeURIComponent(id)}/restore`, { method: 'POST' })
-    const body = await response.json().catch(() => ({}))
-    if (!response.ok) {
+    const r = await apiJson(`/api/chats/${encodeURIComponent(id)}/restore`, { method: 'POST' })
+    if (!r.ok) {
       button.disabled = false
-      notice('bad', '恢复失败', body.detail ?? `服务端返回 ${response.status}`)
+      $('archive-notice').innerHTML = showError(r, '恢复失败')
       return
     }
     // A link rather than a redirect: the session may come back `cold` or `lost`,

@@ -1,5 +1,5 @@
 // 蜂群2计划 P3：审计流水页（只读）。
-import { $, apiFetch, esc, setHtml, when } from './ui.js'
+import { $, apiJson, esc, setHtml, when } from './ui.js'
 
 const KIND_LABEL = {
   login_success: '登录成功',
@@ -22,10 +22,9 @@ const row = (e) => `<div class="node-row">
 
 const load = async () => {
   try {
-    const response = await apiFetch('/api/audit')
-    if (!response.ok) return
-    const { entries } = await response.json()
-    setHtml('audit-list', entries.length === 0 ? '<p class="muted small">还没有审计记录。</p>' : entries.map(row).join(''))
+    const r = await apiJson('/api/audit')
+    if (!r.ok) return
+    setHtml('audit-list', r.data.entries.length === 0 ? '<p class="muted small">还没有审计记录。</p>' : r.data.entries.map(row).join(''))
     $('audit-refresh').textContent = `刷新于 ${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`
   } catch {
     setHtml('audit-list', '<p class="muted small">读取失败</p>')

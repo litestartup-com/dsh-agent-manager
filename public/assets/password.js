@@ -1,5 +1,5 @@
 // 蜂群2计划 P3：修改密码页（首登强制改密的唯一出口）。
-import { $, apiFetch } from './ui.js'
+import { $, apiJson } from './ui.js'
 
 $('password-form').addEventListener('submit', async (event) => {
   event.preventDefault()
@@ -15,22 +15,22 @@ $('password-form').addEventListener('submit', async (event) => {
   save.disabled = true
   save.textContent = '保存中…'
   try {
-    const response = await apiFetch('/api/account/password', {
+    // 债务 F6:统一 Result 层——错误码映射不变,文案来源换成 r.error/r.detail。
+    const r = await apiJson('/api/account/password', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ currentPassword: $('current').value, newPassword: next }),
     })
-    if (response.ok) {
+    if (r.ok) {
       window.location.href = '/'
       return
     }
-    const body = await response.json().catch(() => ({}))
     error.textContent =
-      body.error === 'invalid_current_password'
+      r.error === 'invalid_current_password'
         ? '当前密码不对'
-        : body.error === 'password_too_short'
+        : r.error === 'password_too_short'
           ? '新密码至少 10 个字符'
-          : `修改失败（${response.status}）`
+          : r.detail
     error.hidden = false
   } catch (err) {
     error.textContent = `无法连接服务器：${err.message}`
