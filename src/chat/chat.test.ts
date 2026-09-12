@@ -4,13 +4,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, test } from 'node:test'
 import { eq } from 'drizzle-orm'
-import type { ResolvedAgent } from '../config.js'
-import { openDb, schema, type Db } from '../db/index.js'
+import { schema, type Db } from '../db/index.js'
 import { GatewayClient } from '../gateway/client.js'
 import { startFakeGateway, type FakeGateway, type FakeScript } from '../gateway/fake.js'
 import type { GatewayFrame } from '../gateway/stream.js'
 import { runAgent } from '../runner.js'
 import { bindSession, chatRuns, createChat, deriveTitle, getChat, listChats, removeChat, setTitleIfEmpty } from './store.js'
+// 债务 C3:makeDb/agentFor 收敛进 test-harness(本地保留别名,行为不变)。
+import { makeDb as makeHarnessDb, personalAgent } from '../test-harness.js'
 
 /**
  * Multi-turn conversations.
@@ -27,37 +28,11 @@ import { bindSession, chatRuns, createChat, deriveTitle, getChat, listChats, rem
 const API_KEY = 'test-key'
 
 const makeDb = (): { db: Db; workspace: string } => {
-  const dir = mkdtempSync(join(tmpdir(), 'chat-db-'))
-  const workspace = mkdtempSync(join(tmpdir(), 'chat-ws-'))
-  const { db } = openDb(join(dir, 'test.db'))
-  db.insert(schema.agent)
-    .values({
-      id: 'personal',
-      name: 'Personal',
-      workspacePath: workspace,
-      endpoint: 'A',
-      preset: null,
-      gitRemote: null,
-      public: 0,
-      createdAt: Date.now(),
-    })
-    .run()
+  const { db, workspace } = makeHarnessDb()
   return { db, workspace }
 }
 
-const agentFor = (workspacePath: string): ResolvedAgent => ({
-  id: 'personal',
-  name: 'Personal',
-  endpoint: 'A',
-  workspacePath,
-  public: false,
-  preset: null,
-  gitRemote: null,
-  provider: null,
-  model: null,
-  sandboxMode: null,
-  validate: null,
-})
+const agentFor = personalAgent
 
 const clientFor = (gw: FakeGateway): GatewayClient =>
   new GatewayClient({ id: 'A', url: gw.url, driver: 'gateway', prefix: gw.prefix, key: API_KEY, sandboxBase: null, sandboxKey: '', spawn: null })

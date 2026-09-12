@@ -14,6 +14,8 @@ import { openDb, schema } from '../db/index.js'
 import type { NodeSupervisor } from '../nodes/supervisor.js'
 import { convergeNodes, convergeRuns, mirrorAgentRow, mirrorAgents, startPeriodicReconcile } from './index.js'
 import { FLEET_FILE } from '../workspace/fleet-doc.js'
+// 债务 C3:临时目录收敛进 test-harness(makeDb 不落 agent 行,openDb 裸开)。
+import { tempDir } from '../test-harness.js'
 
 if (process.env.SESSION_SECRET === undefined) process.env.SESSION_SECRET = 'x'.repeat(32)
 
@@ -34,10 +36,7 @@ const configOf = (agents: Record<string, { name?: string; endpoint?: string; wor
   }
 }
 
-const makeDb = () => {
-  const dir = mkdtempSync(join(tmpdir(), 'reconcile-db-'))
-  return openDb(join(dir, 'test.db')).db
-}
+const makeDb = () => openDb(join(tempDir('reconcile-db'), 'test.db')).db
 
 test('mirrorAgents: insert / update / delete 全部由配置驱动（单一真相源）', () => {
   const db = makeDb()

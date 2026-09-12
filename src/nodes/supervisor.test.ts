@@ -182,6 +182,9 @@ test('a spawn failure (ENOENT) settles to offline after the cap', async () => {
 })
 
 test('a detached node writes to its log file, leaves a pidfile, and cleans it on stop', async () => {
+  // 注:本用例仍真实 spawn 一个短命 node -e——win32 的 killTree 走 taskkill
+  // (非 child.kill),假子进程收不到 exit 无法落 cold;SpawnFn 注入已就绪,
+  // 等 killTree 可注入后再切换。
   const dir = mkdtempSync(join(tmpdir(), 'node-sup-'))
   const logFile = join(dir, 'node.log')
   const node = new NodeSupervisor('D', { probe: okProbe })

@@ -10,10 +10,12 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { eq } from 'drizzle-orm'
 import type { ResolvedAgent } from '../config.js'
-import { openDb, schema, type Db } from '../db/index.js'
+import { schema, type Db } from '../db/index.js'
 import { GatewayClient } from '../gateway/client.js'
 import { runAgent } from '../runner.js'
 import { FakeSessionDriver, type FakeScript } from './fake.js'
+// 债务 C3:makeDb/agentFor 收敛进 test-harness(本地保留别名,行为不变)。
+import { makeDb as makeHarnessDb, personalAgent } from '../test-harness.js'
 
 const SUCCESS: FakeScript = {
   frames: [
@@ -25,18 +27,11 @@ const SUCCESS: FakeScript = {
   model: 'deepseek-v4-flash',
 }
 
-const makeDb = (): Db => {
-  const dir = mkdtempSync(join(tmpdir(), 'apiproxy-runner-db-'))
-  const { db } = openDb(join(dir, 'test.db'))
-  db.insert(schema.agent)
-    .values({ id: 'personal', name: 'Personal', workspacePath: dir, endpoint: 'A', preset: null, gitRemote: null, public: 0, createdAt: Date.now() })
-    .run()
-  return db
-}
+const makeDb = (): Db => makeHarnessDb().db
 
 const agentFor = (workspacePath: string, sandboxMode: 'read-only' | 'workspace-write' | null = null): ResolvedAgent => ({
-  id: 'personal', name: 'Personal', endpoint: 'A', workspacePath, public: false,
-  preset: 'standard', gitRemote: null, provider: null, model: null, sandboxMode, validate: null,
+  ...personalAgent(workspacePath),
+  sandboxMode,
 })
 
 /** 端口不涉及 GatewayClient，但 RunInput 要求一个（gateway 分支才用得到）。 */

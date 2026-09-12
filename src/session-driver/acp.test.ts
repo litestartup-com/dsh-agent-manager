@@ -10,11 +10,12 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { eq } from 'drizzle-orm'
 import { agent, type AgentApp, type RequestPermissionRequest, type RequestPermissionResponse, type SessionUpdate, type StopReason, type PermissionOptionKind } from '@agentclientprotocol/sdk'
-import type { ResolvedAgent } from '../config.js'
-import { openDb, schema, type Db } from '../db/index.js'
+import { schema, type Db } from '../db/index.js'
 import { GatewayClient } from '../gateway/client.js'
 import { runAgent } from '../runner.js'
 import { AcpSessionDriver } from './acp.js'
+// 债务 C3:makeDb/agentFor 收敛进 test-harness(本地保留别名,行为不变)。
+import { makeDb as makeHarnessDb, personalAgent } from '../test-harness.js'
 
 interface FakeAcpOptions {
   chunks?: string[]
@@ -62,20 +63,9 @@ const driverFor = (opts: FakeAcpOptions): { driver: AcpSessionDriver; decisions:
   return { driver, decisions }
 }
 
-const makeDb = (): Db => {
-  const dir = mkdtempSync(join(tmpdir(), 'acp-runner-db-'))
-  const { db } = openDb(join(dir, 'test.db'))
-  db.insert(schema.agent)
-    .values({ id: 'personal', name: 'Personal', workspacePath: dir, endpoint: 'A', preset: null, gitRemote: null, public: 0, createdAt: Date.now() })
-    .run()
-  return db
-}
+const makeDb = (): Db => makeHarnessDb().db
 
-const agentFor = (workspacePath: string): ResolvedAgent => ({
-  id: 'personal', name: 'Personal', endpoint: 'A', workspacePath, public: false,
-  preset: null, gitRemote: null, provider: null, model: null, sandboxMode: null,
-  validate: null,
-})
+const agentFor = personalAgent
 
 const dummyClient = (): GatewayClient =>
   new GatewayClient({ id: 'A', url: 'http://127.0.0.1:1', driver: 'apiproxy', prefix: '/api', key: '', sandboxBase: null, sandboxKey: '', spawn: null })

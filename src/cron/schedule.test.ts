@@ -1,29 +1,16 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { test } from 'node:test'
 import { eq } from 'drizzle-orm'
 import type { AppConfig, ResolvedAgent } from '../config.js'
-import { openDb, schema, type Db } from '../db/index.js'
+import { schema, type Db } from '../db/index.js'
 import type { GatewayClient } from '../gateway/client.js'
 import { DEFAULT_PRICING } from '../pricing.js'
 import { type RunOutcome } from '../runner.js'
 import { Scheduler, missedBetween, scheduleProblem, type CronDeps } from './schedule.js'
+// 债务 C3:makeDb/agentFor 收敛进 test-harness(本地保留别名,行为不变)。
+import { makeDb as makeHarnessDb, personalAgent } from '../test-harness.js'
 
-const AGENT: ResolvedAgent = {
-  id: 'personal',
-  name: 'Personal',
-  endpoint: 'A',
-  workspacePath: '/tmp/ws',
-  public: false,
-  preset: null,
-  gitRemote: null,
-  provider: null,
-  model: null,
-  sandboxMode: null,
-  validate: null,
-}
+const AGENT: ResolvedAgent = { ...personalAgent('/tmp/ws') }
 
 const configWith = (over: Partial<AppConfig['runner']> = {}): AppConfig => ({
   listen: { host: '127.0.0.1', port: 0 },
@@ -37,23 +24,7 @@ const configWith = (over: Partial<AppConfig['runner']> = {}): AppConfig => ({
   warnings: [],
 })
 
-const makeDb = (): Db => {
-  const dir = mkdtempSync(join(tmpdir(), 'cron-db-'))
-  const { db } = openDb(join(dir, 'test.db'))
-  db.insert(schema.agent)
-    .values({
-      id: 'personal',
-      name: 'Personal',
-      workspacePath: dir,
-      endpoint: 'A',
-      preset: null,
-      gitRemote: null,
-      public: 0,
-      createdAt: Date.now(),
-    })
-    .run()
-  return db
-}
+const makeDb = (): Db => makeHarnessDb().db
 
 interface SeedCron {
   id?: string

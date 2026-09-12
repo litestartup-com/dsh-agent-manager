@@ -46,6 +46,9 @@ export interface NodeStatus {
   stateSince: number
 }
 
+/** spawn 的可注入面:缺省 = node:child_process 的 spawn。 */
+export type SpawnFn = typeof spawn
+
 export interface SupervisorDeps {
   /** Endpoint health probe; must resolve quickly and never throw. */
   probe: (id: string) => Promise<NodeProbeResult>
@@ -54,6 +57,8 @@ export interface SupervisorDeps {
   docker?: DockerRunner
   /** docker 容器的附加环境（GW_KEY / DEEPSEEK_API_KEY 等，由 wiring 层按 endpoint 提供）。 */
   dockerEnv?: () => Record<string, string>
+  /** 债务 C3:spawn 注入(测试传假 ChildProcess,不真起进程);缺省 = 真实 spawn。 */
+  spawn?: SpawnFn
 }
 
 /** Exponential backoff, capped: attempt 1 → base, 2 → 2×base, … never above max. */
@@ -259,7 +264,8 @@ export class NodeSupervisor {
     } else {
       stdio = ['ignore', 'pipe', 'pipe']
     }
-    const child = spawn(spec.command, spec.args, {
+    const spawnNow = this.deps.spawn ?? spawn
+    const child = spawnNow(spec.command, spec.args, {
       cwd: spec.cwd ?? undefined,
       env: { ...process.env, ...spec.env },
       stdio,

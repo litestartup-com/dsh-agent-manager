@@ -1,4 +1,4 @@
-import { after, describe, it } from 'node:test'
+import { after, describe, it, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { parseMuxFrame, muxUrl, subscribe, nextReconnectDelay, closeAllMux, _setSocketFactory, type MuxListener } from './mux.js'
 import type { UpstreamEndpoint } from './rpc.js'
@@ -84,6 +84,8 @@ after(() => {
 
 describe('债务 A4: 连接级行为(注入假 socket)', () => {
   it('重连成功后向所有活跃订阅者广播 stream_reconnected(首连不发)', async () => {
+    // 债务 C3:mock 时钟驱动重连退避,消掉 4.1s 真实等待。
+    mock.timers.enable({ apis: ['setTimeout'] })
     captured.length = 0
     _setSocketFactory(() => {
       const ws = new FakeWs()
@@ -96,21 +98,28 @@ describe('债务 A4: 连接级行为(注入假 socket)', () => {
       seen.push(frame.kind)
     }
     const unsub = subscribe(EP, 's1', listener)
-    assert.equal(captured.length, 1)
-    captured[0]!.onopen?.() // 首连
-    assert.deepEqual(seen, [], '首连不广播 stream_reconnected')
+    try {
+      assert.equal(captured.length, 1)
+      captured[0]!.onopen?.() // 首连
+      assert.deepEqual(seen, [], '首连不广播 stream_reconnected')
 
-    captured[0]!.close() // 断线 → 退避后重连
-    // 首退避 = 3s ±25% 抖动,上浮可达 3750ms——等待必须留有全部余量
-    await new Promise((resolve) => setTimeout(resolve, 4_100))
-    assert.equal(captured.length, 2, '断线后必须自动重连')
-    captured[1]!.onopen?.() // 重连成功
-    assert.deepEqual(seen, ['stream_reconnected'], '重连成功必须广播 stream_reconnected')
-
-    unsub()
+      captured[0]!.close() // 断线 → 退避后重连
+      // 先放行 onclose 微任务(它才排上重连定时器),再推时钟
+      await Promise.resolve()
+      // 首退避 = 3s ±25% 抖动,上浮可达 3750ms——推进 4s 覆盖全部余量
+      // (@types/node 把 tick 标成 void,实际返回 Promise——包一层消除误报)
+      await Promise.resolve(mock.timers.tick(4_000))
+      assert.equal(captured.length, 2, '断线后必须自动重连')
+      captured[1]!.onopen?.() // 重连成功
+      assert.deepEqual(seen, ['stream_reconnected'], '重连成功必须广播 stream_reconnected')
+    } finally {
+      unsub()
+      mock.timers.reset()
+    }
   })
 
   it('债务 R5:首连失败(从未 onopen)不算「曾连接」——重试首次成功不得广播 stream_reconnected', async () => {
+    mock.timers.enable({ apis: ['setTimeout'] })
     captured.length = 0
     _setSocketFactory(() => {
       const ws = new FakeWs()
@@ -125,16 +134,19 @@ describe('债务 A4: 连接级行为(注入假 socket)', () => {
     try {
       assert.equal(captured.length, 1)
       captured[0]!.close() // 首连从未 onopen 就断线(连接失败/被拒)
-      await new Promise((resolve) => setTimeout(resolve, 4_100)) // 等退避后的自动重连
+      await Promise.resolve() // 放行 onclose 微任务,排上重连定时器
+      await Promise.resolve(mock.timers.tick(4_000)) // 退避后的自动重连
       assert.equal(captured.length, 2, '断线后必须自动重连')
       captured[1]!.onopen?.() // 重试的首次成功连接
       assert.deepEqual(seen, [], '首连失败→重试首次成功,不得广播 stream_reconnected(会误杀 run)')
     } finally {
       unsub()
+      mock.timers.reset()
     }
   })
 
   it('债务 R5:首连成功后断线,重连成功仍必须广播 stream_reconnected', async () => {
+    mock.timers.enable({ apis: ['setTimeout'] })
     captured.length = 0
     _setSocketFactory(() => {
       const ws = new FakeWs()
@@ -150,12 +162,14 @@ describe('债务 A4: 连接级行为(注入假 socket)', () => {
       assert.equal(captured.length, 1)
       captured[0]!.onopen?.() // 首连成功
       captured[0]!.close() // 断线
-      await new Promise((resolve) => setTimeout(resolve, 4_100))
+      await Promise.resolve() // 放行 onclose 微任务,排上重连定时器
+      await Promise.resolve(mock.timers.tick(4_000))
       assert.equal(captured.length, 2)
       captured[1]!.onopen?.()
       assert.deepEqual(seen, ['stream_reconnected'], '曾连接过→重连成功必须广播')
     } finally {
       unsub()
+      mock.timers.reset()
     }
   })
 
