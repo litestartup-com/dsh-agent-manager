@@ -7,20 +7,11 @@ import { join } from 'node:path'
 import type { AppConfig, ResolvedAgent } from '../config.js'
 import { DEFAULT_PRICING } from '../pricing.js'
 import { registerSkillsRoutes } from './skills.js'
+// 债务 C3:带参 agent 构造收敛进 test-harness。
+import { agentWith } from '../test-harness.js'
 
-const agentFor = (id: string, name: string, workspacePath: string): ResolvedAgent => ({
-  id,
-  name,
-  endpoint: 'X',
-  workspacePath,
-  public: false,
-  preset: null,
-  sandboxMode: null,
-  gitRemote: null,
-  provider: null,
-  model: null,
-  validate: null,
-})
+const agentFor = (id: string, name: string, workspacePath: string): ResolvedAgent =>
+  agentWith({ id, name, workspacePath, endpoint: 'X' })
 
 const configFor = (brainWs: string, personalWs: string): AppConfig => ({
   listen: { host: '127.0.0.1', port: 0 },

@@ -9,20 +9,11 @@ import { BOARD_DIR } from '../board/store.js'
 import { DEFAULT_PRICING } from '../pricing.js'
 import { initWorkspace } from '../workspace/init.js'
 import { closeBoardWatchers, registerBoardRoutes } from './board.js'
+// 债务 C3:agent 构造收敛进 test-harness。
+import { agentWith } from '../test-harness.js'
 
-const agentFor = (workspacePath: string): ResolvedAgent => ({
-  id: 'personal',
-  name: '个人',
-  endpoint: 'A',
-  workspacePath,
-  public: false,
-  preset: 'personal',
-  gitRemote: null,
-  provider: null,
-  model: null,
-  sandboxMode: null,
-  validate: null,
-})
+const agentFor = (workspacePath: string): ResolvedAgent =>
+  agentWith({ id: 'personal', name: '个人', workspacePath, preset: 'personal' })
 
 const configFor = (agent: ResolvedAgent): AppConfig => ({
   listen: { host: '127.0.0.1', port: 0 },

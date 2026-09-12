@@ -59,6 +59,11 @@ export interface SupervisorDeps {
   dockerEnv?: () => Record<string, string>
   /** 债务 C3:spawn 注入(测试传假 ChildProcess,不真起进程);缺省 = 真实 spawn。 */
   spawn?: SpawnFn
+  /**
+   * 债务 C3:killTree 注入——win32 真实现走 taskkill,假子进程收不到 exit;
+   * 测试注入此函数直接 emit exit 走 onExit 落 cold。缺省 = 平台原生 killTree。
+   */
+  killTree?: (child: ChildProcess) => void
 }
 
 /** Exponential backoff, capped: attempt 1 → base, 2 → 2×base, … never above max. */
@@ -458,6 +463,10 @@ export class NodeSupervisor {
   private killTree(): void {
     const child = this.child
     if (child === null || child.pid === undefined) return
+    if (this.deps.killTree !== undefined) {
+      this.deps.killTree(child)
+      return
+    }
     if (process.platform === 'win32') {
       // taskkill /T /F is the reliable way to take a console-app tree down on
       // Windows; child.kill() only signals the outer shell. spawnSync so the

@@ -1,16 +1,14 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import Fastify from 'fastify'
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { openDb, type Db } from '../db/index.js'
+import type { Db } from '../db/index.js'
 import { notify } from '../notify.js'
 import { registerNotificationRoutes } from './notifications.js'
+// 债务 C3:裸测试库收敛进 test-harness(不落 agent 行,notifications 不查 agent)。
+import { makeDbWithAgents } from '../test-harness.js'
 
 const boot = (): { app: ReturnType<typeof Fastify>; db: Db } => {
-  const dir = mkdtempSync(join(tmpdir(), 'notifications-'))
-  const { db } = openDb(join(dir, 'test.db'))
+  const db = makeDbWithAgents([])
   const app = Fastify()
   registerNotificationRoutes(app, db, async () => {})
   return { app, db }

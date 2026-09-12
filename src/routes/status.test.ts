@@ -1,16 +1,15 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { test } from 'node:test'
 import Fastify, { type FastifyInstance } from 'fastify'
 import type { AppConfig, ResolvedAgent } from '../config.js'
-import { openDb, schema, type Db } from '../db/index.js'
+import type { Db } from '../db/index.js'
 import { GatewayClient } from '../gateway/client.js'
 import { UpstreamClient } from '../upstream/client.js'
 import { FakeSessionDriver } from '../session-driver/fake.js'
 import { DEFAULT_PRICING } from '../pricing.js'
 import { _clearProbeCache, registerStatusRoutes } from './status.js'
+// 债务 C3:带参 agent 构造 + 双 agent 测试库 + 临时目录收敛进 test-harness。
+import { agentWith, makeDbWithAgents, tempDir } from '../test-harness.js'
 
 /**
  * The agent detail aggregate.
@@ -20,39 +19,17 @@ import { _clearProbeCache, registerStatusRoutes } from './status.js'
  * broken DSH process), so it is the one the panel has to explain.
  */
 
-const agentFor = (id: string, name: string, workspacePath: string, isPublic = false): ResolvedAgent => ({
-  id,
-  name,
-  endpoint: 'A',
-  workspacePath,
-  public: isPublic,
-  preset: null,
-  gitRemote: null,
-  provider: null,
-  model: null,
-  sandboxMode: null,
-  validate: null,
-})
+const agentFor = (id: string, name: string, workspacePath: string, isPublic = false): ResolvedAgent =>
+  agentWith({ id, name, workspacePath, public: isPublic })
 
 const boot = (): { app: FastifyInstance; db: Db } => {
   _clearProbeCache() // 债务 B4:探测缓存跨测试残留会污染同 id 的不同形态断言
-  const dir = mkdtempSync(join(tmpdir(), 'route-status-'))
-  const workspace = mkdtempSync(join(tmpdir(), 'route-status-ws-'))
-  const { db } = openDb(join(dir, 'test.db'))
-  for (const id of ['personal', 'company']) {
-    db.insert(schema.agent)
-      .values({
-        id,
-        name: id,
-        workspacePath: workspace,
-        endpoint: 'A',
-        preset: null,
-        gitRemote: null,
-        public: 0,
-        createdAt: Date.now(),
-      })
-      .run()
-  }
+  // 债务 C3:双 agent 测试库收敛进 test-harness。
+  const workspace = tempDir('route-status-ws')
+  const db = makeDbWithAgents([
+    { id: 'personal', workspacePath: workspace },
+    { id: 'company', workspacePath: workspace },
+  ])
 
   const config: AppConfig = {
     listen: { host: '127.0.0.1', port: 0 },
@@ -108,9 +85,8 @@ test('an agent that is not configured is a 404, not an empty panel', async () =>
 
 test('an apiproxy endpoint gets a row probed via host.describe, not /health', async () => {
   _clearProbeCache()
-  const dir = mkdtempSync(join(tmpdir(), 'route-status-apx-'))
-  const workspace = mkdtempSync(join(tmpdir(), 'route-status-apx-ws-'))
-  const { db } = openDb(join(dir, 'test.db'))
+  const workspace = tempDir('route-status-apx-ws')
+  const db = makeDbWithAgents([{ id: 'personal', workspacePath: workspace }])
   const config: AppConfig = {
     listen: { host: '127.0.0.1', port: 0 },
     // Port 1 never listens: host.describe fails, and the row must still exist.
@@ -146,9 +122,8 @@ test('an apiproxy endpoint gets a row probed via host.describe, not /health', as
 
 test('债务 B4 回归: TTL 内重复轮询复用缓存探测,不每请求扇出', async () => {
   _clearProbeCache()
-  const dir = mkdtempSync(join(tmpdir(), 'route-status-cache-'))
-  const workspace = mkdtempSync(join(tmpdir(), 'route-status-cache-ws-'))
-  const { db } = openDb(join(dir, 'test.db'))
+  const workspace = tempDir('route-status-cache-ws')
+  const db = makeDbWithAgents([{ id: 'personal', workspacePath: workspace }])
   const config: AppConfig = {
     listen: { host: '127.0.0.1', port: 0 },
     endpoints: { A: { id: 'A', url: 'http://127.0.0.1:1', driver: 'apiproxy', prefix: '/api', key: '', sandboxBase: null, sandboxKey: '', spawn: null } },

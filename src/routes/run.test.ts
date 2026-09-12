@@ -1,13 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import Fastify from 'fastify'
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { openDb, schema, type Db } from '../db/index.js'
+import { schema, type Db } from '../db/index.js'
 import type { AppConfig, ResolvedAgent, ResolvedEndpoint } from '../config.js'
 import { DEFAULT_PRICING } from '../pricing.js'
 import { registerRunRoutes } from './run.js'
+// 债务 C3:agent 构造 + 多 agent 测试库收敛进 test-harness。
+import { agentWith, makeDbWithAgents } from '../test-harness.js'
 
 // 蜂群 Q4：/nodes 页的任务流数据源——全局最近任务，含主脑派工标记。
 const endpoint: ResolvedEndpoint = {
@@ -21,19 +20,7 @@ const endpoint: ResolvedEndpoint = {
   spawn: null,
 }
 
-const agent: ResolvedAgent = {
-  id: 'personal',
-  name: '个人',
-  endpoint: 'A',
-  workspacePath: '.',
-  public: false,
-  preset: null,
-  sandboxMode: null,
-  gitRemote: null,
-  provider: null,
-  model: null,
-  validate: null,
-}
+const agent: ResolvedAgent = agentWith({ id: 'personal', name: '个人', workspacePath: '.' })
 
 const config: AppConfig = {
   listen: { host: '127.0.0.1', port: 0 },
@@ -48,17 +35,13 @@ const config: AppConfig = {
 }
 
 const boot = (): { app: ReturnType<typeof Fastify>; db: Db } => {
-  const dir = mkdtempSync(join(tmpdir(), 'runs-global-'))
-  const { db } = openDb(join(dir, 'test.db'))
+  // run.agent_id and chat.agent_id both reference agent(id).
+  const db = makeDbWithAgents([
+    { id: 'personal', name: '个人', workspacePath: '.' },
+    { id: 'brain', name: '主脑', workspacePath: '.' },
+  ])
   const app = Fastify()
   registerRunRoutes(app, config, db, new Map(), async () => {}, new Map())
-  // run.agent_id and chat.agent_id both reference agent(id).
-  db.insert(schema.agent)
-    .values([
-      { id: 'personal', name: '个人', workspacePath: '.', endpoint: 'A', preset: null, gitRemote: null, public: 0, createdAt: 1 },
-      { id: 'brain', name: '主脑', workspacePath: '.', endpoint: 'A', preset: null, gitRemote: null, public: 0, createdAt: 1 },
-    ])
-    .run()
   return { app, db }
 }
 
@@ -127,8 +110,7 @@ test('GET /api/runs caps the limit and needs auth', async () => {
 })
 
 test('unauthenticated GET /api/runs is rejected by the requireUser hook', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'runs-global-auth-'))
-  const { db } = openDb(join(dir, 'test.db'))
+  const db = makeDbWithAgents([])
   const app = Fastify()
   registerRunRoutes(
     app,

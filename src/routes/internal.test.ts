@@ -1,17 +1,16 @@
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import Fastify from 'fastify'
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { and, eq } from 'drizzle-orm'
-import { openDb, schema, type Db } from '../db/index.js'
+import { schema, type Db } from '../db/index.js'
 import type { AppConfig, ResolvedAgent, ResolvedEndpoint } from '../config.js'
 import { DEFAULT_PRICING } from '../pricing.js'
 import { GatewayClient } from '../gateway/client.js'
 import { startFakeGateway, type FakeGateway, type FakeScript } from '../gateway/fake.js'
 import { registerInternalRoutes } from './internal.js'
 import type { Scheduler } from '../cron/schedule.js'
+// 债务 C3:agent 构造/临时目录/测试库收敛进 test-harness。
+import { agentWith, makeDbWithAgents, tempDir } from '../test-harness.js'
 
 const API_KEY = 'test-key'
 const BRAIN_TOKEN = 'brain-token-42'
@@ -31,19 +30,8 @@ const endpoint = (gw: FakeGateway): ResolvedEndpoint => ({
   spawn: null,
 })
 
-const agentFor = (workspacePath: string): ResolvedAgent => ({
-  id: 'personal',
-  name: '个人',
-  endpoint: 'A',
-  workspacePath,
-  public: false,
-  preset: null,
-  sandboxMode: null,
-  gitRemote: null,
-  provider: null,
-  model: null,
-  validate: null,
-})
+const agentFor = (workspacePath: string): ResolvedAgent =>
+  agentWith({ id: 'personal', name: '个人', workspacePath })
 
 const SUCCESS: FakeScript = {
   frames: [
@@ -64,21 +52,9 @@ const gateways: FakeGateway[] = []
 const boot = async (script: FakeScript): Promise<Harness> => {
   const gw = await startFakeGateway(script, API_KEY)
   gateways.push(gw)
-  const dir = mkdtempSync(join(tmpdir(), 'internal-'))
-  const workspace = mkdtempSync(join(tmpdir(), 'internal-ws-'))
-  const { db } = openDb(join(dir, 'test.db'))
-  db.insert(schema.agent)
-    .values({
-      id: 'personal',
-      name: '个人',
-      workspacePath: workspace,
-      endpoint: 'A',
-      preset: null,
-      gitRemote: null,
-      public: 0,
-      createdAt: Date.now(),
-    })
-    .run()
+  // 债务 C3:测试库 + 临时目录收敛进 test-harness。
+  const workspace = tempDir('internal-ws')
+  const db = makeDbWithAgents([{ id: 'personal', name: '个人', workspacePath: workspace }])
   const agent = agentFor(workspace)
   const ep = endpoint(gw)
   const config: AppConfig = {

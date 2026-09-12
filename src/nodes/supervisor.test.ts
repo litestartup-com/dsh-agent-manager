@@ -1,9 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs'
+import { EventEmitter } from 'node:events'
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { NodeSupervisor, backoffDelayMs, decideAfterExit, LIVE_PROBE_THRESHOLD } from './supervisor.js'
+import { NodeSupervisor, backoffDelayMs, decideAfterExit, LIVE_PROBE_THRESHOLD, type SpawnFn } from './supervisor.js'
 import type { DockerRunner } from './docker-runner.js'
 import type { ResolvedSpawnSpec } from '../config.js'
 
@@ -68,9 +69,36 @@ const waitFor = async (fn: () => boolean, timeoutMs: number, what: string): Prom
 
 const keepAliveScript = 'console.log("hello-node"); setInterval(() => {}, 1000)'
 
+/**
+ * 债务 C3:假子进程——EventEmitter + 假 stdout/stderr 流;kill 或注入的
+ * killTree 手动 emit exit。与假 spawn/killTree 搭配,supervisor 测试全程
+ * 不起真进程(win32 taskkill 对假 pid 无效,必须经 killTree 注入落 exit)。
+ */
+const fakeChild = () =>
+  Object.assign(new EventEmitter(), {
+    pid: 9999,
+    unref: () => {},
+    stdout: new EventEmitter(),
+    stderr: new EventEmitter(),
+    kill: () => true,
+  }) as unknown as import('node:child_process').ChildProcess
+
+/** 假 spawn:每次调用返回同一个假子进程(重启循环复用,可重复 emit exit)。 */
+const fakeSpawnFor = (child: import('node:child_process').ChildProcess): SpawnFn => (() => child) as SpawnFn
+
+/** 假 killTree:直接 emit exit 走 onExit(与 win32 taskkill 真路径同落点)。 */
+const fakeKillTree = (child: import('node:child_process').ChildProcess): void => {
+  child.emit('exit', 0, null)
+}
+
 test('修路 A3: probeLive——live 态连续失败转 offline（进程仍在 = 僵节点场景），成功归零', async () => {
   let probeOk = true
-  const node = new NodeSupervisor('E', { probe: async () => ({ ok: probeOk, detail: 'down' }) })
+  const child = fakeChild()
+  const node = new NodeSupervisor('E', {
+    probe: async () => ({ ok: probeOk, detail: 'down' }),
+    spawn: fakeSpawnFor(child),
+    killTree: fakeKillTree,
+  })
   node.start(spec())
   await waitFor(() => node.current.state === 'live', 5_000, 'node live')
   assert.equal(node.current.state, 'live')
@@ -84,14 +112,21 @@ test('修路 A3: probeLive——live 态连续失败转 offline（进程仍在 =
   assert.equal(node.current.state, 'offline', `${LIVE_PROBE_THRESHOLD} 次连续失败转 offline`)
   assert.match(node.current.lastError ?? '', new RegExp(`${LIVE_PROBE_THRESHOLD}/${LIVE_PROBE_THRESHOLD}`))
   node.stop()
+  await waitFor(() => node.current.state === 'cold', 5_000, 'cold')
 
   // 成功一次即归零
-  const node2 = new NodeSupervisor('E2', { probe: async () => ({ ok: true, detail: '' }) })
+  const child2 = fakeChild()
+  const node2 = new NodeSupervisor('E2', {
+    probe: async () => ({ ok: true, detail: '' }),
+    spawn: fakeSpawnFor(child2),
+    killTree: fakeKillTree,
+  })
   node2.start(spec())
   await waitFor(() => node2.current.state === 'live', 5_000, 'node2 live')
   for (let i = 0; i < 10; i += 1) await node2.probeLive()
   assert.equal(node2.current.state, 'live', '成功的探活永不转离线')
   node2.stop()
+  await waitFor(() => node2.current.state === 'cold', 5_000, 'node2 cold')
 })
 
 test('修路 A3: probeLive——docker 分支转 offline 时清 containerId，restart 直接重建（不 stop 死容器）', async () => {
@@ -136,7 +171,13 @@ test('decideAfterExit: crashes restart until the streak hits the cap', () => {
 
 test('a managed node goes live, buffers logs, and stops to cold', async () => {
   const lines: string[] = []
-  const node = new NodeSupervisor('A', { probe: okProbe, log: (l) => lines.push(l) })
+  const child = fakeChild()
+  const node = new NodeSupervisor('A', {
+    probe: okProbe,
+    log: (l) => lines.push(l),
+    spawn: fakeSpawnFor(child),
+    killTree: fakeKillTree,
+  })
   assert.equal(node.current.state, 'cold')
 
   node.start(spec({ args: ['-e', keepAliveScript] }))
@@ -144,7 +185,8 @@ test('a managed node goes live, buffers logs, and stops to cold', async () => {
     await waitFor(() => node.current.state === 'live', 10_000, 'live')
     assert.ok(node.current.pid !== null)
     assert.equal(node.current.attempts, 0)
-    // stdout arrives asynchronously; live is not a proof the pipe flushed.
+    // stdout 是假流:手动喂一行,验证 pushLog 缓冲路径照常工作。
+    child.stdout?.emit('data', Buffer.from('hello-node\n'))
     await waitFor(() => node.logs().includes('hello-node'), 5_000, 'captured log')
   } finally {
     node.stop()
@@ -154,7 +196,12 @@ test('a managed node goes live, buffers logs, and stops to cold', async () => {
 })
 
 test('a node that never becomes ready is killed and restarted with backoff until offline', async () => {
-  const node = new NodeSupervisor('B', { probe: badProbe })
+  const child = fakeChild()
+  const node = new NodeSupervisor('B', {
+    probe: badProbe,
+    spawn: fakeSpawnFor(child),
+    killTree: fakeKillTree,
+  })
   node.start(
     spec({
       args: ['-e', keepAliveScript],
@@ -168,7 +215,15 @@ test('a node that never becomes ready is killed and restarted with backoff until
 })
 
 test('a spawn failure (ENOENT) settles to offline after the cap', async () => {
-  const node = new NodeSupervisor('C', { probe: badProbe })
+  // 债务 C3:spawn 失败路径——注入直接 emit error 的假 spawn,不再真起进程。
+  const node = new NodeSupervisor('C', {
+    probe: badProbe,
+    spawn: (() => {
+      const child = fakeChild()
+      queueMicrotask(() => child.emit('error', new Error('spawn definitely-not-a-real-binary-xyz-31415 ENOENT')))
+      return child
+    }) as SpawnFn,
+  })
   node.start(
     spec({
       command: 'definitely-not-a-real-binary-xyz-31415',
@@ -182,12 +237,30 @@ test('a spawn failure (ENOENT) settles to offline after the cap', async () => {
 })
 
 test('a detached node writes to its log file, leaves a pidfile, and cleans it on stop', async () => {
-  // 注:本用例仍真实 spawn 一个短命 node -e——win32 的 killTree 走 taskkill
-  // (非 child.kill),假子进程收不到 exit 无法落 cold;SpawnFn 注入已就绪,
-  // 等 killTree 可注入后再切换。
+  // 债务 C3:spawn + killTree 注入——不再真起 node -e 进程;假子进程写日志
+  // 内容、报 pid,假 killTree 直接 emit exit 走 onExit 落 cold(win32 真实现
+  // 走 taskkill,假子进程永远收不到)。
   const dir = mkdtempSync(join(tmpdir(), 'node-sup-'))
   const logFile = join(dir, 'node.log')
-  const node = new NodeSupervisor('D', { probe: okProbe })
+  let exited = false
+  const node = new NodeSupervisor('D', {
+    probe: okProbe,
+    spawn: ((_cmd, _args, _opts) => {
+      const child = Object.assign(new EventEmitter(), {
+        pid: 4242,
+        unref: () => {},
+        stdout: null,
+        stderr: null,
+        kill: () => true,
+      }) as unknown as import('node:child_process').ChildProcess
+      writeFileSync(logFile, 'detached-up\n', 'utf8')
+      return child
+    }) as SpawnFn,
+    killTree: (child) => {
+      exited = true
+      child.emit('exit', 0, null)
+    },
+  })
   node.start(
     spec({
       args: ['-e', 'console.log("detached-up"); setInterval(() => {}, 1000)'],
@@ -203,6 +276,7 @@ test('a detached node writes to its log file, leaves a pidfile, and cleans it on
     node.stop()
     await waitFor(() => node.current.state === 'cold', 10_000, 'cold')
   }
+  assert.equal(exited, true, 'killTree 注入必须被 stop 调用')
   assert.equal(existsSync(logFile + '.pid'), false, 'pidfile removed on stop')
   rmSync(dir, { recursive: true, force: true })
 })

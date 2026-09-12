@@ -1,30 +1,11 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { test } from 'node:test'
-import { openDb, schema, type Db } from '../db/index.js'
+import { schema, type Db } from '../db/index.js'
 import { currentMonth, monthByAgent, monthByDay, monthByModel, monthTotals, spendMonths } from './store.js'
+// 债务 C3:双 agent 测试库收敛进 test-harness。
+import { makeDbWithAgents } from '../test-harness.js'
 
-const makeDb = (): Db => {
-  const dir = mkdtempSync(join(tmpdir(), 'usage-db-'))
-  const { db } = openDb(join(dir, 'test.db'))
-  for (const id of ['personal', 'company']) {
-    db.insert(schema.agent)
-      .values({
-        id,
-        name: id,
-        workspacePath: dir,
-        endpoint: 'A',
-        preset: null,
-        gitRemote: null,
-        public: 0,
-        createdAt: 0,
-      })
-      .run()
-  }
-  return db
-}
+const makeDb = (): Db => makeDbWithAgents([{ id: 'personal' }, { id: 'company' }])
 
 /** Local time, because the month buckets are local. */
 const at = (y: number, m: number, d: number, h = 12): number => new Date(y, m - 1, d, h).getTime()
