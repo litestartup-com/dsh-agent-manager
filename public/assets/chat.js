@@ -20,12 +20,10 @@
 //   turn_end    { turn, reason, detail }
 //   turn_done   { runId, state, error }     (manager's)
 
-import { $, esc, icon, apiFetch, uniqueFrames, autoReconnect } from './ui.js'
-// 债务 F1:纯 reducer 已下沉 chat-reducer.js(独立单测 13 例)——live stream
-// 与 load 重建共用同一份,「只有一种画法」的承诺跨模块成立。
-import { newAgentBlock, addUsage, parseArgs, toolPath, isWrite, reduce, attachRuns, build } from './chat-reducer.js'
-// 债务 F1:渲染层已下沉 chat-render.js(纯字符串构造,独立单测 7 例)。
+import { $, esc, icon, apiFetch } from './ui.js'
+// 债务 F1:reducer/render/wire 三层已下沉——chat.js 只编排与持有页面状态。
 import { makeRenderer } from './chat-render.js'
+import { makeWire } from './chat-wire.js'
 
 const el = {
   notices: $('chat-notices'),
@@ -192,6 +190,31 @@ let turnStartedAt = null
 let modelChoices = new Map()
 let modelCatalogSessionId = null
 let effortSignature = null
+/**
+ * Frames that arrived while a full load was in flight.
+ *
+ * A reload reads the history server-side, so a frame delivered during the fetch
+ * may or may not already be in the response. Dropping them all loses a turn that
+ * another tab is streaming right now; applying them all renders the same text
+ * twice. They are held here and reconciled against the history instead.
+ */
+let buffered = []
+let loading = false
+
+// 债务 F1:wire 层(chat-wire.js)经 refs 盒读写页面状态——本文件其余代码
+// 继续用裸变量,盒子的 getter/setter 转发,状态只有一份。
+const refs = {
+  state: { get value() { return state }, set value(v) { state = v } },
+  pendingUserTexts: { get value() { return pendingUserTexts }, set value(v) { pendingUserTexts = v } },
+  queuedItems: { get value() { return queuedItems }, set value(v) { queuedItems = v } },
+  blocks: { get value() { return blocks }, set value(v) { blocks = v } },
+  sending: { get value() { return sending }, set value(v) { sending = v } },
+  turnStartedAt: { get value() { return turnStartedAt }, set value(v) { turnStartedAt = v } },
+  modelChoices: { get value() { return modelChoices }, set value(v) { modelChoices = v } },
+  modelCatalogSessionId: { get value() { return modelCatalogSessionId }, set value(v) { modelCatalogSessionId = v } },
+  buffered: { get value() { return buffered }, set value(v) { buffered = v } },
+  loading: { get value() { return loading }, set value(v) { loading = v } },
+}
 
 const toast = (text) => {
   el.toast.textContent = text
@@ -1010,306 +1033,23 @@ const renderComposer = () => {
 }
 
 // ---------------------------------------------------------------------------
-// loading
+// loading + live stream（已下沉 chat-wire.js,本文件只接线）
 // ---------------------------------------------------------------------------
 
-/**
- * Frames that arrived while a full load was in flight.
- *
- * A reload reads the history server-side, so a frame delivered during the fetch
- * may or may not already be in the response. Dropping them all loses a turn that
- * another tab is streaming right now; applying them all renders the same text
- * twice. They are held here and reconciled against the history instead.
- */
-let buffered = []
-let loading = false
-
-/**
- * Whether the loaded history already contains this frame.
- *
- * Gateway frames carry `seq`, which is exactly the discriminator needed: the
- * history's own events carry it too, so anything at or below the highest seq in
- * the history is a frame we have just been given a second time.
- *
- * manager's two own frames have no seq. `turn_done` only sets fields and is safe
- * to apply twice. Its `user` echo is compared by text against the newest user
- * block, because the gateway records the message as an event of its own, so the
- * history usually already holds it.
- */
-const alreadyLoaded = (frame, maxSeq, list) => {
-  if (typeof frame.seq === 'number') return frame.seq <= maxSeq
-  if (frame.kind !== 'user') return false
-  const lastUser = [...list].reverse().find((b) => b.role === 'user')
-  return lastUser !== undefined && lastUser.text === frame.text
-}
-
-const fatal = (message) => {
-  el.log.innerHTML = `<div class="chat-empty"><p>${esc(message)}</p></div>`
-  reattachToBottom()
-  el.input.disabled = true
-  el.send.disabled = true
-}
-
-/**
- * 蜂群 P2/P3：主脑派工记录（delegation 帧）。
- *
- * 与 transcript 分开的独立区块：帧数据来自 run 表（source_chat_id），不是
- * 会话历史；按时间与消息流精确交错代价高、收益小，MVP 先平铺在转录上方。
- * 实时更新 = relay 上的 delegation_done 帧 → 重新拉取。
- */
-const DELEGATION_ICON = { done: '✓', failed: '✕', running: '…', pending: '…' }
-const DELEGATION_CLASS = { done: 'ok', failed: 'bad', running: 'warn', pending: 'warn' }
-
-const renderDelegations = (list) => {
-  if (el.delegations === null) return
-  if (list.length === 0) {
-    el.delegations.hidden = true
-    el.delegations.innerHTML = ''
-    return
-  }
-  el.delegations.hidden = false
-  el.delegations.innerHTML = list
-    .map((d) => {
-      const icon = DELEGATION_ICON[d.state] ?? '…'
-      const cls = DELEGATION_CLASS[d.state] ?? 'muted'
-      const summary = typeof d.summary === 'string' && d.summary !== '' ? d.summary : (typeof d.error === 'string' && d.error !== '' ? d.error : '')
-      const detail = summary !== '' ? `<span class="delegation-body">${esc(summary)}</span>` : ''
-      return `<div class="delegation ${cls}">
-        <span class="delegation-icon" aria-hidden="true">${icon}</span>
-        <span class="delegation-main">
-          <span class="delegation-head">已派给 ${esc(d.agentName ?? d.agentId)} · ${esc(d.state)}</span>
-          ${detail}
-        </span>
-      </div>`
-    })
-    .join('')
-}
-
-const loadDelegations = async () => {
-  try {
-    const response = await apiFetch(`/api/chats/${encodeURIComponent(chatId)}/delegations`)
-    if (!response.ok) return
-    const body = await response.json()
-    renderDelegations(Array.isArray(body.delegations) ? body.delegations : [])
-  } catch {
-    // 非主脑会话本就没有派工记录；接口异常也不值得打断对话。
-  }
-}
-
-const loadModels = async () => {
-  if (el.model === null || state === null || state.composer?.capabilities?.modelSelection !== true || state.chat.dshSessionId === null) return
-  if (modelCatalogSessionId === state.chat.dshSessionId) return
-  try {
-    const response = await apiFetch(`/api/chats/${encodeURIComponent(chatId)}/models`)
-    if (!response.ok) return
-    const catalog = (await response.json()).catalog
-    const groups = Array.isArray(catalog?.groups) ? catalog.groups : []
-    const choices = new Map()
-    const options = []
-    for (const group of groups) {
-      if (typeof group?.id !== 'string' || !Array.isArray(group.models)) continue
-      for (const model of group.models) {
-        if (typeof model?.id !== 'string' || typeof model?.name !== 'string') continue
-        const key = `${group.id}\u0000${model.id}`
-        choices.set(key, { provider: group.id, model: model.id, reasoning: model.reasoning })
-        options.push({ key, label: `${group.name ?? group.id} · ${model.name}` })
-      }
-    }
-    modelChoices = choices
-    modelCatalogSessionId = state.chat.dshSessionId
-    const entry = dropdownState.get(el.model)
-    if (entry !== undefined) entry.options = options.map((option) => ({ value: option.key, label: option.label }))
-    const selected = state.composer?.model ?? catalog?.current
-    const selectedKey = selected === null || selected === undefined ? '' : `${selected.provider}\u0000${selected.model}`
-    if (entry !== undefined) {
-      entry.value = selectedKey
-      const chosen = options.find((option) => option.key === selectedKey)
-      setDropdownLabel(el.model, chosen?.label ?? (selected !== null && selected !== undefined ? `${selected.provider} · ${selected.model}` : '默认模型'))
-    }
-    render()
-  } catch {
-    modelCatalogSessionId = null
-  }
-}
-
-const load = async () => {
-  // Set before the request, so frames delivered during it are buffered rather
-  // than applied to a transcript that is about to be replaced.
-  loading = true
-  buffered = []
-  let response
-  try {
-    response = await apiFetch(`/api/chats/${encodeURIComponent(chatId)}`, { headers: { accept: 'application/json' } })
-  } catch (error) {
-    loading = false
-    fatal(`连不上 manager：${error.message}`)
-    return
-  }
-
-  if (response.status === 401) {
-    window.location.href = '/login'
-    return
-  }
-  if (!response.ok) {
-    loading = false
-    const body = await response.json().catch(() => ({}))
-    // 409 and 502 carry a `detail` written for a person; 404 does not.
-    fatal(
-      response.status === 404
-        ? '没有这个会话，或者它已被移除'
-        : (body.detail ?? `服务端返回 ${response.status}`),
-    )
-    return
-  }
-
-  state = await response.json()
-  // The run row is the authority on when the live turn began, and it is the only
-  // source that survives a refresh: without this, F5 during a long turn would
-  // restart the clock at zero and claim the wait had only just started.
-  const runningRun = state.busyRunId === null ? undefined : state.turns.find((t) => t.id === state.busyRunId)
-  if (runningRun !== undefined && typeof runningRun.startedAt === 'number') turnStartedAt = runningRun.startedAt
-  else if (!sending) turnStartedAt = null
-  const maxSeq = state.events.reduce((max, e) => (typeof e.seq === 'number' && e.seq > max ? e.seq : max), -1)
-  const rebuilt = build(state.events, state.turns)
-  const liveFrames = Array.isArray(state.liveFrames) ? state.liveFrames : []
-  // Queued (or just-sent) messages are not in the DSH history yet — draw them
-  // locally until the history contains them, the same way DSH keeps a queued
-  // bubble visible above the composer.
-  const stillPending = []
-  for (const p of pendingUserTexts) {
-    if (rebuilt.some((b) => b.role === 'user' && b.text === p.text)) continue
-    rebuilt.push({ role: 'user', text: p.text, injected: false, at: p.at })
-    stillPending.push(p)
-  }
-  pendingUserTexts = stillPending
-  // Anything that arrived mid-fetch and is not in the history yet still belongs
-  // on screen, so it is replayed on top rather than thrown away.
-  const pendingFrames = uniqueFrames([...liveFrames, ...buffered]).filter((f) => !alreadyLoaded(f, maxSeq, rebuilt))
-  for (const f of pendingFrames) {
-    if (f.kind === 'turn_queued') queuedItems.push({ id: typeof f.id === 'string' ? f.id : '', text: typeof f.text === 'string' ? f.text : '', at: Date.now() })
-    if (f.kind === 'turn_start' && queuedItems.length > 0) {
-      const started = queuedItems.shift()
-      pendingUserTexts.push(started)
-    }
-    // goal 帧不是转录帧：直接落状态，不进 blocks。
-    if (f.kind === 'goal') state.goal = f.goal ?? null
-  }
-  blocks = pendingFrames.filter((f) => f.kind !== 'turn_queued' && f.kind !== 'goal').reduce((list, frame) => reduce(list, frame), rebuilt)
-  asks.clear()
-  for (const frame of pendingFrames) trackAsks(frame)
-  buffered = []
-  loading = false
-  render()
-  void loadModels()
-  void loadDelegations()
-}
-
-/**
- * Loads, one at a time.
- *
- * A finished turn triggers a reload from two places at once -- the POST resolving
- * and `turn_done` arriving -- and two overlapping loads would have the second
- * clear the first one's buffer, dropping frames it had already set aside.
- */
-let chain = Promise.resolve()
-const reload = () => {
-  chain = chain.then(load, load)
-  return chain
-}
-
-// ---------------------------------------------------------------------------
-// live stream
-// ---------------------------------------------------------------------------
-
-// One stream, and only while this page is actually on screen.
-//
-// HTTP/1.1 gives the *whole origin* six connections, and a stream holds one of
-// them for as long as it is open. A page that keeps streaming after you have
-// navigated away -- and Chrome keeps the old document alive in its back/forward
-// cache -- is one connection fewer for everything that comes after, including
-// the navigation itself. Six of those and the site stops answering: every
-// request, even the HTML document, sits queued behind a socket that will never
-// free up. So this is not battery hygiene, it is the difference between working
-// and hanging.
-// 债务 F3：重连机制已收敛进 ui.js 的 autoReconnect（3s → ×2 → 30s 封顶）。
-const { connect, disconnect } = autoReconnect(() => {
-  // Never two streams for one page: a second one costs a second connection and
-  // delivers every frame twice.
-  const es = new EventSource(`/api/chats/${encodeURIComponent(chatId)}/events`)
-
-  es.addEventListener('message', (event) => {
-    let frame
-    try {
-      frame = JSON.parse(event.data)
-    } catch {
-      return
-    }
-    if (frame === null || typeof frame !== 'object') return
-    // `hello` only says the relay is open. History came from the GET, and the
-    // relay deliberately carries no replay.
-    if (frame.kind === 'hello') return
-    if (frame.kind === 'composer_state' && state !== null) {
-      state.composer = { ...(state.composer ?? {}), ...frame }
-      render()
-      return
-    }
-    // 蜂群 P2：派工结束帧——不是转录帧，刷新派工记录即可。
-    if (frame.kind === 'delegation_done') {
-      void loadDelegations()
-      return
-    }
-
-    if (frame.kind === 'turn_queued') {
-      if (loading) {
-        buffered.push(frame)
-        return
-      }
-      queuedItems.push({ id: typeof frame.id === 'string' ? frame.id : '', text: typeof frame.text === 'string' ? frame.text : '', at: Date.now() })
-      render()
-      return
-    }
-    if (loading) {
-      buffered.push(frame)
-      return
-    }
-
-    // goal 帧放在 loading 缓冲之后：加载中收到的目标变化先进 buffer，
-    // load() 完成时经 pendingFrames 拾取（见 load 里的 'goal' 分支）——
-    // 直接应用会打在半截的旧快照上，且 GET 的历史缓存可能还没带上它。
-    if (frame.kind === 'goal' && state !== null) {
-      state.goal = frame.goal ?? null
-      render()
-      return
-    }
-
-    // The queued message whose turn now starts is no longer queued: it moves
-    // from the dock into the log (via the pending bubble, until the history
-    // contains it).
-    if (frame.kind === 'turn_start' && queuedItems.length > 0) {
-      const started = queuedItems.shift()
-      pendingUserTexts.push(started)
-    }
-
-    blocks = reduce(blocks, frame)
-    trackAsks(frame)
-
-    // A turn another tab started, or one begun before this page opened.
-    if (frame.kind === 'turn_start' && turnStartedAt === null) turnStartedAt = Date.now()
-
-    if (frame.kind === 'turn_done') {
-      sending = false
-      turnStartedAt = null
-      // Reloaded because the run row is what carries the price and the duration,
-      // and because a first turn has just bound a gateway session, which changes
-      // sessionState from `fresh` to `live`.
-      void reload()
-      return
-    }
-    render()
-  })
-
-  return es
+// 债务 F1:wire 层——加载/重载/SSE 帧分发全部在 chat-wire.js,状态经 refs
+// 盒读写,渲染与卡片回调注入。chat.js 只持有 { connect, disconnect, reload }。
+const { connect, disconnect, reload } = makeWire(refs, {
+  chatId,
+  el,
+  render,
+  trackAsks,
+  resetAsks: () => asks.clear(),
+  reattachToBottom,
+  dropdownState,
+  setDropdownLabel,
 })
+
+
 
 // ---------------------------------------------------------------------------
 // sending
