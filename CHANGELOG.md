@@ -1,5 +1,44 @@
 # Changelog
 
+## 1.0.4 — 安全修复 + 四批技术债清偿（2026-09-12）
+
+> ⚠️ **升级注意**：
+> - `engines` 收紧为 **Node ≥ 22**（better-sqlite3 13 要求）——旧 Node 升级会被拒，先升 Node；
+> - 升级后首次启动 `.env` 经 zod 集中校验，`SESSION_SECRET` 不足 32 位等会 fail-loud 拒绝启动；
+> - 备份产物改为密文：新备份 DB 快照为 `<file>.db.enc`、`.env` 为 `.env.enc`（GCM 加密）；
+>   旧明文快照仍可恢复（兼容读），但**新备份不再落明文**。
+
+### 安全与数据正确性（第一批 · 发布门修复，R1–R10 + S3）
+
+- **R2 备份加密**：DB 快照与 `.env` 全走 AES-256-GCM（临时目录中转，崩溃不留明文）；restore 按 `.enc` 分流解密，篡改必失败
+- **R3/R4 备份走真相源**：backup/update CLI 的 DB 路径/备份目录/探活端口全来自 `loadConfig()`；配置副本明确「仅供人工参考」，不再宣称完整恢复
+- **R5 mux 首连判据**：以真实 `onopen` 为「曾连接」事实，首连失败不再误广播重连（修掉 run 被错标「结果未知」的计费链 bug）
+- **R6 配置写锁全路径**：provision/setup/auth 的配置写全过 `withConfigLock`；YAML `doc.errors` 输入+回读双查
+- **R7 治理规则透传**：`applyWrites` 落盘后二次校验用与写前同一份 agent 规则（不再退化为 DEFAULT_RULES）
+- **R8 apiproxy 订阅泄漏**：prompt 拒绝/抛错/超时全部 try/finally 退订；`finish` 幂等闸
+- **R9 对账单一化**：provision 热变更全走 `reconcileAll`（onlyNodes 范围化，不抢拉用户手动停掉的冷节点）
+- **S3 变更端点全量限流**：nodes 起停/增删 20/min、internal 派工/续写/crons 60/min、改密 10/min 与登录同档
+- **E8 协议帧判别收紧**：RPC/mux/translate 六帧型 zod 判别（形状不符 fail-loud 丢弃，不猜上游）
+
+### 后端疗程（第二批）
+
+- **E1–E4 巨型模块拆分**：runner（回合状态机 `runner/turn.ts`）、chat（relay/回合编排/CRUD 三层）、provision（四段开通流水线）、setup（六阶段 main）各自收窄
+- **E9 usage 聚合 drizzle 化** + 钱字段 API 统一 MicroUsd 命名（不再泄露裸列名 cost/peakCost）
+- **E16 三份 ADR**（回合驱动语义 / usage 两规则 / chat 回合计数复盘）+ wire 现实迁事实卡 `dsh-facts.md` §9
+
+### 前端疗程（第三批）
+
+- **F1 chat.js 拆五模块**（reducer/render/wire/composer/state，2146 → 876 行）+ 前端测试 80 例
+- **F6 apiJson 统一 Result 层**：八页「status 判断 + 读 JSON + 拼 banner」样板清零，错误 banner 共享且自动转义
+- **F3/F4** SSE 重连与轮询收口（autoReconnect / poll）；**F5** 全站唯一未转义 innerHTML sink 修复；**F7** ui.js 开启 @ts-check 进 CI typecheck
+
+### 测试与工具链（第四批）
+
+- **C3 共享测试 harness**：13 个测试文件重复 helper 收敛；mux 重连测试 mock 时钟（省 12s）；supervisor 测试全程假进程（不再真起 node -e）
+- **C4 coverage 门禁**：只统计生产代码，lines 80 / branch 70 / funcs 75 进 CI
+- **D4 依赖追平**：better-sqlite3 13 + zod 4 + @types 9.6.0
+- **D5 版本号构建期注入**（/api/status 暴露 managerVersion）+ env 集中 zod 校验 + exactOptionalPropertyTypes 收紧
+
 ## 1.0.3 — 0.1.2 切主路（2026-09-10）
 
 > ⚠️ **升级注意**：切主路升级顺序 = **先停栈 → 跑 upgrade 脚本 → 重启 → smoke**。
