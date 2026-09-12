@@ -20,12 +20,12 @@
 //   turn_end    { turn, reason, detail }
 //   turn_done   { runId, state, error }     (manager's)
 
-import { md } from './md.js'
-import { classifyTool, toolBody, toolSummary, toolTitle } from './tool-cards.js'
-import { $, esc, icon, money, apiFetch, uniqueFrames, autoReconnect } from './ui.js'
+import { $, esc, icon, apiFetch, uniqueFrames, autoReconnect } from './ui.js'
 // 债务 F1:纯 reducer 已下沉 chat-reducer.js(独立单测 13 例)——live stream
 // 与 load 重建共用同一份,「只有一种画法」的承诺跨模块成立。
 import { newAgentBlock, addUsage, parseArgs, toolPath, isWrite, reduce, attachRuns, build } from './chat-reducer.js'
+// 债务 F1:渲染层已下沉 chat-render.js(纯字符串构造,独立单测 7 例)。
+import { makeRenderer } from './chat-render.js'
 
 const el = {
   notices: $('chat-notices'),
@@ -204,33 +204,8 @@ const toast = (text) => {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// rendering
+// rendering（已下沉 chat-render.js,本文件只留注入与编排）
 // ---------------------------------------------------------------------------
-
-/**
- * A board file, as a link to the page it feeds.
- *
- * Only `board/*.json` becomes a link. The mapping needs no guessing -- the board
- * takes a page's key from the file's basename -- and every other path stays
- * plain text, because a local file has no view to open and a link that goes
- * nowhere is worse than no link (UI.md §5).
- */
-const boardHref = (path) => {
-  const normalized = path.replace(/\\/g, '/').replace(/^\.\//, '')
-  const match = /^board\/([^/]+)\.json$/.exec(normalized)
-  if (match === null || state === null) return null
-  return `/board/${encodeURIComponent(state.agent.id)}?page=${encodeURIComponent(match[1])}`
-}
-
-const writeRow = (tool) => {
-  const href = boardHref(tool.path)
-  const label = esc(tool.path)
-  const inner = href === null ? label : `<a href="${esc(href)}">${label}</a>`
-  return `<div class="write-row">
-    <span class="pen" aria-hidden="true">✎</span>
-    <span>已更新 ${inner}</span>
-  </div>`
-}
 
 /**
  * Which tool folds the user opened, by turn index.
@@ -241,182 +216,6 @@ const writeRow = (tool) => {
  */
 const openTools = new Set()
 
-const toolsBlock = (tools, index) => {
-  if (tools.length === 0) return ''
-  const failed = tools.filter((t) => t.failed).length
-  const summary = failed > 0 ? `工具调用 ×${tools.length} · ${failed} 个失败` : `工具调用 ×${tools.length}`
-  // DSH web 的工具卡推导（tool-cards.js）：名字→variant 分类、标题、
-  // 摘要、正文（code/JSON）、结果文本——与 DSH 的 GenericToolCard 同源规则。
-  const rows = tools
-    .map((tool) => {
-      const variant = classifyTool(tool.name)
-      const title = toolTitle(tool.name)
-      const head = `<div class="tool-head">
-        <span class="tool-variant v-${esc(variant)}">${esc(title)}</span>
-        <span class="tool-summary">${esc(toolSummary(tool.name, tool.raw))}</span>
-        <span class="tool-state${tool.failed ? ' bad' : tool.done ? '' : ' running'}">${tool.failed ? '失败' : tool.done ? '完成' : '…'}</span>
-      </div>`
-      const body = toolBody(tool.name, tool.raw)
-      const bodyHtml = body === null
-        ? ''
-        : `<details class="tool-body"><summary>${variant === 'code' ? '代码' : '参数'}</summary><pre>${esc(body)}</pre></details>`
-      // 失败的调用默认展开结果（这是出错时唯一要紧的东西）；成功的默认折叠。
-      const resultHtml = tool.done && tool.resultText !== ''
-        ? `<details class="tool-result"${tool.failed ? ' open' : ''}><summary>结果</summary><pre>${esc(tool.resultText)}</pre></details>`
-        : ''
-      return `<div class="tool-call${tool.failed ? ' failed' : ''}" data-variant="${esc(variant)}">${head}${bodyHtml}${resultHtml}</div>`
-    })
-    .join('')
-  return `<details class="tools" data-fold="${index}"${openTools.has(index) ? ' open' : ''}>
-    <summary><span class="chev">${icon('chev', 11)}</span>${esc(summary)}</summary>
-    ${rows}
-  </details>`
-}
-
-// ---------------------------------------------------------------------------
-// reply feedback (copy / up / down)
-// ---------------------------------------------------------------------------
-
-// Local for now: a tap is remembered per turn id so the thumbs stay honest
-// across reloads. No server API exists yet, so nothing pretends the feedback
-// travelled further than this browser.
-const FB_KEY = 'manager.chat.feedback'
-
-const readFeedback = () => {
-  try {
-    const raw = JSON.parse(window.localStorage.getItem(FB_KEY) ?? '{}')
-    return raw !== null && typeof raw === 'object' ? raw : {}
-  } catch {
-    return {}
-  }
-}
-
-const setFeedback = (turnId, value) => {
-  const fb = readFeedback()
-  if (value === null) delete fb[turnId]
-  else fb[turnId] = value
-  try {
-    window.localStorage.setItem(FB_KEY, JSON.stringify(fb))
-  } catch {
-    // Private-mode storage failures are not worth a visible error: the tap
-    // still registers for this page.
-  }
-}
-
-const feedbackOf = (turnId) => (turnId === null || turnId === '' ? '' : readFeedback()[turnId] ?? '')
-
-const tokens = (usage) => {
-  if (usage === null || usage === undefined) return null
-  const k = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
-  return `${k(usage.inputTokens)} in · ${k(usage.outputTokens)} out`
-}
-
-/**
- * One reply's closing line, shown once per reply (never per tool call): when it
- * ended, how long it took, throughput, cost -- and the three actions. `show` is
- * true only on the last agent block of a run, which is what keeps a multi-step
- * reply from printing this row several times.
- */
-const footer = (block, index, show) => {
-  if (block.error !== null) {
-    return `<div class="turn-foot failed">${icon('alert', 12)}<span>${esc(block.error)}</span></div>`
-  }
-  if (!show || block.streaming) return ''
-
-  const run = block.run
-  const durationSec =
-    run !== undefined && run !== null && run.endedAt !== null
-      ? Math.max(1, Math.round((run.endedAt - run.startedAt) / 1000))
-      : 0
-
-  const parts = []
-  if (run !== undefined && run !== null && run.endedAt !== null) {
-    parts.push(new Date(run.endedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }))
-  }
-  if (durationSec > 0) parts.push(`${durationSec}s`)
-  const usage = block.usage
-  if (usage !== null && usage !== undefined && usage.outputTokens > 0 && durationSec > 0) {
-    parts.push(`${Math.round(usage.outputTokens / durationSec)} tok/s`)
-  }
-  const t = tokens(usage)
-  if (t !== null) parts.push(esc(t))
-  if (run !== undefined && run !== null && run.usage !== null && run.usage.costMicroUsd !== null) {
-    parts.push(esc(money(run.usage.costMicroUsd)))
-  }
-
-  const turnId = run !== undefined && run !== null && run.id !== undefined ? String(run.id) : ''
-  const fb = feedbackOf(turnId)
-  return `<div class="turn-foot">
-    ${parts.length === 0 ? '' : `<span class="turn-meta">${parts.join(' · ')}</span>`}
-    <span class="grow"></span>
-    <div class="turn-actions">
-      <button class="turn-act" type="button" data-act="copy" data-copy="${index}" aria-label="复制回答" title="复制">
-        ${icon('copy', 14)}
-      </button>
-      <button class="turn-act${fb === 'up' ? ' on' : ''}" type="button" data-act="up" data-turn="${esc(turnId)}" aria-label="点赞" title="有帮助">
-        ${icon('thumb-up', 14)}
-      </button>
-      <button class="turn-act${fb === 'down' ? ' on' : ''}" type="button" data-act="down" data-turn="${esc(turnId)}" aria-label="反对" title="没帮助">
-        ${icon('thumb-down', 14)}
-      </button>
-    </div>
-  </div>`
-}
-
-// ---------------------------------------------------------------------------
-// rendered markdown
-// ---------------------------------------------------------------------------
-
-/**
- * Markdown, parsed once per distinct string.
- *
- * `renderLog` rebuilds the whole transcript on every animation frame, so without
- * this a long chat would re-parse every finished reply dozens of times a second
- * to redraw text that cannot have changed. Only the streaming block misses.
- *
- * Keyed by the text itself, which is what makes it safe: a hit is only possible
- * when the input is identical. Bounded because a long stream produces one key per
- * frame, and an unbounded cache of every intermediate state is a leak.
- */
-const mdCache = new Map()
-const MD_CACHE_MAX = 240
-
-const mdOnce = (text) => {
-  const hit = mdCache.get(text)
-  if (hit !== undefined) return hit
-  const html = md(text)
-  if (mdCache.size >= MD_CACHE_MAX) {
-    // Insertion-ordered, so the oldest key is the first one. Dropping a batch
-    // rather than one keeps this from running on nearly every frame.
-    for (const key of [...mdCache.keys()].slice(0, MD_CACHE_MAX / 2)) mdCache.delete(key)
-  }
-  mdCache.set(text, html)
-  return html
-}
-
-const agentTurn = (block, index, showFoot) => {
-  const name = state === null ? 'agent' : state.agent.name
-  // Streamed text is shown only until the message frame lands, and the two are
-  // never concatenated: they are the same content twice.
-  const body = block.text !== '' ? block.text : block.streamed
-  const writes = block.tools.filter((t) => t.write && t.path !== null)
-  return `<div class="turn from-agent">
-    <div class="turn-who"><span class="who-avatar" aria-hidden="true">${icon('bot', 14)}</span><span>${esc(name)}</span></div>
-    ${body === '' && !block.streaming ? '' : `<div class="bubble prose${block.streaming ? ' streaming' : ''}">${mdOnce(body)}</div>`}
-    ${toolsBlock(block.tools, index)}
-    ${writes.length === 0 ? '' : `<div class="writes">${writes.map(writeRow).join('')}</div>`}
-    ${footer(block, index, showFoot)}
-  </div>`
-}
-
-// The user's own words stay plain text on purpose: rendering their Markdown
-// would show them something other than what they typed, and a stray asterisk is
-// not a formatting request. No name row either -- alignment and the blue bubble
-// are the identity, exactly as DSH renders its user messages.
-const userTurn = (block) => `<div class="turn from-user">
-    <div class="bubble">${esc(block.text)}</div>
-  </div>`
-
 /**
  * Which injected-context folds the user opened, by block index.
  *
@@ -425,30 +224,16 @@ const userTurn = (block) => `<div class="turn from-user">
  */
 const openContext = new Set()
 
-/**
- * A run of injected user events, as one collapsed fold.
- *
- * Collapsed by default because this is context the harness gave the agent, not
- * part of the conversation -- one real transcript had 3.6KB of it against 46
- * bytes of actual question. It is shown rather than dropped because it is what
- * the agent was actually told, and a transcript that hides that is a transcript
- * that cannot explain the reply.
- */
-const contextFold = (group, index) => {
-  const bodies = group
-    .map((block) => {
-      // The wrapper adds nothing once the fold is labelled, so it is peeled off
-      // to leave the instructions themselves readable.
-      const inner = block.text.replace(/^\s*<system-reminder>/, '').replace(/<\/system-reminder>\s*$/, '')
-      return `<div class="context-item prose">${mdOnce(inner.trim())}</div>`
-    })
-    .join('')
-  const label = group.length === 1 ? '系统注入的上下文' : `系统注入的上下文 ×${group.length}`
-  return `<details class="context" data-context="${index}"${openContext.has(index) ? ' open' : ''}>
-    <summary><span class="chev">${icon('chev', 11)}</span>${esc(label)}</summary>
-    ${bodies}
-  </details>`
-}
+// 债务 F1:帧/block → HTML 的构造全部来自 chat-render.js 工厂;折叠状态
+// 与会话快照注入,markdown 缓存由工厂持有(renderLog 每帧重建仍吃缓存)。
+const {
+  writeRow, toolsBlock, footer, agentTurn, userTurn, contextFold,
+  questionCard, approvalCard, readFeedback, setFeedback,
+} = makeRenderer({
+  getState: () => state,
+  openTools,
+  openContext,
+})
 
 const EMPTY_FRESH = `<div class="chat-empty">
     <span class="chat-empty-icon">${icon('chat', 20)}</span>
@@ -650,49 +435,7 @@ const trackAsks = (frame) => {
 const askNode = document.createElement('div')
 askNode.className = 'asks'
 
-// DSH 的 QuestionComposer 选项语义：单选 radiogroup/radio、多选 group/checkbox，
-// 状态经 aria-checked 暴露（选中态仍由 .on 类驱动视觉）。
-const optionRow = (qid, option, multi) => `<button type="button" class="ask-opt" data-q="${esc(qid)}" data-label="${esc(option.label)}" role="${multi ? 'checkbox' : 'radio'}" aria-checked="false">
-    <span class="ask-opt-label">${esc(option.label)}</span>
-    ${option.description === undefined ? '' : `<span class="ask-opt-desc">${esc(option.description)}</span>`}
-  </button>`
-
-const questionCard = (ask) => {
-  const bodies = ask.questions.map((q) => `<div class="ask-q" data-q="${esc(q.id)}">
-      ${q.header === undefined ? '' : `<div class="ask-q-head">${esc(q.header)}</div>`}
-      <div class="ask-q-text">${esc(q.question)}</div>
-      ${q.detail === undefined ? '' : `<div class="ask-q-detail prose">${mdOnce(q.detail)}</div>`}
-      ${(q.options ?? []).length === 0 ? '' : `<div class="ask-opts${q.multiSelect === true ? ' multi' : ''}" role="${q.multiSelect === true ? 'group' : 'radiogroup'}">${q.options.map((o) => optionRow(q.id, o, q.multiSelect === true)).join('')}</div>`}
-      <input class="ask-custom" data-q="${esc(q.id)}" type="text" placeholder="${(q.options ?? []).length === 0 ? '写下你的回答' : '或者自己写一个'}">
-    </div>`).join('')
-  // DSH's decision-card grammar: amber strip on top, white card, body, and the
-  // actions pinned to the bottom-right of the card.
-  return `<div class="ask" data-ask="${esc(ask.id)}">
-    <div class="ask-strip"><span class="ask-dot" aria-hidden="true"></span>它在等你回答</div>
-    <div class="ask-body">${bodies}</div>
-    <div class="ask-actions">
-      <span class="ask-error"></span>
-      <button type="button" class="ask-skip" data-ask="${esc(ask.id)}">不答，让它自己定</button>
-      <button type="button" class="ask-send" data-ask="${esc(ask.id)}">回答</button>
-    </div>
-  </div>`
-}
-
-const approvalCard = (ask) => {
-  const toolName = ask.toolName === '' ? '一个工具' : ask.toolName
-  return `<div class="ask approval" data-ask="${esc(ask.id)}">
-    <div class="ask-strip"><span class="ask-dot" aria-hidden="true"></span>等待授权</div>
-    <div class="ask-body">
-      <div class="ask-headline">它要用「${esc(toolName)}」做一件事，需要你批准</div>
-      ${ask.reason === null || ask.reason === '' ? '' : `<div class="ask-q-detail">${esc(ask.reason)}</div>`}
-    </div>
-    <div class="ask-actions">
-      <span class="ask-error"></span>
-      <button type="button" class="ask-reject" data-ask="${esc(ask.id)}">不允许</button>
-      <button type="button" class="ask-allow" data-ask="${esc(ask.id)}">允许这一次</button>
-    </div>
-  </div>`
-}
+// 债务 F1:卡片构造(optionRow/questionCard/approvalCard)已下沉 chat-render.js。
 
 /**
  * Attaches the cards, rebuilding them only when the asks changed.
