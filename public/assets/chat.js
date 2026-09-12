@@ -24,7 +24,7 @@ import { $, esc, icon, apiFetch } from './ui.js'
 // 债务 F1:reducer/render/wire/composer 四层已下沉——chat.js 只编排与持有页面状态。
 import { makeRenderer } from './chat-render.js'
 import { makeWire } from './chat-wire.js'
-import { makeComposer, fullAccessWarning } from './chat-composer.js'
+import { makeComposer, fullAccessWarning, dropdownState, registerDropdown, setDropdownLabel } from './chat-composer.js'
 import { makeAsks } from './chat-state.js'
 
 const el = {
@@ -63,110 +63,9 @@ const segments = window.location.pathname.split('/').filter(Boolean)
 const chatId = segments[0] === 'chat' && segments[1] !== undefined ? decodeURIComponent(segments[1]) : null
 
 // ---------------------------------------------------------------------------
-// 自绘下拉（模型 / 访问模式 / 推理深度）——原生 <option> 弹出列表浏览器
-// 不给样式，要 DSH web 的选项外观就得自绘：按钮 + body 挂载的选项面板，
-// token 同源（surface 卡片 + 悬停行 + 选中勾）。
+// 自绘下拉（模型 / 访问模式 / 推理深度）已下沉 chat-composer.js——
+// dropdownState/registerDropdown/setDropdownLabel 从那里 re-export 使用。
 // ---------------------------------------------------------------------------
-
-const optionsPanel = document.createElement('div')
-optionsPanel.className = 'composer-options-panel'
-optionsPanel.hidden = true
-document.body.appendChild(optionsPanel)
-
-/** button 元素 → { options: [{value,label}], value, onPick }。 */
-const dropdownState = new Map()
-let openDropdownBtn = null
-
-const closeDropdown = () => {
-  optionsPanel.hidden = true
-  if (openDropdownBtn !== null) {
-    openDropdownBtn.setAttribute('aria-expanded', 'false')
-    openDropdownBtn = null
-  }
-}
-
-const setDropdownLabel = (button, label) => {
-  const span = button.querySelector('.composer-select-label')
-  if (span !== null) span.textContent = label
-}
-
-const CHECK_SVG = '<svg class="check" width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
-
-const openDropdown = (button) => {
-  const entry = dropdownState.get(button)
-  if (entry === undefined || button.disabled) return
-  optionsPanel.replaceChildren(...entry.options.map((option) => {
-    const row = document.createElement('div')
-    const selected = option.value === entry.value
-    row.className = `composer-option${selected ? ' selected' : ''}${option.danger === true ? ' danger' : ''}${option.locked === true ? ' locked' : ''}`
-    row.setAttribute('role', 'option')
-    row.setAttribute('aria-selected', String(selected))
-    row.dataset.value = option.value
-    if (option.locked === true) row.dataset.locked = '1'
-    // 债务 F5:全站唯一未转义的 innerHTML sink——option.label(上游模型目录/
-    // 沙箱模式名)原样拼进 innerHTML。改 DOM 构建(textContent 转义);
-    // CHECK_SVG 是静态常量,insertAdjacentHTML 安全。
-    const labelSpan = document.createElement('span')
-    labelSpan.textContent = option.label
-    row.append(labelSpan)
-    if (selected) row.insertAdjacentHTML('beforeend', CHECK_SVG)
-    row.tabIndex = -1
-    return row
-  }))
-  const rect = button.getBoundingClientRect()
-  optionsPanel.style.bottom = `${window.innerHeight - rect.top + 6}px`
-  optionsPanel.style.left = `${Math.min(Math.max(rect.left, 8), window.innerWidth - 300)}px`
-  optionsPanel.hidden = false
-  button.setAttribute('aria-expanded', 'true')
-  openDropdownBtn = button
-  ;(optionsPanel.querySelector('.composer-option.selected') ?? optionsPanel.querySelector('.composer-option'))?.focus()
-}
-
-/** 注册一个自绘下拉：button 点击开合；选中回填 value 并回调 onPick。 */
-const registerDropdown = (button, onPick) => {
-  dropdownState.set(button, { options: [], value: '', onPick })
-  button.addEventListener('click', () => {
-    if (!optionsPanel.hidden && openDropdownBtn === button) closeDropdown()
-    else openDropdown(button)
-  })
-}
-
-optionsPanel.addEventListener('click', (event) => {
-  const row = event.target.closest('.composer-option')
-  if (row === null || openDropdownBtn === null) return
-  if (row.dataset.locked === '1') return
-  const entry = dropdownState.get(openDropdownBtn)
-  if (entry === undefined) return
-  entry.value = row.dataset.value
-  entry.onPick(row.dataset.value)
-  closeDropdown()
-})
-
-optionsPanel.addEventListener('keydown', (event) => {
-  if (optionsPanel.hidden) return
-  const rows = [...optionsPanel.querySelectorAll('.composer-option')]
-  const index = rows.indexOf(document.activeElement)
-  if (event.key === 'ArrowDown') {
-    event.preventDefault()
-    rows[(index + 1) % rows.length]?.focus()
-  } else if (event.key === 'ArrowUp') {
-    event.preventDefault()
-    rows[(index - 1 + rows.length) % rows.length]?.focus()
-  } else if (event.key === 'Enter') {
-    event.preventDefault()
-    if (document.activeElement instanceof HTMLElement) document.activeElement.click()
-  } else if (event.key === 'Escape') {
-    const button = openDropdownBtn
-    closeDropdown()
-    button?.focus()
-  }
-})
-
-document.addEventListener('pointerdown', (event) => {
-  if (optionsPanel.hidden) return
-  if (event.target instanceof Element && (optionsPanel.contains(event.target) || (openDropdownBtn !== null && openDropdownBtn.contains(event.target)))) return
-  closeDropdown()
-})
 
 /** Everything the last GET told us. Null until it answers. */
 let state = null
