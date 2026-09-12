@@ -10,35 +10,83 @@
  * 本模块自实现 gateway eventPayload 的子集,不 import dsh-api-gateway(两仓解耦)。
  */
 
+import { z } from 'zod'
 import type { HistoryEvent } from '../gateway/client.js'
 import { normalizeUsage, type TokenUsage, type GatewayFrame } from '../gateway/stream.js'
 
 // ---- mux frame → HistoryEvent ----
 
 /**
- * The payload of a mux ServerRequest (the `payload` slot of
- * `{ type:'server-request', rpcId, method, payload }` over the /api/events.mux
- * WebSocket). The `type` field mirrors the envelope's `method`.
+ * 债务 E8:帧体判别 schema——替代手工 `Record<string, unknown>` 拍平。
+ * 形状逐帧对照 wire 现实(dsh-facts.md §9;dsh-api-gateway answerer/streams
+ * 源码实证):payload.type 与信封 method 一致;未知帧型不在此判别之列
+ * (session/subscribed、stream/error、session/queue、session/jobs 由信封层处理
+ * 或丢弃),故判别联合无 catch-all——已知帧型形状不符 = fail-loud 丢弃,不猜。
  */
-export interface MuxFrame {
-  type: string
-  sessionId?: string
-  /** Present on `session/event` frames. */
-  event?: { type?: string; seq?: number; data?: unknown; time?: number }
-  /** Present on `session/projection` frames: one key per frame. */
-  key?: string
-  value?: unknown
-  /** Present on `question/requested` frames. */
-  questions?: { id: string; question: string; [k: string]: unknown }[]
-  /** Present on `question/resolved` frames. */
-  questionRpcId?: string
-  /** Present on `approval/requested` / `approval/resolved` frames. */
-  approvalId?: string
-  toolName?: string
-  reason?: string
-  /** Present on `question/resolved` / `approval/resolved` frames. */
-  outcome?: string
-  [key: string]: unknown
+
+const questionItemSchema = z.object({ id: z.string(), question: z.string() }).passthrough()
+
+const sessionEventFrameSchema = z.object({
+  type: z.literal('session/event'),
+  sessionId: z.string(),
+  /** 事件深形状由 eventPayload 映射(返回 null = 无 wire 形式)。 */
+  event: z.unknown(),
+  view: z.unknown().optional(),
+}).passthrough()
+
+const projectionFrameSchema = z.object({
+  type: z.literal('session/projection'),
+  sessionId: z.string(),
+  key: z.string(),
+  value: z.unknown(),
+  seq: z.number().optional(),
+}).passthrough()
+
+const questionRequestedFrameSchema = z.object({
+  type: z.literal('question/requested'),
+  sessionId: z.string(),
+  questions: z.array(questionItemSchema),
+}).passthrough()
+
+const questionResolvedFrameSchema = z.object({
+  type: z.literal('question/resolved'),
+  sessionId: z.string(),
+  questionRpcId: z.string(),
+  outcome: z.string(),
+}).passthrough()
+
+const approvalRequestedFrameSchema = z.object({
+  type: z.literal('approval/requested'),
+  sessionId: z.string(),
+  approvalId: z.string(),
+  toolName: z.string(),
+  callId: z.string().nullable().optional(),
+  reason: z.string().nullable().optional(),
+}).passthrough()
+
+const approvalResolvedFrameSchema = z.object({
+  type: z.literal('approval/resolved'),
+  sessionId: z.string(),
+  approvalId: z.string(),
+  outcome: z.string(),
+}).passthrough()
+
+export const muxFrameSchema = z.discriminatedUnion('type', [
+  sessionEventFrameSchema,
+  projectionFrameSchema,
+  questionRequestedFrameSchema,
+  questionResolvedFrameSchema,
+  approvalRequestedFrameSchema,
+  approvalResolvedFrameSchema,
+])
+
+/** 债务 E8:判别后的帧体联合类型(替代旧 loose interface)。 */
+export type MuxFrame = z.infer<typeof muxFrameSchema>
+
+/** 已知帧型严格判别;形状不符或未知帧型返回 null(由调用方丢弃)。 */
+export const parseMuxPayload = (payload: unknown): MuxFrame | null => {
+  const parsed = muxFrameSchema.safeParse(payload)
+  return parsed.success ? parsed.data : null
 }
 
 // ---- event mapping (mirrors dsh-api-gateway/src/events.ts) ----
@@ -209,7 +257,7 @@ export const listSessionsParams = (): Record<string, unknown> => ({})
  * Returns null if the frame is not a projection or has no tokenUsage.
  */
 export const extractProjectionUsage = (frame: MuxFrame): { sessionId: string; usage: TokenUsage } | null => {
-  if (frame.type !== 'session/projection' || frame.sessionId === undefined) return null
+  if (frame.type !== 'session/projection') return null
   if (frame.key !== 'tokenUsage') return null
   const usage = normalizeUsage(frame.value)
   if (usage === null) return null
@@ -220,7 +268,7 @@ export const extractProjectionUsage = (frame: MuxFrame): { sessionId: string; us
  * Extracts title from a `session/projection` mux frame.
  */
 export const extractProjectionTitle = (frame: MuxFrame): { sessionId: string; title: string } | null => {
-  if (frame.type !== 'session/projection' || frame.sessionId === undefined) return null
+  if (frame.type !== 'session/projection') return null
   if (frame.key !== 'title' || typeof frame.value !== 'string' || frame.value === '') return null
   return { sessionId: frame.sessionId, title: frame.value }
 }
@@ -238,16 +286,20 @@ export interface UpstreamGoal {
   blockedReason: string | null
 }
 
+/** 宿主 `goal` 投影的 wire 形状（GoalProjection | null）中 manager 需要的部分（债务 E8:投影判别 schema）。 */
+const goalSchema = z.object({
+  id: z.string(),
+  objective: z.string(),
+  phase: z.enum(['active', 'paused', 'blocked', 'complete']),
+  blockedReason: z.object({ message: z.string().optional() }).passthrough().nullable().optional(),
+}).passthrough()
+
 /** 解析 goal 投影 wire 值；形状不符返回 null（前端视为无目标）。 */
 export const goalOf = (value: unknown): UpstreamGoal | null => {
-  if (value === null || typeof value !== 'object') return null
-  const source = value as Record<string, unknown>
-  const { id, objective, phase } = source
-  if (typeof id !== 'string' || typeof objective !== 'string') return null
-  if (phase !== 'active' && phase !== 'paused' && phase !== 'blocked' && phase !== 'complete') return null
-  const reason = source.blockedReason
-  const message = reason !== null && typeof reason === 'object' ? (reason as Record<string, unknown>).message : null
-  return { id, objective, phase, blockedReason: typeof message === 'string' ? message : null }
+  const parsed = goalSchema.safeParse(value)
+  if (!parsed.success) return null
+  const { id, objective, phase, blockedReason } = parsed.data
+  return { id, objective, phase, blockedReason: blockedReason?.message ?? null }
 }
 
 /**
@@ -262,24 +314,33 @@ export const goalProjectionFrame = (payload: MuxFrame): GatewayFrame | null => {
 
 // ---- mux 问答/授权帧 → GatewayFrame（供 runner 与浏览器消费） ----
 
+/** 判别联合中 question/requested 变体的窄类型。 */
+export type QuestionRequestedFrame = Extract<MuxFrame, { type: 'question/requested' }>
+/** 判别联合中 question/resolved 变体的窄类型。 */
+export type QuestionResolvedFrame = Extract<MuxFrame, { type: 'question/resolved' }>
+/** 判别联合中 approval/requested 变体的窄类型。 */
+export type ApprovalRequestedFrame = Extract<MuxFrame, { type: 'approval/requested' }>
+/** 判别联合中 approval/resolved 变体的窄类型。 */
+export type ApprovalResolvedFrame = Extract<MuxFrame, { type: 'approval/resolved' }>
+
 /**
  * `question/requested` payload → question_asked GatewayFrame.
  * The envelope's rpcId is the id echoed back to `respond`, so it doubles as
  * the manager's questionId.
  */
-export const questionRequestedFrame = (rpcId: string, payload: MuxFrame): GatewayFrame => ({
+export const questionRequestedFrame = (rpcId: string, payload: QuestionRequestedFrame): GatewayFrame => ({
   kind: 'question_asked',
   seq: 0,
   questionId: rpcId,
-  questions: Array.isArray(payload.questions) ? payload.questions : [],
+  questions: payload.questions,
 })
 
 /** `question/resolved` payload → question_resolved GatewayFrame. */
-export const questionResolvedFrame = (payload: MuxFrame): GatewayFrame => ({
+export const questionResolvedFrame = (payload: QuestionResolvedFrame): GatewayFrame => ({
   kind: 'question_resolved',
   seq: 0,
-  questionId: typeof payload.questionRpcId === 'string' ? payload.questionRpcId : null,
-  outcome: typeof payload.outcome === 'string' ? payload.outcome : 'unknown',
+  questionId: payload.questionRpcId,
+  outcome: payload.outcome,
 })
 
 /**
@@ -287,13 +348,13 @@ export const questionResolvedFrame = (payload: MuxFrame): GatewayFrame => ({
  * The envelope's rpcId is the id echoed back to `respond`; approvalId is
  * carried alongside so the respond payload can name the exact request.
  */
-export const approvalRequestedFrame = (rpcId: string, payload: MuxFrame): GatewayFrame => ({
+export const approvalRequestedFrame = (rpcId: string, payload: ApprovalRequestedFrame): GatewayFrame => ({
   kind: 'approval_pending',
   seq: 0,
   decisionId: rpcId,
-  approvalId: typeof payload.approvalId === 'string' ? payload.approvalId : null,
-  toolName: typeof payload.toolName === 'string' ? payload.toolName : '',
-  reason: typeof payload.reason === 'string' ? payload.reason : null,
+  approvalId: payload.approvalId,
+  toolName: payload.toolName,
+  reason: payload.reason ?? null,
 })
 
 /**
@@ -301,12 +362,12 @@ export const approvalRequestedFrame = (rpcId: string, payload: MuxFrame): Gatewa
  * The resolved frame names the approvalId, not the original rpcId, so the
  * caller supplies decisionId from its approvalId→rpcId map.
  */
-export const approvalResolvedFrame = (payload: MuxFrame, decisionId: string | null): GatewayFrame => ({
+export const approvalResolvedFrame = (payload: ApprovalResolvedFrame, decisionId: string | null): GatewayFrame => ({
   kind: 'approval_resolved',
   seq: 0,
   decisionId,
-  approvalId: typeof payload.approvalId === 'string' ? payload.approvalId : null,
-  outcome: typeof payload.outcome === 'string' ? payload.outcome : 'unknown',
+  approvalId: payload.approvalId,
+  outcome: payload.outcome,
 })
 
 // ---- history / session.list 解包 ----
@@ -340,25 +401,28 @@ export interface SessionSummary {
   blank: boolean
 }
 
+/** 债务 E8:session.list 投影判别 schema（wire 形状见模块头注释）。 */
+const sessionListItemSchema = z.object({
+  sessionId: z.string(),
+  updatedAt: z.number().optional(),
+  running: z.boolean().optional(),
+  blank: z.boolean().optional(),
+  projections: z.object({
+    values: z.object({ title: z.string().optional() }).passthrough(),
+  }).passthrough().optional(),
+}).passthrough()
+
 export const mapSessionList = (value: unknown): SessionSummary[] => {
-  if (value === null || typeof value !== 'object') return []
-  const v = value as Record<string, unknown>
-  if (!Array.isArray(v.items)) return []
-  const out: SessionSummary[] = []
-  for (const item of v.items) {
-    if (item === null || typeof item !== 'object') continue
-    const s = item as Record<string, unknown>
-    const sessionId = typeof s.sessionId === 'string' ? s.sessionId : ''
-    const projections = s.projections as Record<string, unknown> | undefined
-    const values = projections?.values as Record<string, unknown> | undefined
-    const title = typeof values?.title === 'string' ? values.title : undefined
-    out.push({
-      sessionId,
+  const parsed = z.object({ items: z.array(sessionListItemSchema) }).passthrough().safeParse(value)
+  if (!parsed.success) return []
+  return parsed.data.items.map((s) => {
+    const title = s.projections?.values.title
+    return {
+      sessionId: s.sessionId,
       ...(title === undefined ? {} : { title }),
-      updatedAt: typeof s.updatedAt === 'number' ? s.updatedAt : null,
-      running: s.running === true,
-      blank: s.blank === true,
-    })
-  }
-  return out
+      updatedAt: s.updatedAt ?? null,
+      running: s.running ?? false,
+      blank: s.blank ?? false,
+    }
+  })
 }

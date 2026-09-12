@@ -10,7 +10,7 @@
  */
 
 import type { UpstreamEndpoint } from './rpc.js'
-import type { MuxFrame } from './translate.js'
+import { parseMuxPayload } from './translate.js'
 import type { GatewayFrame } from '../gateway/stream.js'
 import { z } from 'zod'
 import {
@@ -27,7 +27,8 @@ export interface WireEnvelope {
   type: 'server-request'
   rpcId: string
   method: string
-  payload: MuxFrame
+  /** 帧体:信封层不判形状(stream/error 等无判别 schema),dispatch 内经 parseMuxPayload 判别。 */
+  payload: Record<string, unknown>
 }
 
 /** 债务 E8:envelope 判别 schema(payload 细形状在 translate.ts 的帧判别里)。 */
@@ -95,7 +96,7 @@ export const parseMuxFrame = (data: string): WireEnvelope | null => {
       type: 'server-request',
       rpcId: env.data.rpcId,
       method: env.data.method,
-      payload: env.data.payload as MuxFrame,
+      payload: env.data.payload,
     }
   } catch {
     return null
@@ -110,48 +111,44 @@ const emit = (conn: MuxConnection, sessionId: string, gw: GatewayFrame): void =>
 }
 
 const dispatch = (conn: MuxConnection, env: WireEnvelope): void => {
-  const payload = env.payload
-  const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId : undefined
-  if (sessionId === undefined) return
+  // 债务 E8:帧体判别——已知帧型形状不符或未知帧型一律丢弃(fail-loud,不猜)。
+  const frame = parseMuxPayload(env.payload)
+  if (frame === null) return
+  const sessionId = frame.sessionId
 
-  switch (env.method) {
+  switch (frame.type) {
     case 'session/event': {
-      const gw = muxFrameToGatewayFrame(payload)
+      const gw = muxFrameToGatewayFrame(frame)
       if (gw === null) return
       emit(conn, sessionId, gw)
       return
     }
     case 'question/requested': {
-      emit(conn, sessionId, questionRequestedFrame(env.rpcId, payload))
+      emit(conn, sessionId, questionRequestedFrame(env.rpcId, frame))
       return
     }
     case 'question/resolved': {
-      emit(conn, sessionId, questionResolvedFrame(payload))
+      emit(conn, sessionId, questionResolvedFrame(frame))
       return
     }
     case 'approval/requested': {
-      if (typeof payload.approvalId === 'string') {
-        conn.approvalRpcIds.set(payload.approvalId, env.rpcId)
-      }
-      emit(conn, sessionId, approvalRequestedFrame(env.rpcId, payload))
+      conn.approvalRpcIds.set(frame.approvalId, env.rpcId)
+      emit(conn, sessionId, approvalRequestedFrame(env.rpcId, frame))
       return
     }
     case 'approval/resolved': {
-      const approvalId = typeof payload.approvalId === 'string' ? payload.approvalId : null
-      const decisionId = approvalId === null ? null : conn.approvalRpcIds.get(approvalId) ?? null
-      if (approvalId !== null && decisionId !== null) conn.approvalRpcIds.delete(approvalId)
-      emit(conn, sessionId, approvalResolvedFrame(payload, decisionId))
+      const decisionId = conn.approvalRpcIds.get(frame.approvalId) ?? null
+      if (decisionId !== null) conn.approvalRpcIds.delete(frame.approvalId)
+      emit(conn, sessionId, approvalResolvedFrame(frame, decisionId))
       return
     }
     case 'session/projection': {
       // goal 投影 → Ongoing Goal 条（2026-09-11）；其余 key 仍丢弃。
-      const gw = goalProjectionFrame(payload)
+      const gw = goalProjectionFrame(frame)
       if (gw !== null) emit(conn, sessionId, gw)
       return
     }
     default:
-      // session/subscribed、session/queue、session/jobs 等：
-      // 不转成 GatewayFrame（投影另有 extract 函数；其余对本驱动无意义）。
       return
   }
 }

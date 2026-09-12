@@ -6,6 +6,7 @@ import {
   extractProjectionUsage, extractProjectionTitle,
   questionRequestedFrame, questionResolvedFrame, approvalRequestedFrame, approvalResolvedFrame,
   unwrapHistoryEvents, mapSessionList, goalOf, goalProjectionFrame,
+  muxFrameSchema, parseMuxPayload,
   type MuxFrame,
 } from './translate.js'
 
@@ -121,6 +122,60 @@ describe('eventPayload', () => {
   })
 })
 
+// ---- muxFrameSchema（债务 E8:帧体判别,wire 形状对照 dsh-facts.md §9） ----
+
+describe('muxFrameSchema', () => {
+  it('accepts a session/event frame', () => {
+    assert.ok(muxFrameSchema.safeParse({ type: 'session/event', sessionId: 's1', event: { type: 'turn/start', seq: 1, time: 0, data: {} } }).success)
+  })
+
+  it('accepts a session/projection frame (seq 可缺省)', () => {
+    assert.ok(muxFrameSchema.safeParse({ type: 'session/projection', sessionId: 's1', key: 'goal', value: null }).success)
+    assert.ok(muxFrameSchema.safeParse({ type: 'session/projection', sessionId: 's1', key: 'title', value: 'x', seq: 41 }).success)
+  })
+
+  it('accepts question/requested with questions', () => {
+    assert.ok(muxFrameSchema.safeParse({
+      type: 'question/requested', sessionId: 's1', questions: [{ id: 'a', question: 'which?' }],
+    }).success)
+  })
+
+  it('accepts question/resolved', () => {
+    assert.ok(muxFrameSchema.safeParse({ type: 'question/resolved', sessionId: 's1', questionRpcId: 'rpc-1', outcome: 'answered' }).success)
+  })
+
+  it('accepts approval/requested (callId/reason 可 null)', () => {
+    assert.ok(muxFrameSchema.safeParse({
+      type: 'approval/requested', sessionId: 's1', approvalId: 'ap-1', toolName: 'write_file', callId: null, reason: null,
+    }).success)
+  })
+
+  it('accepts approval/resolved', () => {
+    assert.ok(muxFrameSchema.safeParse({ type: 'approval/resolved', sessionId: 's1', approvalId: 'ap-1', outcome: 'allowed-once' }).success)
+  })
+
+  it('rejects unknown frame types (由信封 method 层处理/忽略)', () => {
+    assert.equal(parseMuxPayload({ type: 'stream/error', detail: 'host failing' }), null)
+    assert.equal(parseMuxPayload({ type: 'session/subscribed', sessionId: 's1' }), null)
+  })
+
+  it('rejects malformed known frames (fail-loud,不猜上游)', () => {
+    // question/requested 缺 questions
+    assert.equal(muxFrameSchema.safeParse({ type: 'question/requested', sessionId: 's1' }).success, false)
+    // approval/resolved 缺 approvalId
+    assert.equal(muxFrameSchema.safeParse({ type: 'approval/resolved', sessionId: 's1', outcome: 'x' }).success, false)
+    // session/event 缺 sessionId
+    assert.equal(muxFrameSchema.safeParse({ type: 'session/event', event: {} }).success, false)
+    // session/projection 缺 key
+    assert.equal(muxFrameSchema.safeParse({ type: 'session/projection', sessionId: 's1', value: 'x' }).success, false)
+  })
+
+  it('rejects non-objects', () => {
+    assert.equal(muxFrameSchema.safeParse(null).success, false)
+    assert.equal(muxFrameSchema.safeParse('session/event').success, false)
+  })
+})
+
 // ---- mapEvents ----
 
 describe('mapEvents', () => {
@@ -153,12 +208,12 @@ describe('muxFrameToEvent', () => {
   })
 
   it('returns null for non-event frames', () => {
-    assert.equal(muxFrameToEvent({ type: 'session/projection', sessionId: 's1' }), null)
-    assert.equal(muxFrameToEvent({ type: 'session/subscribed', sessionId: 's1' }), null)
+    assert.equal(muxFrameToEvent({ type: 'session/projection', sessionId: 's1', key: 'title', value: 'x' }), null)
+    assert.equal(muxFrameToEvent({ type: 'question/requested', sessionId: 's1', questions: [] }), null)
   })
 
   it('returns null when event is missing', () => {
-    assert.equal(muxFrameToEvent({ type: 'session/event', sessionId: 's1' }), null)
+    assert.equal(muxFrameToEvent({ type: 'session/event', sessionId: 's1', event: undefined }), null)
   })
 })
 
@@ -235,7 +290,7 @@ describe('extractProjectionUsage', () => {
   })
 
   it('returns null for non-projection frames', () => {
-    assert.equal(extractProjectionUsage({ type: 'session/event', sessionId: 's1' }), null)
+    assert.equal(extractProjectionUsage({ type: 'session/event', sessionId: 's1', event: {} }), null)
   })
 
   it('returns null when the key is not tokenUsage', () => {
@@ -401,11 +456,17 @@ describe('goalOf', () => {
     })
   })
 
+  it('treats a null blockedReason as no reason', () => {
+    assert.deepEqual(goalOf({ id: 'g3', objective: 'x', phase: 'blocked', blockedReason: null }), {
+      id: 'g3', objective: 'x', phase: 'blocked', blockedReason: null,
+    })
+  })
+
   it('returns null for null, malformed shapes, and unknown phases', () => {
     assert.equal(goalOf(null), null)
     assert.equal(goalOf('nope'), null)
-    assert.equal(goalOf({ id: 'g3', objective: 'x', phase: 'weird' }), null)
-    assert.equal(goalOf({ id: 'g4', objective: 7, phase: 'active' }), null)
+    assert.equal(goalOf({ id: 'g4', objective: 'x', phase: 'weird' }), null)
+    assert.equal(goalOf({ id: 'g5', objective: 7, phase: 'active' }), null)
   })
 })
 
@@ -422,6 +483,6 @@ describe('goalProjectionFrame', () => {
 
   it('returns null for other projection keys and frame types', () => {
     assert.equal(goalProjectionFrame({ type: 'session/projection', sessionId: 's1', key: 'title', value: 'x', seq: 1 }), null)
-    assert.equal(goalProjectionFrame({ type: 'session/event', sessionId: 's1', key: 'goal', value: {}, seq: 1 }), null)
+    assert.equal(goalProjectionFrame({ type: 'session/event', sessionId: 's1', event: {}, key: 'goal', value: {}, seq: 1 }), null)
   })
 })
