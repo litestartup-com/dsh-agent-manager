@@ -1,18 +1,9 @@
 /**
  * SSE consumer for a gateway session stream.
  *
- * Wire format verified against dsh-api-gateway/src/events.ts:141 and
- * index.ts:755-770:
- *
- * - Frames are `data: <json>\n\n`. There is no `event:` line, so the frame type
- *   lives in the JSON as `kind`.
- * - The very first thing written is `retry: 2000\n`, immediately followed by a
- *   `hello` frame, so the first block contains a non-data line as well.
- * - `hello` carries `log`: the session's entire prior history. Callers that
- *   count tokens must ignore it or they will bill past turns again.
- * - The stream does NOT close itself at `turn_end`, despite what openapi.yaml's
- *   summary says. The server keeps the subscription until the client
- *   disconnects, so the caller is responsible for stopping.
+ * 债务 E16:wire 格式核实笔记已迁设计库事实卡 dsh-facts.md §9(gateway SSE 段);
+ * 要点:无 event: 行(帧类型在 JSON 的 kind)、hello 携带全部历史(计费必须
+ * 忽略)、turn_end 后流不自行关闭(停止是调用方的责任)。
  */
 
 export interface TokenUsage {

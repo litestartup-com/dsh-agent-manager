@@ -6,19 +6,8 @@
  * 1. mux frame payload / history entry → manager's HistoryEvent (same shape as GatewayEvent)
  * 2. manager inputs → apiproxy RPC params
  *
- * Wire reality (dsh-host-apiproxy, DSH 0.1.1-rc.2):
- * - mux messages are WebSocket messages carrying the ServerRequest full form
- *   `{ type:'server-request', rpcId, method, payload }`; the payload of a
- *   `session/event` frame is `{ type:'session/event', sessionId, event, view? }`,
- *   where `event` is `{ type, seq, time, data }`.
- * - `session.history` returns `{ events: [{ event, view? }], hasMore, projections? }`,
- *   one wrapper per entry.
- * - `session.list` returns `{ items: [{ sessionId, updatedAt, running, blank, ... }] }`.
- * - `session/projection` frames arrive one key at a time:
- *   `{ type:'session/projection', sessionId, key, value, seq }`.
- *
- * This module re-implements the subset of the gateway's eventPayload we need
- * rather than importing from dsh-api-gateway, keeping the two repos decoupled.
+ * 债务 E16:wire 现实核实笔记已迁设计库事实卡 dsh-facts.md §9(translate 段)。
+ * 本模块自实现 gateway eventPayload 的子集,不 import dsh-api-gateway(两仓解耦)。
  */
 
 import type { HistoryEvent } from '../gateway/client.js'

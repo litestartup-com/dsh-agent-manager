@@ -1,22 +1,9 @@
 /**
  * Unary RPC caller for the DSH apiproxy contract.
  *
- * Wire format verified against the host implementation
- * (dsh-host-apiproxy/lib/types/fetch/handler.js, DSH 0.1.1-rc.2):
- *
- *   POST <base>/<method>
- *   body:  { type:'client-request', rpcId, method, payload }
- *   reply: HTTP 200 with
- *     { type:'server-response', rpcId, result: { ok:true, value } }
- *   or { type:'server-response', rpcId, result: { ok:false, error:{ code, message, details } } }
- *
- * The envelope's `method` must match the path segment (a mismatch is a
- * bad-request). HTTP status expresses only the carrier: 404 unknown path,
- * 415 non-JSON media type, 400 non-JSON body, 500 handler crash. Success or
- * failure is determined by `result.ok`, never by the HTTP status code.
- *
- * A fail-closed whitelist gates every call: methods not on the list are
- * rejected locally before any network request is made.
+ * 债务 E16:wire 格式的核实笔记已迁设计库事实卡 dsh-facts.md §9(RPC 段);
+ * 要点:业务成败只看 `result.ok` 不看 HTTP 状态码、envelope method 必须与
+ * 路径一致、白名单 fail-closed。
  */
 
 import { z } from 'zod'

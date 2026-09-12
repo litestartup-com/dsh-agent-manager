@@ -6,21 +6,7 @@
  * maintains one connection per endpoint and distributes frames to per-session
  * listeners.
  *
- * Wire reality (dsh-client-connection, DSH 0.1.1-rc.2):
- * - The socket is DOWNLINK ONLY: the host closes the socket (1008) on any
- *   client message. The manager never sends frames.
- * - Every message is the ServerRequest full form, JSON-encoded:
- *     { type:'server-request', rpcId, method, payload }
- *   where `method` is the frame type ('session/event', 'question/requested',
- *   ...) and `payload` is the frame body.
- * - Answerable frames (question/approval requested) carry a stable rpcId that
- *   respond() must echo; approval/resolved frames name the approvalId instead,
- *   so this module keeps an approvalId→rpcId map.
- * - The stream also emits `session/subscribed` baselines on open,
- *   `session/projection` per-key snapshots, and one `stream/error` frame
- *   before closing on host failure.
- *
- * Reconnect is the consumer's job (the host does not retry for us).
+ * 债务 E16:wire 现实核实笔记已迁设计库事实卡 dsh-facts.md §9(mux 段)。
  */
 
 import type { UpstreamEndpoint } from './rpc.js'
