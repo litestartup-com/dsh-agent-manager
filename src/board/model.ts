@@ -228,17 +228,23 @@ export const parseBlock = (raw: unknown): { block: RenderableBlock; problem: str
   const type = (raw as { type?: unknown } | null)?.type
   const title = (raw as { title?: unknown } | null)?.title
   const titleText = typeof title === 'string' ? title.slice(0, 200) : undefined
+  // exactOptionalPropertyTypes: title 只在有值时出现,不传显式 undefined。
+  const unsupported = (reason: string) => ({
+    type: 'unsupported' as const,
+    ...(titleText === undefined ? {} : { title: titleText }),
+    reason,
+  })
 
   if (typeof type !== 'string') {
     return {
-      block: { type: 'unsupported', title: titleText, reason: 'block has no "type"' },
+      block: unsupported('block has no "type"'),
       problem: 'block has no "type"',
     }
   }
 
   if (!(BLOCK_TYPES as readonly string[]).includes(type)) {
     const reason = `unknown block type "${type}"; manager knows ${BLOCK_TYPES.join(', ')}`
-    return { block: { type: 'unsupported', title: titleText, reason }, problem: reason }
+    return { block: unsupported(reason), problem: reason }
   }
 
   const parsed = blockSchema.safeParse(raw)
@@ -246,7 +252,7 @@ export const parseBlock = (raw: unknown): { block: RenderableBlock; problem: str
     const first = parsed.error.issues[0]
     const where = first === undefined ? '' : ` at ${first.path.join('.') || '(root)'}: ${first.message}`
     const reason = `"${type}" block is malformed${where}`
-    return { block: { type: 'unsupported', title: titleText, reason }, problem: reason }
+    return { block: unsupported(reason), problem: reason }
   }
 
   return { block: parsed.data, problem: null }

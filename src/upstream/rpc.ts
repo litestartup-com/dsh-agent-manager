@@ -119,7 +119,7 @@ export async function rpc<T = unknown>(
     method: 'POST',
     headers,
     body,
-    signal,
+    signal: signal ?? null,
   })
 
   // apiproxy always returns 200 for business outcomes; a non-200 means we hit

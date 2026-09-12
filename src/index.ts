@@ -104,7 +104,7 @@ const main = async (): Promise<void> => {
     gateway: (id) => clients.get(id),
     upstream: (id) => upstreamClients.get(id),
     log: (line) => app.log.info(line),
-    docker: dockerRunner ?? undefined,
+    ...(dockerRunner === null ? {} : { docker: dockerRunner }),
   })
   // 蜂群2计划 P6：容器路径没有 setup 步骤——空工作区启动即播种模板
   // （主脑的 AGENTS.md/技能手册、个人的模板页），任何已有文件的工作区绝不触碰。
@@ -241,7 +241,7 @@ const main = async (): Promise<void> => {
   registerNodesRoutes(app, config, nodeSupervisors, clients, upstreamClients, requireUser, (actor, kind, detail) =>
     recordAudit(db, { actor, kind, detail }),
   )
-  registerProvisionRoutes(app, config, requireUser, { db, supervisors: nodeSupervisors, clients, upstreamClients, docker: dockerRunner ?? undefined })
+  registerProvisionRoutes(app, config, requireUser, { db, supervisors: nodeSupervisors, clients, upstreamClients, ...(dockerRunner === null ? {} : { docker: dockerRunner }) })
   registerSkillsRoutes(app, config, requireUser)
   registerNotificationRoutes(app, db, requireUser)
   // 债务 B6:/metrics 快照端点(受保护)

@@ -281,7 +281,7 @@ export const registerInternalRoutes = (
         {
           agent,
           client: client ?? dummyGatewayClient(),
-          upstream,
+          ...(upstream === undefined ? {} : { upstream }),
           driver,
           prompt: parsed.data.text,
           trigger: 'brain',
@@ -351,7 +351,7 @@ export const registerInternalRoutes = (
         {
           agent,
           client: client ?? dummyGatewayClient(),
-          upstream,
+          ...(upstream === undefined ? {} : { upstream }),
           driver,
           prompt: body.prompt,
           trigger: 'brain',

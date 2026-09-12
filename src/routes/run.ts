@@ -78,7 +78,7 @@ export const registerRunRoutes = (
           {
             agent,
             client: client ?? dummyGatewayClient(),
-            upstream,
+            ...(upstream === undefined ? {} : { upstream }),
             driver,
             prompt: parsed.data.prompt,
             trigger: 'manual',

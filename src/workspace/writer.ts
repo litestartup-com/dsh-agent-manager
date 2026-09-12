@@ -214,7 +214,7 @@ export const applyWrites = async (
     }
     // 债务 R7:回读校验与写前校验同一套规则(writeNoteData 透传),不得退化
     // 为 DEFAULT_RULES——否则带治理规则的 agent 在落盘偏离时会被放行。
-    const violations = validateNoteData(data, { rules: options.rules })
+    const violations = validateNoteData(data, options.rules === undefined ? {} : { rules: options.rules })
     if (violations.length > 0) {
       rollback()
       throw new WriteRejected(

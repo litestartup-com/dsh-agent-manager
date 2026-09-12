@@ -155,7 +155,7 @@ export class UpstreamClient implements SessionDriver {
 
   async createSession(cwd: string, preset?: string | null): Promise<UpstreamCreatedSession> {
     const result = await rpc<{ sessionId: string; [k: string]: unknown }>(
-      this.ep, 'session.create', createSessionParams({ cwd, preset }), { timeoutMs: 30_000 },
+      this.ep, 'session.create', createSessionParams({ cwd, ...(preset === undefined ? {} : { preset }) }), { timeoutMs: 30_000 },
     )
     const v = result.result.value
     return {

@@ -360,7 +360,7 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
     db: deps.db,
     now,
     startedAt,
-    log,
+    ...(log === undefined ? {} : { log }),
     clearTimers,
   })
 

@@ -394,7 +394,7 @@ export const registerProvisionRoutes = (
           upstream: (id) => upstreamClients.get(id),
           gateway: () => deps.clients.get(body.name),
           log: (line) => app.log.info(line),
-          docker: deps.docker,
+          ...(deps.docker === undefined ? {} : { docker: deps.docker }),
         })
         supervisors.set(body.name, supervisor)
         // 债务 R9:节点拉起交给 reconcile(convergeNodes 对 docker runner 走认领/

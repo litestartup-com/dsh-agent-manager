@@ -598,7 +598,11 @@ export const registerChatRoutes = (
     const parsed = modelBody.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_body' })
     try {
-      const model = await found.upstream.selectModel(found.chat.dshSessionId, parsed.data)
+      const model = await found.upstream.selectModel(found.chat.dshSessionId, {
+        provider: parsed.data.provider,
+        model: parsed.data.model,
+        ...(parsed.data.reasoningEffort === undefined ? {} : { reasoningEffort: parsed.data.reasoningEffort }),
+      })
       invalidateHistory(found.chat.dshSessionId)
       publish(found.chat.id, { kind: 'composer_state', model })
       return reply.send({ model })

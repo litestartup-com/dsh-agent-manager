@@ -135,7 +135,7 @@ test('a second turn continues the same session instead of creating one', async (
       prompt: '接着说',
       trigger: 'manual',
       chatId: chat.id,
-      sessionId: getChat(db, chat.id)?.dshSessionId,
+      sessionId: getChat(db, chat.id)?.dshSessionId ?? null,
       keepSession: true,
     },
   )

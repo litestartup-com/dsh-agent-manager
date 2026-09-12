@@ -284,7 +284,7 @@ export class Scheduler {
         {
           agent,
           client: client ?? dummyGatewayClient(),
-          upstream,
+          ...(upstream === undefined ? {} : { upstream }),
           driver,
           prompt: row.prompt,
           trigger: 'cron',

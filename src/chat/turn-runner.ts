@@ -76,7 +76,7 @@ export const makeChatTurnRunner = (deps: TurnRunnerDeps): ChatTurnRunner => {
       {
         agent,
         client,
-        upstream: upstream ?? undefined,
+        ...(upstream === null ? {} : { upstream }),
         driver,
         prompt: text,
         trigger: 'manual',

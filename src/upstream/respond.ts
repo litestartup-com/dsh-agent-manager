@@ -63,7 +63,7 @@ export async function respond(
     method: 'POST',
     headers,
     body,
-    signal,
+    signal: signal ?? null,
   })
 
   // The carrier still answers non-200 for wrong paths / media types.

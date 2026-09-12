@@ -40,8 +40,8 @@ export const makeSupervisor = (endpoint: ResolvedEndpoint, deps: NodeRegistryDep
         return { ok: false, detail: error instanceof Error ? error.message : String(error) }
       }
     },
-    log: deps.log,
-    docker: deps.docker,
+    ...(deps.log === undefined ? {} : { log: deps.log }),
+    ...(deps.docker === undefined ? {} : { docker: deps.docker }),
     // 蜂群2计划 P2b：节点容器的环境 —— GW_KEY 走 gateway 沙箱密钥（与 settings
     // 注入一致），模型 key 走继承环境（DSH 凭据分层里优先级最高）。
     // MANAGER_URL：主脑技能手册调内部 API 用（容器里 127.0.0.1 是节点自己，不是 manager）。
