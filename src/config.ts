@@ -119,6 +119,7 @@ const pricingSchema = z.object({
   timezone: z.string().default('Asia/Shanghai'),
   models: z
     .record(
+      z.string(),
       z.object({
         off_peak: rateSchema,
         peak: rateSchema.optional(),
@@ -131,10 +132,10 @@ export const fileSchema = z.object({
   listen: z
     .object({ host: z.string().default('127.0.0.1'), port: z.number().int().positive().default(8080) })
     .default({ host: '127.0.0.1', port: 8080 }),
-  endpoints: z.record(endpointSchema).refine((v) => Object.keys(v).length > 0, {
+  endpoints: z.record(z.string(), endpointSchema).refine((v) => Object.keys(v).length > 0, {
     message: 'at least one endpoint is required',
   }),
-  agents: z.record(agentSchema).refine((v) => Object.keys(v).length > 0, {
+  agents: z.record(z.string(), agentSchema).refine((v) => Object.keys(v).length > 0, {
     message: 'at least one agent is required',
   }),
   runner: z
@@ -169,7 +170,7 @@ export const fileSchema = z.object({
     .object({
       docker_volumes: z.array(z.string()).default([]),
     })
-    .default({}),
+    .default({ docker_volumes: [] }),
 })
 
 export interface ResolvedSpawnSpec {

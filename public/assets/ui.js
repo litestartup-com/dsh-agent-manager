@@ -1,9 +1,16 @@
+// @ts-check
 // Helpers shared by every page.
 //
 // These existed in four copies, one per page script, which had already drifted:
 // two spellings of esc(), two of bannerHtml(), two money formatters. One copy is
 // also what makes the page scripts modules -- as classic scripts they shared one
 // global scope, so a second `const esc` was a hard SyntaxError.
+//
+// 债务 F7 第一步:本文件开启 @ts-check + JSDoc,由 tsconfig.public.json 在
+// CI typecheck 中检查(不引入 esbuild 构建,尊重 ui-redesign §6 口径)。
+
+/** @type {Record<string, string>} */
+const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
 
 /**
  * Escapes everything before it reaches the DOM.
@@ -11,16 +18,22 @@
  * The data is written by an agent that reads mail, web pages and dictation, so
  * any field is attacker-influenced text. Unescaped, one crafted note becomes
  * stored XSS on manager's own origin -- the origin holding the session cookie.
+ * @param {unknown} value
+ * @returns {string}
  */
 export const esc = (value) =>
-  String(value ?? '').replace(
-    /[&<>"']/g,
-    (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch],
-  )
+  String(value ?? '').replace(/[&<>"']/g, (ch) => HTML_ESCAPES[ch] ?? ch)
 
+/** @param {string} id @returns {HTMLElement | null} */
 export const $ = (id) => document.getElementById(id)
 
+/**
+ * @template T
+ * @param {T[]} frames
+ * @returns {T[]}
+ */
 export const uniqueFrames = (frames) => {
+  /** @type {Set<string>} */
   const seen = new Set()
   return frames.filter((frame) => {
     const key = JSON.stringify(frame)
@@ -30,6 +43,7 @@ export const uniqueFrames = (frames) => {
   })
 }
 
+/** @param {string} name @param {number} [size] @returns {string} */
 export const icon = (name, size = 14) =>
   // viewBox：sprite 画在 16 单位坐标系里，没有它 16 单位的图标会按 1:1
   // 塞进 12-15px 的盒子——不缩放、还裁掉右边；xlink:href 是老 Edge 内核
@@ -43,7 +57,9 @@ export const icon = (name, size = 14) =>
  * whatever the user had tabbed to and collapse any open native control, every
  * time the timer fires.
  */
+/** @type {Map<string, string>} */
 const lastHtml = new Map()
+/** @param {string} id @param {string} html @returns {void} */
 export const setHtml = (id, html) => {
   if (lastHtml.get(id) === html) return
   lastHtml.set(id, html)
@@ -51,24 +67,41 @@ export const setHtml = (id, html) => {
   if (node !== null) node.innerHTML = html
 }
 
-/** `body` is pre-escaped by the caller, since some banners embed markup. */
+/**
+ * `body` is pre-escaped by the caller, since some banners embed markup.
+ * @param {{ level: string; title: string; body: string }} b
+ * @returns {string}
+ */
 export const bannerHtml = (b) => `<div class="banner ${b.level}">
   ${icon('alert', 15)}
   <div><strong>${esc(b.title)}</strong><div class="body">${b.body}</div></div>
 </div>`
 
-/** Same call shape as bannerHtml, for the common case of plain text. */
+/**
+ * Same call shape as bannerHtml, for the common case of plain text.
+ * @param {string} level
+ * @param {string} title
+ * @param {unknown} body
+ * @returns {string}
+ */
 export const banner = (level, title, body) => bannerHtml({ level, title, body: esc(body) })
 
 // Cost arrives as integer micro-USD so no float is ever stored server-side.
 // 债务 F2:money 全站单一实现——`digits` 供紧凑卡片用 2 位(crons 列表),
 // 账本/回合明细默认 4 位;汇总金额的自适应精度见 moneyAdaptive。
+/**
+ * @param {number | null | undefined} micro
+ * @param {number} [digits]
+ * @returns {string}
+ */
 export const money = (micro, digits = 4) => (micro === null || micro === undefined ? '—' : `$${(micro / 1e6).toFixed(digits)}`)
 
 /**
  * 汇总金额的自适应精度(债务 F2:收口自 spend.js 的本地变体)。
  * 一个回合花费只有几厘,固定 2 位会把一整天的工作显示成 "$0.00";
  * 固定 4 位又会把月总计显示成 "$12.3400"。
+ * @param {number | null | undefined} micro
+ * @returns {string}
  */
 export const moneyAdaptive = (micro) => {
   if (micro === null || micro === undefined) return '—'
@@ -85,6 +118,8 @@ export const moneyAdaptive = (micro) => {
  *
  * Falls back to an absolute date beyond a week: "37 天前" is a number nobody
  * converts back into a day.
+ * @param {number | null | undefined} ms
+ * @returns {string}
  */
 export const ago = (ms) => {
   if (ms === null || ms === undefined) return ''
@@ -100,6 +135,7 @@ export const ago = (ms) => {
   return new Date(ms).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })
 }
 
+/** @param {number | null | undefined} ms @returns {string} */
 export const when = (ms) =>
   ms === null || ms === undefined
     ? '—'
@@ -107,7 +143,7 @@ export const when = (ms) =>
 
 // ---- 蜂群2计划 P3：CSRF 双提交 ----
 
-/** 登录时服务端种下的 CSRF cookie（非 httpOnly，前端可读）。 */
+/** 登录时服务端种下的 CSRF cookie（非 httpOnly，前端可读）。@returns {string} */
 export const csrfToken = () => {
   const match = document.cookie.match(/(?:^|;\s*)ohdsh_csrf=([^;]+)/)
   return match === null ? '' : decodeURIComponent(match[1])
@@ -117,11 +153,27 @@ export const csrfToken = () => {
  * 全局 fetch 包装：非 GET 请求自动带上 X-CSRF-Token（与 cookie 一致）。
  * 页面脚本一律走它，服务端对所有非 GET /api/* 校验（登录与主脑内部 API 豁免）。
  * 升级自愈：老会话缺 csrf cookie 时服务端 403 并补发 cookie——带新 cookie 重试一次。
+ * @param {string} url
+ * @param {RequestInit} [options]
+ * @returns {Promise<Response>}
  */
 export const apiFetch = async (url, options = {}) => {
   const once = () => {
     const token = csrfToken()
-    const headers = { ...(options.headers ?? {}) }
+    /** @type {Record<string, string>} */
+    const headers = {}
+    const src = options.headers
+    if (src !== undefined && src !== null) {
+      if (src instanceof Headers) {
+        src.forEach((value, key) => {
+          headers[key] = value
+        })
+      } else if (Array.isArray(src)) {
+        for (const [k, v] of src) headers[k] = v
+      } else {
+        Object.assign(headers, src)
+      }
+    }
     const method = (options.method ?? 'GET').toUpperCase()
     if (token !== '' && method !== 'GET' && method !== 'HEAD') headers['x-csrf-token'] = token
     return fetch(url, { ...options, method, headers })
@@ -148,9 +200,14 @@ export const apiFetch = async (url, options = {}) => {
  *   error 时主动退避重连；
  * - error 处理器只关「自己这一条」：旧实例的 handler 会迟到触发，关当前
  *   实例 = 每断一次漏一条连接。
+ * @param {() => EventSource} open
+ * @param {{ baseDelay?: number; maxDelay?: number }} [opts]
+ * @returns {{ connect: () => void; disconnect: () => void }}
  */
 export const autoReconnect = (open, { baseDelay = 3_000, maxDelay = 30_000 } = {}) => {
+  /** @type {EventSource | null} */
   let source = null
+  /** @type {ReturnType<typeof setTimeout> | null} */
   let retryTimer = null
   let retryDelay = baseDelay
 
@@ -193,8 +250,12 @@ export const autoReconnect = (open, { baseDelay = 3_000, maxDelay = 30_000 } = {
  * - `document.hidden` 时挂起（后台标签不浪费请求），恢复可见后按原间隔继续；
  * - fn 抛错时按 interval 退避（×2，上限 10×interval），成功即复位；
  * - 返回停止函数（页面卸载/抽屉关闭时用）。
+ * @param {() => unknown} fn
+ * @param {number} ms
+ * @returns {() => void}
  */
 export const poll = (fn, ms) => {
+  /** @type {ReturnType<typeof setTimeout> | null} */
   let timer = null
   let delay = ms
 
@@ -208,8 +269,10 @@ export const poll = (fn, ms) => {
     // 退避。真正返回 Promise 的 fn 走 then 链(浏览器场景,测试用同步 fn)。
     try {
       const result = fn()
-      if (result !== null && typeof result === 'object' && typeof result.then === 'function') {
-        result
+      if (result !== null && typeof result === 'object' && 'then' in result) {
+        /** @type {Promise<unknown>} */
+        const pending = /** @type {Promise<unknown>} */ (result)
+        pending
           .then(() => {
             delay = ms
           })
