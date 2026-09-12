@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 const source = await readFile(new URL('./chat.js', import.meta.url), 'utf8')
+const composer = await readFile(new URL('./chat-composer.js', import.meta.url), 'utf8')
 const page = await readFile(new URL('../pages/chat.html', import.meta.url), 'utf8')
 
 test('optional composer controls are guarded before event binding', () => {
@@ -13,11 +14,11 @@ test('optional composer controls are guarded before event binding', () => {
 })
 
 test('send/stop share one slot and queue send is wired (方案 C)', () => {
-  // 主槽叠放：同槽变身，busy 时只显示停止方块。
+  // 主槽叠放：同槽变身，busy 时只显示停止方块(实现已下沉 chat-composer.js)。
   assert.match(page, /class="composer-slot"/)
-  assert.match(source, /const busy = sending \|\| turnRunning/)
-  assert.match(source, /el\.send\.hidden = busy/)
-  assert.match(source, /el\.stop\.hidden = !busy/)
+  assert.match(composer, /const busy = refs\.sending\.value \|\| turnRunning/)
+  assert.match(composer, /el\.send\.hidden = busy/)
+  assert.match(composer, /el\.stop\.hidden = !busy/)
   // 排队发送 ghost 箭头按钮：回合运行中输入非空才浮现。
   assert.match(page, /id="chat-queue"/)
   assert.match(source, /el\.queue\.addEventListener\('click', \(\) => void send\(\)\)/)

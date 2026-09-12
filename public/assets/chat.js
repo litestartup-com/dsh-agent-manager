@@ -21,9 +21,11 @@
 //   turn_done   { runId, state, error }     (manager's)
 
 import { $, esc, icon, apiFetch } from './ui.js'
-// 债务 F1:reducer/render/wire 三层已下沉——chat.js 只编排与持有页面状态。
+// 债务 F1:reducer/render/wire/composer 四层已下沉——chat.js 只编排与持有页面状态。
 import { makeRenderer } from './chat-render.js'
 import { makeWire } from './chat-wire.js'
+import { makeComposer, fullAccessWarning } from './chat-composer.js'
+import { makeAsks } from './chat-state.js'
 
 const el = {
   notices: $('chat-notices'),
@@ -212,6 +214,7 @@ const refs = {
   turnStartedAt: { get value() { return turnStartedAt }, set value(v) { turnStartedAt = v } },
   modelChoices: { get value() { return modelChoices }, set value(v) { modelChoices = v } },
   modelCatalogSessionId: { get value() { return modelCatalogSessionId }, set value(v) { modelCatalogSessionId = v } },
+  effortSignature: { get value() { return effortSignature }, set value(v) { effortSignature = v } },
   buffered: { get value() { return buffered }, set value(v) { buffered = v } },
   loading: { get value() { return loading }, set value(v) { loading = v } },
 }
@@ -312,7 +315,7 @@ const waitLabel = (block) => {
   // Checked before anything else, and before the block: these are the states
   // where the turn is stopped rather than slow, and any other label here is a
   // lie the clock keeps telling once a second.
-  if (asks.size > 0) return asks.size === 1 ? '在等你回答上面那张卡' : `在等你回答上面 ${asks.size} 张卡`
+  if (asks.size() > 0) return asks.size() === 1 ? '在等你回答上面那张卡' : `在等你回答上面 ${asks.size()} 张卡`
   if (block === null) return '正在唤起它'
   // No card, but the audit trail says it asked: the prompt went to whoever the
   // deployment answers with, which is not this screen.
@@ -398,62 +401,14 @@ let waitTimer = null
  * the waiting indicator does -- a redraw mid-answer must not swallow the text
  * someone is typing into one.
  */
-const asks = new Map()
+// 债务 F1:asks 状态机已下沉 chat-state.js(makeAsks/track 纯函数,7 例单测);
+// 本文件保留 syncAsks 的 DOM 挂载与 askNode。
+const asks = makeAsks()
+const trackAsks = asks.track
 
 /** Only rebuild the cards when the set of asks actually changes. */
-const asksSignature = () => Array.from(asks.keys()).join('|')
+const asksSignature = () => asks.entries().map(([key]) => key).join('|')
 let paintedAsks = null
-
-/**
- * Open and close cards from the gateway's own frames.
- *
- * Closing is driven by `question_resolved` / `approval_resolved` rather than by
- * the click that sent the answer, so a card that someone else answered first --
- * another tab, or the turn being cancelled -- disappears here too.
- */
-const trackAsks = (frame) => {
-  switch (frame.kind) {
-    case 'question_asked':
-      if (typeof frame.questionId === 'string' && Array.isArray(frame.questions)) {
-        asks.set(frame.questionId, { kind: 'question', id: frame.questionId, questions: frame.questions })
-      }
-      return
-    case 'approval_pending':
-      if (typeof frame.decisionId === 'string') {
-        asks.set(frame.decisionId, {
-          kind: 'approval',
-          id: frame.decisionId,
-          approvalId: typeof frame.approvalId === 'string' ? frame.approvalId : null,
-          toolName: typeof frame.toolName === 'string' ? frame.toolName : '',
-          reason: typeof frame.reason === 'string' ? frame.reason : null,
-        })
-      }
-      return
-    case 'question_resolved':
-      asks.delete(frame.questionId)
-      return
-    case 'approval_resolved':
-      if (typeof frame.decisionId === 'string') {
-        asks.delete(frame.decisionId)
-      } else if (typeof frame.approvalId === 'string') {
-        // The resolved frame names the approvalId, not the original rpcId; a
-        // fresh mux connection may not have seen the request, so fall back to
-        // scanning cards by approvalId.
-        for (const [key, value] of asks) {
-          if (value.kind === 'approval' && value.approvalId === frame.approvalId) asks.delete(key)
-        }
-      }
-      return
-    case 'turn_end':
-    case 'turn_done':
-      // Nothing can be answered once the turn is over, and a card left behind
-      // would take an answer nobody is waiting for.
-      asks.clear()
-      return
-    default:
-      return
-  }
-}
 
 const askNode = document.createElement('div')
 askNode.className = 'asks'
@@ -467,7 +422,7 @@ askNode.className = 'asks'
  * frame would replace the input the person is using.
  */
 const syncAsks = () => {
-  if (asks.size === 0) {
+  if (asks.size() === 0) {
     askNode.remove()
     askNode.innerHTML = ''
     paintedAsks = null
@@ -475,7 +430,7 @@ const syncAsks = () => {
   }
   const signature = asksSignature()
   if (signature !== paintedAsks) {
-    askNode.innerHTML = Array.from(asks.values()).map((ask) => (ask.kind === 'approval' ? approvalCard(ask) : questionCard(ask))).join('')
+    askNode.innerHTML = asks.entries().map(([, ask]) => (ask.kind === 'approval' ? approvalCard(ask) : questionCard(ask))).join('')
     paintedAsks = signature
   }
   el.log.append(askNode)
@@ -832,27 +787,8 @@ const renderQueueDock = () => {
 /**
  * Edit pulls the queued text back into the composer (undo); delete drops it.
  * Both call the same idempotent cancel endpoint and remove the row locally.
+ * (实现已下沉 chat-composer.js)
  */
-const cancelQueued = async (row, action) => {
-  const id = row.dataset.id
-  const item = queuedItems.find((q) => q.id === id)
-  if (item === undefined) return
-  const index = queuedItems.indexOf(item)
-  try {
-    await apiFetch(`/api/chats/${encodeURIComponent(chatId)}/queued/${encodeURIComponent(id)}/cancel`, { method: 'POST' })
-  } catch {
-    // The row stays if the server cannot be reached; the user can try again.
-    return
-  }
-  queuedItems.splice(index, 1)
-  if (action === 'edit') {
-    el.input.value = item.text
-    grow()
-    el.input.focus()
-    toast('已撤销，改完再发即可')
-  }
-  render()
-}
 
 const renderNotices = () => {
   if (state === null) return
@@ -900,137 +836,25 @@ const renderGoalBar = () => {
     `<span class="goal-objective" title="${esc(goal.objective)}">${esc(goal.objective)}</span>`
 }
 
-/**
- * Windows 长路径的中间省略：保留盘符开头与尾部（工作区名），掐掉最无信息量
- * 的中段。完整路径始终在 title 里（hover 可见）。
- */
-const shortPath = (path) => {
-  const s = String(path ?? '')
-  if (s.length <= 52) return s
-  return `${s.slice(0, 16)}…${s.slice(-32)}`
-}
+// ---------------------------------------------------------------------------
+// composer（渲染/发送/模型/权限/上下文,已下沉 chat-composer.js,本文件接线）
+// ---------------------------------------------------------------------------
 
-const modelKey = (selection) => `${selection.provider}\u0000${selection.model}`
+// 债务 F1:composer 层——renderComposer/send/cancel/selectModel/cancelQueued/
+// syncAccessOptions 全部在 chat-composer.js;纯函数 modelKey/shortPath 同源。
+const composer = makeComposer(refs, {
+  chatId,
+  el,
+  toast,
+  render,
+  reload,
+  grow,
+  dropdownState,
+  setDropdownLabel,
+})
+const { renderComposer, syncAccessOptions, send, cancel, selectModel, cancelQueued } = composer
 
-const syncEffort = () => {
-  if (el.effort === null) return
-  const selection = state?.composer?.model
-  const choice = selection === null || selection === undefined ? undefined : modelChoices.get(modelKey(selection))
-  const reasoning = choice?.reasoning
-  const efforts = Array.isArray(reasoning?.efforts) ? reasoning.efforts : []
-  const value = selection?.reasoningEffort ?? reasoning?.defaultEffort ?? ''
-  const signature = JSON.stringify([modelKey(selection ?? { provider: '', model: '' }), value, efforts])
-  if (signature === effortSignature) return
-  effortSignature = signature
-  if (efforts.length === 0) {
-    el.effort.hidden = true
-    return
-  }
-  el.effort.hidden = false
-  const options = [
-    { value: '', label: '默认推理' },
-    ...efforts.filter((effort) => typeof effort?.id === 'string' && typeof effort?.name === 'string').map((effort) => ({ value: effort.id, label: effort.name })),
-  ]
-  const entry = dropdownState.get(el.effort)
-  if (entry !== undefined) {
-    entry.options = options
-    entry.value = value
-    setDropdownLabel(el.effort, (options.find((o) => o.value === value) ?? options[0]).label)
-  }
-}
-
-const renderContext = (context) => {
-  if (el.contextWrap === null || el.context === null) return
-  el.contextWrap.hidden = context === null
-  if (context === null) {
-    if (el.contextPopover !== null) el.contextPopover.hidden = true
-    return
-  }
-  el.context.textContent = `${context.percent}%`
-  el.context.style.setProperty('--context-ratio', String(context.percent / 100))
-  el.context.title = `上下文约 ${context.usedTokens.toLocaleString()} / ${context.contextWindow.toLocaleString()} tokens`
-  el.context.setAttribute('aria-label', el.context.title)
-  if (el.contextSummary !== null) el.contextSummary.textContent = `约 ${context.usedTokens.toLocaleString()} / ${context.contextWindow.toLocaleString()} tokens`
-  const breakdown = context.breakdown
-  if (el.contextBreakdown !== null) {
-    el.contextBreakdown.hidden = breakdown === null || breakdown === undefined
-    if (breakdown !== null && breakdown !== undefined) {
-      el.contextBreakdown.textContent = `系统 ${breakdown.systemTokens.toLocaleString()} · 工具 ${breakdown.toolsTokens.toLocaleString()} · 对话 ${breakdown.messageTokens.toLocaleString()}`
-    }
-  }
-  const total = breakdown === null || breakdown === undefined ? 0 : breakdown.systemTokens + breakdown.toolsTokens + breakdown.messageTokens
-  const widths = total > 0
-    ? [breakdown.systemTokens, breakdown.toolsTokens, breakdown.messageTokens].map((value) => `${context.percent * value / total}%`)
-    : [`${context.percent}%`, '0%', '0%']
-  for (const [node, width] of [[el.contextSystem, widths[0]], [el.contextTools, widths[1]], [el.contextMessages, widths[2]]]) {
-    if (node !== null) node.style.width = width
-  }
-}
-
-const renderComposer = () => {
-  if (state === null) return
-  // The agent pill carries the name; the full path is one hover away.
-  el.agent.textContent = state.agent.name
-  el.agent.title = state.agent.workspacePath ?? ''
-  el.path.textContent = shortPath(state.agent.workspacePath)
-  el.path.title = state.agent.workspacePath ?? ''
-
-  const composer = state.composer ?? { capabilities: {}, model: null, context: null, accessMode: null }
-  const capabilities = composer.capabilities ?? {}
-  const lost = state.sessionState === 'lost'
-  // 会话尚未绑定（还没发过第一条消息）：切权限/选模型服务端必然 409 no_session，
-  // 控件直接禁用并说明原因，而不是「点了弹个 409」。
-  const fresh = state.sessionState === 'fresh'
-  // 蜂群 P5.4：跨会话不再互锁，composer 永不因别的会话而禁用；同会话的
-  // 新消息在上一回合跑完前由服务端排队，dock 可见可删。
-  const locked = lost || sending
-  const turnRunning = state.turns.some((t) => t.state === 'running')
-
-  el.input.disabled = lost
-  if (el.modes !== null) el.modes.hidden = capabilities.accessMode !== true
-  if (el.settings !== null) {
-    el.settings.hidden = capabilities.accessMode !== true && capabilities.modelSelection !== true && composer.context === null
-  }
-  if (el.access !== null) {
-    el.access.disabled = lost || fresh || sending || turnRunning || capabilities.accessMode !== true
-    el.access.title = fresh ? '发送第一条消息后即可切换访问模式' : turnRunning ? '当前回合结束后可切换' : ''
-    if (typeof syncAccessOptions === 'function') syncAccessOptions()
-    if (composer.accessMode !== null) {
-      const entry = dropdownState.get(el.access)
-      if (entry !== undefined) {
-        entry.value = composer.accessMode
-        setDropdownLabel(el.access, composer.accessMode === 'workspace-write' ? '工作区可写' : composer.accessMode === 'danger-full-access' ? '全量访问' : '只读')
-      }
-    }
-  }
-  if (el.model !== null) {
-    if (el.model.parentElement !== null) el.model.parentElement.hidden = capabilities.modelSelection !== true
-    el.model.disabled = lost || fresh || sending || turnRunning || capabilities.modelSelection !== true || modelChoices.size === 0
-    el.model.title = fresh ? '发送第一条消息后即可选择模型' : turnRunning ? '当前回合结束后可切换' : ''
-  }
-  if (el.effort !== null) el.effort.disabled = lost || sending || turnRunning || capabilities.modelSelection !== true
-  syncEffort()
-  renderContext(composer.context)
-  el.send.disabled = locked || el.input.value.trim() === ''
-  // 方案 C（2026-09-11）：发送/停止同槽变身——busy 时槽里只有停止方块，
-  // 空闲时只有发送箭头，主 CTA 位置永不跳动。排队发送是回合运行中输入非空
-  // 才浮现的 ghost 小按钮（P5.4 排队能力保留）。
-  const busy = sending || turnRunning
-  el.send.hidden = busy
-  el.stop.hidden = !busy
-  el.queue.hidden = !(turnRunning && !lost && el.input.value.trim() !== '')
-
-  el.input.placeholder = lost
-    ? '这个会话已无法继续'
-    : turnRunning && !sending
-      ? '正在跑上一回合 · 新消息会自动排队'
-      : sending
-        ? '正在等它回答…'
-        : '说点什么…'
-
-  // The hint only names the available interruption gesture beside the input.
-  el.hint.textContent = sending ? '按 Esc 或点「停止」可以中断' : ''
-}
+// ---- remaining header/notices helpers ----
 
 // ---------------------------------------------------------------------------
 // loading + live stream（已下沉 chat-wire.js,本文件只接线）
@@ -1052,7 +876,7 @@ const { connect, disconnect, reload } = makeWire(refs, {
 
 
 // ---------------------------------------------------------------------------
-// sending
+// sending（send/cancel/selectModel 已下沉 chat-composer.js,本文件只绑事件）
 // ---------------------------------------------------------------------------
 
 const grow = () => {
@@ -1060,94 +884,17 @@ const grow = () => {
   el.input.style.height = `${el.input.scrollHeight}px`
 }
 
-const send = async () => {
-  const text = el.input.value.trim()
-  if (text === '' || sending || state === null) return
-
-  // Cleared before the request, not after: leaving the text in the box while a
-  // turn runs invites a second send, and a second send is a 409.
-  el.input.value = ''
-  grow()
-  sending = true
-  // Set here rather than on `turn_start`: the gateway can take seconds to send
-  // that frame, and those seconds are precisely the ones that feel like a hang.
-  turnStartedAt = Date.now()
-  render()
-
-  try {
-    const response = await apiFetch(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ text }),
-    })
-
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({}))
-      sending = false
-      // The text goes back in the box: it was never delivered, and retyping it
-      // is the last thing anyone wants after being told the agent was busy.
-      el.input.value = text
-      grow()
-      toast(body.detail ?? `发送失败（${response.status}）`)
-      void reload()
-      return
-    }
-
-    // Read the result first: an accepted turn may need the local bubble (its
-    // message can still be missing from the history on the reload below), while
-    // a queued one must NOT appear in the log yet — it lives in the dock until
-    // its turn actually starts.
-    const result = await response.json().catch(() => ({}))
-    if (result.queued !== true) pendingUserTexts.push({ text, at: Date.now() })
-    sending = false
-    // The turn's own frames drove the transcript; this reload is for the run row
-    // and for a title the server may have derived. It is also the fallback when
-    // the relay dropped and `turn_done` never arrived.
-    await reload()
-    if (result.queued === true) {
-      toast(`已排队（第 ${result.position} 位），前一个任务完成后自动开始`)
-    }
-  } catch (error) {
-    sending = false
-    el.input.value = text
-    grow()
-    toast(`发送失败：${error.message}`)
-    render()
-  }
-}
-
 el.composer.addEventListener('submit', (event) => {
   event.preventDefault()
   void send()
 })
-
-// 全量访问的确认文案按部署形态区分（爆炸半径不同，2026-09-11 拍板）。
-const FULL_WARNINGS = {
-  container: '容器内全量访问：agent 可读写容器内所有文件与工作区挂载。仅在完全信任该 agent 时开启。确定开启？',
-  'bare-metal': '整台机器的全量访问：agent 可读写本机所有文件，包括本 manager 的密钥文件（.env）。仅在完全信任该 agent 时开启。确定开启？',
-}
-const ACCESS_SAFE = [
-  { value: 'read-only', label: '只读' },
-  { value: 'workspace-write', label: '工作区可写' },
-]
-
-/** 第三档选项随节点开锁状态变化：开锁 = 可选；未开锁 = 展示但锁定并说明。 */
-const syncAccessOptions = () => {
-  if (el.access === null) return
-  const entry = dropdownState.get(el.access)
-  if (entry === undefined) return
-  const caps = state?.composer?.capabilities ?? {}
-  entry.options = caps.fullAccess === true
-    ? [...ACCESS_SAFE, { value: 'danger-full-access', label: '全量访问', danger: true }]
-    : [...ACCESS_SAFE, { value: 'danger-full-access', label: '全量访问 · 节点未开启', danger: true, locked: true }]
-}
 
 if (el.access !== null) {
   registerDropdown(el.access, (mode) => {
     if (mode !== 'read-only' && mode !== 'workspace-write' && mode !== 'danger-full-access') return
     if (mode === 'danger-full-access') {
       const form = state?.composer?.capabilities?.fullAccessForm ?? 'bare-metal'
-      if (!window.confirm(FULL_WARNINGS[form] ?? FULL_WARNINGS['bare-metal'])) return
+      if (!window.confirm(fullAccessWarning(form))) return
     }
     void (async () => {
       el.access.disabled = true
@@ -1176,29 +923,6 @@ if (el.access !== null) {
     syncAccessOptions()
     accEntry.value = 'read-only'
   }
-}
-
-const selectModel = async (selection) => {
-  if (el.model !== null) el.model.disabled = true
-  if (el.effort !== null) el.effort.disabled = true
-  try {
-    const response = await apiFetch(`/api/chats/${encodeURIComponent(chatId)}/model`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(selection),
-    })
-    const body = await response.json().catch(() => ({}))
-    if (!response.ok) {
-      toast(body.detail ?? `模型切换失败（${response.status}）`)
-      return
-    }
-    state.composer = { ...(state.composer ?? {}), model: body.model }
-    effortSignature = null
-    toast('模型已更新，将在下一回合生效')
-  } catch (error) {
-    toast(`模型切换失败：${error.message}`)
-  }
-  render()
 }
 
 if (el.model !== null) {
@@ -1266,16 +990,6 @@ el.input.addEventListener('keydown', (event) => {
     void send()
   }
 })
-
-const cancel = async () => {
-  try {
-    const response = await apiFetch(`/api/chats/${encodeURIComponent(chatId)}/cancel`, { method: 'POST' })
-    const body = await response.json().catch(() => ({}))
-    toast(response.ok ? '已请求停止' : (body.detail ?? '停止失败'))
-  } catch (error) {
-    toast(`停止失败：${error.message}`)
-  }
-}
 
 el.stop.addEventListener('click', () => void cancel())
 
