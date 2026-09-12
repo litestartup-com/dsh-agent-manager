@@ -739,6 +739,30 @@ const renderGoalBar = () => {
 // composer（渲染/发送/模型/权限/上下文,已下沉 chat-composer.js,本文件接线）
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// loading + live stream（已下沉 chat-wire.js,本文件只接线）
+// ---------------------------------------------------------------------------
+
+// 债务 F1:wire 层——加载/重载/SSE 帧分发全部在 chat-wire.js,状态经 refs
+// 盒读写,渲染与卡片回调注入。chat.js 只持有 { connect, disconnect, reload }。
+// 注意顺序:reload 要先于 makeComposer 初始化(composer 的 send 依赖它),否则
+// 模块求值期就会踩 TDZ(Uncaught ReferenceError: Cannot access 'reload')。
+const { connect, disconnect, reload } = makeWire(refs, {
+  chatId,
+  el,
+  render,
+  trackAsks,
+  resetAsks: () => asks.clear(),
+  reattachToBottom,
+  dropdownState,
+  setDropdownLabel,
+})
+
+const grow = () => {
+  el.input.style.height = 'auto'
+  el.input.style.height = `${el.input.scrollHeight}px`
+}
+
 // 债务 F1:composer 层——renderComposer/send/cancel/selectModel/cancelQueued/
 // syncAccessOptions 全部在 chat-composer.js;纯函数 modelKey/shortPath 同源。
 const composer = makeComposer(refs, {
@@ -756,32 +780,8 @@ const { renderComposer, syncAccessOptions, send, cancel, selectModel, cancelQueu
 // ---- remaining header/notices helpers ----
 
 // ---------------------------------------------------------------------------
-// loading + live stream（已下沉 chat-wire.js,本文件只接线）
-// ---------------------------------------------------------------------------
-
-// 债务 F1:wire 层——加载/重载/SSE 帧分发全部在 chat-wire.js,状态经 refs
-// 盒读写,渲染与卡片回调注入。chat.js 只持有 { connect, disconnect, reload }。
-const { connect, disconnect, reload } = makeWire(refs, {
-  chatId,
-  el,
-  render,
-  trackAsks,
-  resetAsks: () => asks.clear(),
-  reattachToBottom,
-  dropdownState,
-  setDropdownLabel,
-})
-
-
-
-// ---------------------------------------------------------------------------
 // sending（send/cancel/selectModel 已下沉 chat-composer.js,本文件只绑事件）
 // ---------------------------------------------------------------------------
-
-const grow = () => {
-  el.input.style.height = 'auto'
-  el.input.style.height = `${el.input.scrollHeight}px`
-}
 
 el.composer.addEventListener('submit', (event) => {
   event.preventDefault()
