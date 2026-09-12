@@ -157,7 +157,10 @@ export const registerAuthRoutes = (
    * 蜂群2计划 P3：修改密码 —— 首登强制改密的唯一出口。
    * 强度规则（D2）：新密码 ≥ 10 字符；改成功即清除强制标记。
    */
-  app.post('/api/account/password', async (request, reply) => {
+  app.post('/api/account/password', {
+    // 债务 S3:改密是「有会话者暴力猜当前口令」的向量,与登录同档限流。
+    config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
     const user = resolveSession(db, request.cookies[COOKIE_NAME])
     if (user === null) return reply.code(401).send({ error: 'unauthorized' })
     const parsed = passwordBody.safeParse(request.body)

@@ -234,7 +234,7 @@ export const registerInternalRoutes = (
    * 「会话内串行」的服务端闸门；同样走主脑预算熔断。续接的帧实时推给该
    * 会话页的 relay，用户在场时看得到主脑在续写。
    */
-  app.post<{ Params: { id: string }; Body: unknown }>('/api/internal/chats/:id/prompt', gated, async (request, reply) => {
+  app.post<{ Params: { id: string }; Body: unknown }>('/api/internal/chats/:id/prompt', { ...gated, config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (request, reply) => {
     const parsed = promptBody.safeParse(request.body)
     if (!parsed.success) {
       return reply.code(400).send({ error: 'invalid_body', detail: parsed.error.issues.map((i) => i.message) })
@@ -309,7 +309,7 @@ export const registerInternalRoutes = (
     }
   })
 
-  app.post<{ Body: unknown }>('/api/internal/dispatch', gated, async (request, reply) => {
+  app.post<{ Body: unknown }>('/api/internal/dispatch', { ...gated, config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (request, reply) => {
     const parsed = dispatchBody.safeParse(request.body)
     if (!parsed.success) {
       return reply.code(400).send({ error: 'invalid_body', detail: parsed.error.issues.map((i) => i.message) })
@@ -386,7 +386,7 @@ export const registerInternalRoutes = (
     }
   })
 
-  app.post<{ Body: unknown }>('/api/internal/crons', gated, async (request, reply) => {
+  app.post<{ Body: unknown }>('/api/internal/crons', { ...gated, config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (request, reply) => {
     const parsed = cronBody.safeParse(request.body)
     if (!parsed.success) {
       return reply.code(400).send({ error: 'invalid_body', detail: parsed.error.issues.map((i) => i.message) })

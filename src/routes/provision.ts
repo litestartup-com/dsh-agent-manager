@@ -261,7 +261,7 @@ export const registerProvisionRoutes = (
       { onlyNodes, removeStaleAgents: false },
     )
 
-  app.post<{ Body: unknown }>('/api/nodes', { preHandler: requireUser }, async (request, reply) => {
+  app.post<{ Body: unknown }>('/api/nodes', { preHandler: requireUser, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (request, reply) => {
     const parsed = provisionBody.safeParse(request.body)
     if (!parsed.success) {
       return reply.code(400).send({ error: 'invalid_body', detail: parsed.error.issues.map((i) => i.message) })
@@ -583,7 +583,7 @@ export const registerProvisionRoutes = (
    * 2026-09-05 定：删除节点 = 停进程 + 配置里删「节点 + 它绑定的工作区」两行
    * + 磁盘目录全部保留。确认语义由前端确认框明示。
    */
-  app.delete<{ Params: { id: string } }>('/api/nodes/:id', { preHandler: requireUser }, async (request, reply) => {
+  app.delete<{ Params: { id: string } }>('/api/nodes/:id', { preHandler: requireUser, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (request, reply) => {
     const endpoint = config.endpoints[request.params.id]
     if (endpoint === undefined) return reply.code(404).send({ error: 'unknown_node' })
     if (endpoint.spawn === null || !supervisors.has(request.params.id)) {

@@ -86,7 +86,7 @@ export const registerNodesRoutes = (
     return { kind: 'ok', supervisor, spawn: ep.spawn }
   }
 
-  app.post<{ Params: { id: string } }>('/api/nodes/:id/up', { preHandler: requireUser }, async (request, reply) => {
+  app.post<{ Params: { id: string } }>('/api/nodes/:id/up', { preHandler: requireUser, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (request, reply) => {
     const target = managed(request)
     if (target.kind === 'unknown') return reply.code(404).send({ error: 'unknown_node' })
     if (target.kind === 'unmanaged') {
@@ -99,7 +99,7 @@ export const registerNodesRoutes = (
     return reply.send({ ok: true, state: target.supervisor.current.state })
   })
 
-  app.post<{ Params: { id: string } }>('/api/nodes/:id/down', { preHandler: requireUser }, async (request, reply) => {
+  app.post<{ Params: { id: string } }>('/api/nodes/:id/down', { preHandler: requireUser, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (request, reply) => {
     const target = managed(request)
     if (target.kind === 'unknown') return reply.code(404).send({ error: 'unknown_node' })
     if (target.kind === 'unmanaged') {
@@ -112,7 +112,7 @@ export const registerNodesRoutes = (
     return reply.send({ ok: true, state: target.supervisor.current.state })
   })
 
-  app.post<{ Params: { id: string } }>('/api/nodes/:id/restart', { preHandler: requireUser }, async (request, reply) => {
+  app.post<{ Params: { id: string } }>('/api/nodes/:id/restart', { preHandler: requireUser, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (request, reply) => {
     const target = managed(request)
     if (target.kind === 'unknown') return reply.code(404).send({ error: 'unknown_node' })
     if (target.kind === 'unmanaged') {
