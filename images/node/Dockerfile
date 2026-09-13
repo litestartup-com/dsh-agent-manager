@@ -7,9 +7,11 @@
 ARG NODE_IMAGE=node:22-bookworm-slim
 FROM ${NODE_IMAGE}
 
-# git：插件/工作区；curl/jq：agent 常用工具；tzdata：TZ=Asia/Shanghai
+# git：插件/工作区；curl/jq：agent 常用工具；tzdata：TZ=Asia/Shanghai；
+# python3/make/g++：DSH 全家桶的原生依赖预编译下载失败时回退 node-gyp 用
+# （manager 镜像同款教训，构建期装、运行层不可避免）。
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git ca-certificates curl jq tzdata \
+    git ca-certificates curl jq tzdata python3 make g++ \
     && rm -rf /var/lib/apt/lists/*
 
 ARG NPM_REGISTRY=https://registry.npmjs.org

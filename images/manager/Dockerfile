@@ -3,6 +3,11 @@
 # 依赖 docker.sock（宿主机挂载）管理工蜂容器；git/curl 供工作区快照与 agent 工具。
 FROM node:22-bookworm-slim AS deps
 WORKDIR /app
+# better-sqlite3 13 的预编译二进制下载失败时会回退 node-gyp——slim 镜像没有
+# 工具链，构建直接炸（compose-e2e 首跑实证）。构建期装上，运行层不含。
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 

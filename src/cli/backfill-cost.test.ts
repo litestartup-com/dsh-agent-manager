@@ -13,6 +13,10 @@ import { backfillCosts } from './backfill-cost.js'
  * 修复 = main 体抽成可注入路径的纯函数,isDirect 才执行(与 setup.ts 同模式)。
  */
 
+// 债务 D5:loadConfig 的 env 校验要求 SESSION_SECRET——本地靠仓库根的 .env
+// 掩盖,CI 干净 checkout 必炸(config.test/reconcile.test 同款兜底,此处补齐)。
+if (process.env.SESSION_SECRET === undefined) process.env.SESSION_SECRET = 'x'.repeat(32)
+
 const TEST_RATE_INPUT = 1 // 美元/百万 token
 const TEST_RATE_OUTPUT = 2
 
