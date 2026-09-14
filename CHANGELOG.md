@@ -18,7 +18,7 @@
 - **R8 apiproxy 订阅泄漏**：prompt 拒绝/抛错/超时全部 try/finally 退订；`finish` 幂等闸
 - **R9 对账单一化**：provision 热变更全走 `reconcileAll`（onlyNodes 范围化，不抢拉用户手动停掉的冷节点）
 - **S3 变更端点全量限流**：nodes 起停/增删 20/min、internal 派工/续写/crons 60/min、改密 10/min 与登录同档
-- **R10 发布门补丁**：`gen-env.sh` 写入 `HOST_UID/HOST_GID`（compose 容器与部署用户同 uid）——此前跳过 install.sh 直接用 gen-env 的场景（CI compose-e2e）容器回落 1000 而宿主文件属 1001，manager 写不进 data → `SQLITE_CANTOPEN` 死循环、nginx 全 502
+- **R10 发布门补丁**：`gen-env.sh` 写入 `HOST_UID/HOST_GID`（compose 容器与部署用户同 uid）——此前跳过 install.sh 直接用 gen-env 的场景（CI compose-e2e）容器回落 1000 而宿主文件属 1001，manager 写不进 data → `SQLITE_CANTOPEN` 死循环、nginx 全 502；节点镜像 `/data` 卷根 777 + `HOME=/data`——容器按 HOST_UID 运行而命名卷继承镜像 1000 属主时，`mkdir /data/profiles` EACCES、节点无限重启、工蜂认领超时
 - **E8 协议帧判别收紧**：RPC/mux/translate 六帧型 zod 判别（形状不符 fail-loud 丢弃，不猜上游）
 
 ### 后端疗程（第二批）

@@ -31,11 +31,19 @@ RUN DSH_VERSION="${DSH_VERSION}" GATEWAY_REF="${GATEWAY_REF}" NPM_REGISTRY="${NP
 
 COPY entrypoint.sh /usr/local/bin/dsh-node-entrypoint
 RUN chmod +x /usr/local/bin/dsh-node-entrypoint \
-    && mkdir -p /data /workspace && chown -R 1000:1000 /data /workspace
-
+    && mkdir -p /data /workspace && chown -R 1000:1000 /data /workspace \
+    # 容器以 HOST_UID 运行（compose user: / DockerRunner User: 均传宿主部署 uid，
+    # 不等于镜像内 1000 时命名卷继承镜像 /data 的 1000 属主 → mkdir /data/profiles
+    # EACCES、节点无限重启）。卷根 777：任何 uid 都能在自己创建的子树里工作，
+    # 文件本身仍按创建者属主 + 既有 0600 等位收紧（单租户节点容器，无多用户面）。
+    && chmod 777 /data
 # DSH_HOME 挂卷：首次启动从 /opt/ohdsh-profile 复制 profile（本地复制，零网络）。
+# HOME 也指到 /data：$HOME/.brain-auth（主脑令牌，0600）与 dsh 的 ~/.config/~/.npm
+# 等运行时写入全部落在同一个可写卷里（否则 HOME=/home/node 属主 1000，
+# HOST_UID≠1000 时 entrypoint 写 .brain-auth 同样 EACCES）。
 # 节点内绑 0.0.0.0（容器网络隔离，端口不发布到宿主机，manager 走 hive 内网访问）。
 ENV DSH_HOME=/data \
+    HOME=/data \
     NODE_ENV=production \
     TZ=Asia/Shanghai
 WORKDIR /workspace
