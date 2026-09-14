@@ -16,6 +16,12 @@ ensure() { # key value
 [ -f "$ENV_FILE" ] || : > "$ENV_FILE"
 
 ensure SESSION_SECRET "$(gen)"
+# 债务 H1：manager/node 容器以 HOST_UID:HOST_GID 运行（compose user: 指令）。
+# 不写入时 compose 回落 1000:1000，与本机部署用户（如 GH runner 的 1001）
+# 不一致 → data/workspaces bind mount 只读 → manager 启动即崩（SQLITE_CANTOPEN）。
+# install.sh 有同款两行，gen-env 直接用的场景（CI compose-e2e / 手动引导）也必须写。
+ensure HOST_UID "$(id -u)"
+ensure HOST_GID "$(id -g)"
 ensure GW_KEY_A "apigw-$(openssl rand -hex 24)"
 ensure GW_KEY_B "apigw-$(openssl rand -hex 24)"
 ensure BRAIN_TOKEN "$(openssl rand -hex 24)"
