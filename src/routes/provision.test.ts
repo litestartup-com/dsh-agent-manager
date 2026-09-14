@@ -185,10 +185,19 @@ test('蜂群2计划 P6: 容器模式新节点 = docker runner（不找 DSH bin�
   // 宿主路径前缀从 personal 推导（/srv/ohdsh/workspaces/product），容器内路径 = manager 视角
   assert.equal(spawn.docker?.hostVolumes['/srv/ohdsh/workspaces/product'], '/opt/ohdsh/workspaces/product')
   assert.equal(config.endpoints['product']?.url, 'http://node-product:3090')
+  // 债务 R10 回归（compose-e2e worker live 超时实证）：0.1.2 切主路后新建端点必须走
+  // facade（/api-gw/v1/proxy + GW_KEY）——旧 0.1.1 接线 prefix:/api + key_ref:'' 探活 401。
+  assert.equal(config.endpoints['product']?.prefix, '/api-gw/v1/proxy', '0.1.2 主路 = facade 前缀')
+  const envText = readFileSync(join(dir, '.env'), 'utf8')
+  const productKey = /^GW_KEY_PRODUCT=(.*)$/m.exec(envText)?.[1] ?? ''
+  assert.ok(productKey !== '', '.env 必须落盘 GW_KEY_PRODUCT')
+  assert.equal(config.endpoints['product']?.key, productKey, '内存端点 key 与 .env 同值（facade 鉴权用）')
 
   const yaml = readFileSync(join(dir, 'manager.config.yaml'), 'utf8')
   assert.match(yaml, /runner: docker/)
   assert.match(yaml, /http:\/\/node-product:3090/)
+  assert.match(yaml, /key_ref: GW_KEY_PRODUCT/, 'yaml 端点的 key_ref 必须是本节点钥匙（旧接线空 key_ref 探活 401）')
+  assert.match(yaml, /prefix: \/api-gw\/v1\/proxy/, 'yaml 端点的 prefix 必须是 facade 前缀')
   assert.match(readFileSync(join(dir, '.env'), 'utf8'), /GW_KEY_PRODUCT=/)
 
   stopped.push(supervisors.get('product')!)

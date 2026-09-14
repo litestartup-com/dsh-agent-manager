@@ -91,8 +91,11 @@ const writeNodeTruth = async (
         doc.setIn(['endpoints', spec.name], {
           url: spec.url,
           driver: 'apiproxy',
-          prefix: '/api',
-          key_ref: '',
+          // 债务 R10（compose-e2e worker live 超时实证）：0.1.2 切主路后新建端点
+          // 必须走 facade（/api-gw/v1/proxy + GW_KEY）——旧 0.1.1 接线 prefix:/api +
+          // key_ref:'' 探活 host.describe 401（与主脑/personal 的容器示例配置同款）。
+          prefix: '/api-gw/v1/proxy',
+          key_ref: spec.keyRef,
           sandbox_base: spec.sandboxBase,
           sandbox_key_ref: spec.keyRef,
           spawn: spec.spawnYaml,
@@ -380,8 +383,9 @@ export const registerProvisionRoutes = (
           id: body.name,
           url: `http://node-${body.name}:${port}`,
           driver: 'apiproxy',
-          prefix: '/api',
-          key: '',
+          // 0.1.2 facade 主路（与上方 writeNodeTruth 落盘值一致；旧 /api + 空 key 探活 401）
+          prefix: '/api-gw/v1/proxy',
+          key,
           sandboxBase: `http://node-${body.name}:${port}/api-gw/v1`,
           sandboxKey: key,
           spawn,
@@ -463,8 +467,9 @@ export const registerProvisionRoutes = (
         id: body.name,
         url: `http://127.0.0.1:${port}`,
         driver: 'apiproxy',
-        prefix: '/api',
-        key: '',
+        // 0.1.2 facade 主路（与 writeNodeTruth 落盘值一致；旧 /api + 空 key 探活 401）
+        prefix: '/api-gw/v1/proxy',
+        key,
         sandboxBase: `http://127.0.0.1:${port}/api-gw/v1`,
         sandboxKey: key,
         spawn: spawnFor(dshBin, body.name, nodeHomePath),
