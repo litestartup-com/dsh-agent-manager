@@ -76,6 +76,21 @@ test('债务 A3 回归: 原子写不残留 .tmp;内容完整落盘', () => {
   assert.equal(existsSync(`${out}.tmp`), false, '不得残留 .tmp')
 })
 
+test('债务 R10 回归: rename 顶不动挂载点(EBUSY)时回落原地写——内容落盘且不残留 .tmp', () => {
+  const out = join(dir, 'mounted.env')
+  writeFileSync(out, 'OLD=1\n', 'utf8')
+  const body = 'SESSION_SECRET=store-test-secret-0123456789abcdef0123456789abcdef\nNEW=2\n'
+  writeFileAtomic(out, body, 0o600, {
+    // 容器形态的文件级 bind mount（./.env:/app/.env）在 Linux 上不能被 rename
+    // 顶替（EBUSY）——compose-e2e 实证：POST /api/nodes 500 EBUSY rename .env.tmp
+    rename: () => {
+      throw Object.assign(new Error('EBUSY: resource busy or locked, rename'), { code: 'EBUSY' })
+    },
+  })
+  assert.equal(readFileSync(out, 'utf8'), body, '回落原地写必须完整落盘')
+  assert.equal(existsSync(`${out}.tmp`), false, '回落路径不得残留 .tmp')
+})
+
 test('债务 A3 回归: 并发写经锁串行——两处更新都不丢', async () => {
   withEnv()
   seedConfig()

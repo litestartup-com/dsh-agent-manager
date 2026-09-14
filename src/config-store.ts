@@ -26,8 +26,14 @@ export const withConfigLock = async <T>(fn: () => T | Promise<T>): Promise<T> =>
 /**
  * 原子写:先写 `<path>.tmp` 再 rename。中途失败清 .tmp,绝不留下会被当成
  * 最新配置的半成品。`mode` 可选(如 .env 的 0600)。
+ * `io.rename` 可注入(测试模拟 EBUSY 等挂载点场景)。
  */
-export const writeFileAtomic = (path: string, content: string, mode?: number): void => {
+export interface AtomicIo {
+  rename?: (from: string, to: string) => void
+}
+
+export const writeFileAtomic = (path: string, content: string, mode?: number, io: AtomicIo = {}): void => {
+  const doRename = io.rename ?? renameSync
   const tmp = `${path}.tmp`
   try {
     writeFileSync(tmp, content, 'utf8')
@@ -38,7 +44,33 @@ export const writeFileAtomic = (path: string, content: string, mode?: number): v
         // 权限模型不支持(Windows)——不是失败
       }
     }
-    renameSync(tmp, path)
+    try {
+      doRename(tmp, path)
+    } catch (renameError) {
+      // 容器形态的真相文件曾是**文件级 bind mount**（compose: ./.env:/app/.env），
+      // Linux 上挂载点不能被 rename 顶替（EBUSY）——compose-e2e 实证：
+      // POST /api/nodes 500 "EBUSY rename /app/.env.tmp → /app/.env"。
+      // 回落为原地写：原子性在此让位于"能用"（与 routes/auth.ts
+      // clearInitialPassword 同款取舍，那里早已这么处理）。文件本身的写
+      // 权限（chown 到 HOST_UID）仍是硬门槛，兜不住时抛回落错误。
+      try {
+        writeFileSync(path, content, 'utf8')
+        if (mode !== undefined) {
+          try {
+            chmodSync(path, mode)
+          } catch {
+            // 权限模型不支持(Windows)——不是失败
+          }
+        }
+        rmSync(tmp, { force: true })
+        return
+      } catch (fallbackError) {
+        throw new Error(
+          `原子写失败（rename: ${renameError instanceof Error ? renameError.message : String(renameError)}）` +
+            `且回落原地写也失败（${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}）`,
+        )
+      }
+    }
   } catch (error) {
     try {
       rmSync(tmp, { force: true })
