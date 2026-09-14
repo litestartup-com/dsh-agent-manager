@@ -13,6 +13,8 @@ RUN npm ci --no-audit --no-fund
 
 FROM deps AS build
 COPY tsconfig.json ./
+# npm run build 首步跑 scripts/inject-version.mjs(版本注入)——脚本必须进构建上下文
+COPY scripts ./scripts
 COPY src ./src
 RUN npm run build
 
