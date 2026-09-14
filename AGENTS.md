@@ -14,6 +14,9 @@
    结论记入内部设计库的事实卡 `manager/facts/dsh-facts.md`（不随发布物）；禁止凭经验推测后推给用户当实验场。
 2. **没有复现环境的修复不推**：涉及容器/部署的改动，先在本机 Docker 或 CI 的
    compose E2E job 里复现与验证；拿用户生产环境当实验场 = 事故。
+   **容器部署红线**（uid 同源 / 命名卷属主 / bind mount 不可 rename / docker API 宿主语义 /
+   端点接线唯一）见设计库事实卡 `manager/facts/container-deploy-facts.md`——
+   动容器/部署链前先过一遍；`scripts/check-docs.mjs` 有对应静态断言常驻 CI。
 3. **每个 bug 先写失败回归测试再修**：先写一个断言该 bug 的测试（跑一次证明它红），
    修代码让它转绿 —— 测试真的抓住了 bug 才算数。
 4. 发布评审必须覆盖部署链（裸机 + 容器两条路径），不只审代码本身。

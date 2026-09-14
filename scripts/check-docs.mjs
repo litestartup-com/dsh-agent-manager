@@ -74,6 +74,28 @@ try {
   failures.push(`H1 部署加固校验失败: ${error instanceof Error ? error.message : String(error)}`)
 }
 
+// ---- 5) 容器部署红线静态断言（compose-e2e 2026-09-14 首次实证四坑，复盘见设计库
+//          manager/facts/container-deploy-facts.md——红线 A/B/C/D 的 CI 侧拦网）----
+try {
+  // 红线 A：每条引导路径都必须写 HOST_UID/HOST_GID（容器 uid = 宿主文件属主；缺失 → SQLITE_CANTOPEN）
+  const genEnv = readFileSync(join(root, 'scripts/gen-env.sh'), 'utf8')
+  for (const v of ['HOST_UID', 'HOST_GID']) {
+    if (!genEnv.includes(`ensure ${v} `)) failures.push(`scripts/gen-env.sh: 必须写入 ${v}（红线 A：容器 uid 与宿主文件属主同源）`)
+  }
+  // 红线 B：运行时 uid 参数化 → 运行时写目录必须 uid 无关（命名卷根 777、HOME 落可写卷）
+  const nodeDockerfile = readFileSync(join(root, 'images/node/Dockerfile'), 'utf8')
+  if (!nodeDockerfile.includes('chmod 777 /data')) failures.push('images/node/Dockerfile: /data 卷根必须 chmod 777（红线 B：HOST_UID≠1000 时命名卷属主 EACCES）')
+  if (!nodeDockerfile.includes('HOME=/data')) failures.push('images/node/Dockerfile: 必须 HOME=/data（.brain-auth 等运行时写入落可写卷）')
+  // 红线 C：真相文件原子写（.tmp+rename）要求所在目录可写（/app 是镜像层 root 属主）
+  const managerDockerfile2 = readFileSync(join(root, 'images/manager/Dockerfile'), 'utf8')
+  if (!managerDockerfile2.includes('chmod 777 /app')) failures.push('images/manager/Dockerfile: /app 必须放写（红线 C：真相文件 .tmp+rename 原子写需要目录写权限）')
+  // 红线 D：节点卷备份必须走 runToolIo 流式传输（容器内绝对路径做 bind 源 = 宿主路径幻觉）
+  const nodebackup = readFileSync(join(root, 'src/nodebackup.ts'), 'utf8')
+  if (!nodebackup.includes('runToolIo')) failures.push('src/nodebackup.ts: 节点卷备份必须走 runToolIo（红线 D：禁止把容器内备份目录当宿主路径 bind）')
+} catch (error) {
+  failures.push(`容器部署红线断言失败: ${error instanceof Error ? error.message : String(error)}`)
+}
+
 if (failures.length > 0) {
   console.error('check-docs FAILED:')
   for (const f of failures) console.error(`  - ${f}`)
