@@ -1,10 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { collectNodeHomes, packNodeHomes, pruneNodeHomeArchives, restoreNodeHome, type NodeHomeEntry } from './nodebackup.js'
 import { decryptFile, encryptFile } from './crypt.js'
+import type { DockerRunner } from './nodes/docker-runner.js'
 import type { AppConfig } from './config.js'
 
 const SECRET = 'test-secret-0123456789abcdef0123456789abcdef'
@@ -88,6 +90,52 @@ test('蜂群2计划 P4: 保留策略 24h 全留 → 每节点每日一份 → �
     for (const file of ['node-personal-20260110-110000.tar.gz.enc', 'node-personal-20260109-090000.tar.gz.enc', 'node-personal-20251201-120000.tar.gz.enc']) {
       assert.ok(existsSync(join(root, file)), `${file} 应保留`)
     }
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('债务 R10 回归: docker 卷形态打包/恢复经 runToolIo 流式传输（只绑卷，不 bind 备份目录）', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'nodebackup-docker-'))
+  const backupDir = join(root, 'backups')
+  const volumeDir = join(root, 'vol')
+  try {
+    mkdirSync(join(volumeDir, 'sessions'), { recursive: true })
+    writeFileSync(join(volumeDir, 'sessions', 's.json'), '{"v":1}', 'utf8')
+
+    const calls: Array<{ image: string; cmd: string[]; binds: Array<{ from: string; to: string }>; io: { stdin?: string; stdout?: string } }> = []
+    // 桩：用本机 tar 模拟工具容器——stdout 写 io.stdout / stdin 读 io.stdin（与 runToolIo 契约一致）
+    const stubRunner = {
+      runToolIo: async (
+        image: string,
+        cmd: string[],
+        binds: Array<{ from: string; to: string }>,
+        io: { stdin?: string; stdout?: string },
+      ): Promise<void> => {
+        calls.push({ image, cmd, binds, io })
+        if (cmd[1] === 'czf') {
+          execFileSync('tar', ['czf', io.stdout ?? '', '-C', volumeDir, '.'], { stdio: ['ignore', 'ignore', 'pipe'] })
+        } else {
+          execFileSync('tar', ['xzf', io.stdin ?? '', '-C', volumeDir], { stdio: ['ignore', 'ignore', 'pipe'] })
+        }
+      },
+    } as unknown as DockerRunner
+
+    const entry: NodeHomeEntry = { nodeId: 'personal', kind: 'docker', home: 'ohdsh-personal' }
+    const packed = await packNodeHomes([entry], backupDir, SECRET, stubRunner)
+    assert.equal(packed.length, 1)
+    const archive = packed[0] ?? ''
+
+    assert.equal(calls[0]?.cmd.slice(0, 3).join(' '), 'tar czf -', '打包必须打到 stdout 流（-），而不是容器内备份路径')
+    assert.deepEqual(calls[0]?.binds, [{ from: 'ohdsh-personal', to: '/data' }], '只绑命名卷——备份目录不做宿主路径 bind（ENOENT 根因）')
+    assert.ok(calls[0]?.io.stdout !== undefined && calls[0].io.stdout !== '', 'stdout 必须落到 manager 侧的临时文件')
+
+    // 卷内容被改 → restore 流回卷 → 内容还原
+    writeFileSync(join(volumeDir, 'sessions', 's.json'), 'changed', 'utf8')
+    await restoreNodeHome(entry, archive, backupDir, SECRET, stubRunner)
+    assert.equal(readFileSync(join(volumeDir, 'sessions', 's.json'), 'utf8'), '{"v":1}', 'restore 必须经 stdin 流解回卷')
+    assert.equal(calls[1]?.cmd[1], 'xzf', '恢复走解包命令')
+    assert.ok(calls[1]?.io.stdin !== undefined && calls[1].io.stdin !== '', 'stdin 必须指向 manager 侧解密的临时 tar.gz')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

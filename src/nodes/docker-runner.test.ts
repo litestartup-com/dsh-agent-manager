@@ -1,8 +1,21 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { PassThrough } from 'node:stream'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type Dockerode from 'dockerode'
 import { DockerRunner } from './docker-runner.js'
 import type { ResolvedSpawnSpec } from '../config.js'
+
+/** docker 多路复用帧：8 字节头（1 字节流类型 + 3 空 + 4 字节大端长度）+ payload。 */
+const frame = (type: number, payload: string): Buffer => {
+  const body = Buffer.from(payload, 'utf8')
+  const header = Buffer.alloc(8)
+  header[0] = type
+  header.writeUInt32BE(body.length, 4)
+  return Buffer.concat([header, body])
+}
 
 /** 测试用假 dockerode：只实现 DockerRunner 用到的面，调用全部留痕。 */
 const fake = (options: { imageExists?: boolean; leftovers?: Array<{ Id: string }>; inspectThrows?: boolean; inspectImage?: string } = {}) => {
@@ -157,4 +170,119 @@ test('蜂群2计划 P6 回归: matchesSpec——GW_KEY 或镜像 ID 不符必须
   assert.equal(DockerRunner.matchesSpec({ env: ['GW_KEY=apigw-new'], imageId: 'sha256:old' }, 'apigw-new', 'sha256:abc'), false, 'tag 同名但镜像 ID 变了 → 重建')
   assert.equal(DockerRunner.matchesSpec({ env: ['GW_KEY=apigw-new'], imageId: 'sha256:abc' }, '', 'sha256:abc'), false, 'manager 侧无钥匙却认领有钥匙容器 → 重建')
   assert.equal(DockerRunner.matchesSpec({ env: ['GW_KEY=apigw-new'], imageId: 'sha256:abc' }, 'apigw-new', null), true, '拿不到期望镜像 ID 时跳过镜像比对（只比钥匙）')
+})
+
+/** runToolIo 测试专用假 dockerode：attach 返回多路复用帧流（可注入 stdout/stderr/退出码）。 */
+const fakeToolDocker = (scenario: { exitCode: number; frames?: Array<{ type: number; payload: string }> }) => {
+  const state = {
+    created: [] as Array<Record<string, unknown>>,
+    removed: 0,
+    attachOptions: null as null | Record<string, unknown>,
+    stdinWritten: [] as Buffer[],
+  }
+  const demux = (stream: NodeJS.ReadableStream, stdout: NodeJS.WritableStream, stderr: NodeJS.WritableStream): void => {
+    let buf = Buffer.alloc(0)
+    stream.on('data', (chunk: Buffer) => {
+      buf = Buffer.concat([buf, chunk])
+      for (;;) {
+        if (buf.length < 8) break
+        const len = buf.readUInt32BE(4)
+        if (buf.length < 8 + len) break
+        const type = buf[0]
+        const payload = buf.subarray(8, 8 + len)
+        buf = buf.subarray(8 + len)
+        if (type === 1) stdout.write(payload)
+        else if (type === 2) stderr.write(payload)
+      }
+    })
+    stream.on('end', () => {
+      stdout.end()
+      stderr.end()
+    })
+  }
+  const docker = {
+    getImage: () => ({ inspect: async () => ({}) }),
+    modem: { demuxStream: demux, followProgress: (_s: unknown, done: () => void) => done() },
+    createContainer: async (params: Record<string, unknown>) => {
+      state.created.push(params)
+      return {
+        start: async () => {},
+        attach: async (opts: Record<string, unknown>) => {
+          state.attachOptions = opts
+          const stream = new PassThrough()
+          const originalWrite = stream.write.bind(stream)
+          stream.write = ((chunk: Buffer) => {
+            state.stdinWritten.push(Buffer.from(chunk))
+            return originalWrite(chunk)
+          }) as typeof stream.write
+          setImmediate(() => {
+            const frames = scenario.frames ?? []
+            if (frames.length > 0) {
+              for (const f of frames) stream.write(frame(f.type, f.payload))
+              stream.end()
+            }
+            // 无帧 = 纯 stdin 场景：流保持打开，由 pipeline 收尾（真实 attach 流同语义）
+          })
+          return stream
+        },
+        wait: async () => ({ StatusCode: scenario.exitCode }),
+        remove: async () => {
+          state.removed += 1
+        },
+      }
+    },
+  }
+  return { state, docker: docker as unknown as Dockerode }
+}
+
+test('债务 R10 回归: runToolIo 经 attach 流式传输——stdout 落文件（不 bind 备份目录，宿主路径不可知）', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'runToolIo-'))
+  try {
+    const f = fakeToolDocker({ exitCode: 0, frames: [{ type: 1, payload: 'tar-bytes-here' }] })
+    const outFile = join(root, 'node.tar.gz')
+    await new DockerRunner({ docker: f.docker }).runToolIo(
+      'alpine:3.20',
+      ['tar', 'czf', '-', '-C', '/data', '.'],
+      [{ from: 'ohdsh-personal', to: '/data' }],
+      { stdout: outFile },
+    )
+    assert.equal(readFileSync(outFile, 'utf8'), 'tar-bytes-here', 'stdout 帧必须完整落到文件')
+    const created = f.state.created[0] as { HostConfig: { Binds: string[] }; AttachStdout: boolean; AttachStdin: boolean | undefined }
+    assert.deepEqual(created.HostConfig.Binds, ['ohdsh-personal:/data'], '只绑卷——备份目录不再作为宿主路径 bind（ENOENT 根因）')
+    assert.equal(created.AttachStdout, true)
+    assert.notEqual(created.AttachStdin, true, '无 stdin 时不挂 stdin')
+    assert.equal(f.state.removed, 1, '工具容器用完即删')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('债务 R10 回归: runToolIo 退出码非 0 抛错并带 stderr', async () => {
+  const f = fakeToolDocker({ exitCode: 1, frames: [{ type: 2, payload: 'tar: error reading /data\n' }] })
+  await assert.rejects(
+    () => new DockerRunner({ docker: f.docker }).runToolIo('alpine:3.20', ['tar', 'czf', '-', '-C', '/data', '.'], [], {}),
+    /退出码 1.*tar: error reading \/data/s,
+  )
+  assert.equal(f.state.removed, 1)
+})
+
+test('债务 R10 回归: runToolIo stdin 从文件喂给工具容器（restore 反向流）', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'runToolIo-stdin-'))
+  try {
+    const f = fakeToolDocker({ exitCode: 0 })
+    const inFile = join(root, 'in.tar.gz')
+    writeFileSync(inFile, 'tarball-bytes', 'utf8')
+    await new DockerRunner({ docker: f.docker }).runToolIo(
+      'alpine:3.20',
+      ['tar', 'xzf', '-', '-C', '/data'],
+      [{ from: 'ohdsh-personal', to: '/data' }],
+      { stdin: inFile },
+    )
+    assert.equal(Buffer.concat(f.state.stdinWritten).toString('utf8'), 'tarball-bytes', 'stdin 必须原样喂进 attach 流')
+    const created = f.state.created[0] as { AttachStdin: boolean | undefined }
+    assert.equal(created.AttachStdin, true)
+    assert.equal(f.state.removed, 1)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })

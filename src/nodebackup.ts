@@ -145,13 +145,13 @@ export const packNodeHome = async (
       execFileSync('tar', ['-czf', tarball, '--exclude=profiles/*/node_modules', '--exclude=*.pid', '-C', entry.home, '.'], { stdio: ['ignore', 'ignore', 'pipe'] })
     } else {
       if (dockerRunner === undefined) throw new Error('docker 卷备份需要 docker.sock（manager 未挂载？）')
-      await dockerRunner.runTool(
+      // 债务 R10：tar 打 stdout（-），manager 经 attach 流收下写 tarball——
+      // 只绑命名卷，不把 manager 容器内的备份目录当宿主路径 bind（ENOENT 根因）。
+      await dockerRunner.runToolIo(
         'alpine:3.20',
-        ['tar', 'czf', `/backup/${basename(tarball)}`, '-C', '/data', '.'],
-        [
-          { from: entry.home, to: '/data' },
-          { from: backupDir, to: '/backup' },
-        ],
+        ['tar', 'czf', '-', '-C', '/data', '.'],
+        [{ from: entry.home, to: '/data' }],
+        { stdout: tarball },
       )
     }
     await encryptFile(tarball, archive, sessionSecret)
@@ -220,13 +220,12 @@ export const restoreNodeHome = async (
       execFileSync('tar', ['-xzf', tarball, '-C', entry.home], { stdio: ['ignore', 'ignore', 'pipe'] })
     } else {
       if (dockerRunner === undefined) throw new Error('docker 卷恢复需要 docker.sock')
-      await dockerRunner.runTool(
+      // 债务 R10：tarball 经 stdin 流喂给容器内 tar（反向流，同样不 bind 备份目录）。
+      await dockerRunner.runToolIo(
         'alpine:3.20',
-        ['tar', 'xzf', `/backup/${basename(tarball)}`, '-C', '/data'],
-        [
-          { from: entry.home, to: '/data' },
-          { from: backupDir, to: '/backup' },
-        ],
+        ['tar', 'xzf', '-', '-C', '/data'],
+        [{ from: entry.home, to: '/data' }],
+        { stdin: tarball },
       )
     }
   } finally {

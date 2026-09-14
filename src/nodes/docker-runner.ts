@@ -7,6 +7,9 @@
  *
  * 构造函数可注入 docker 实例（测试用假实现），生产走 /var/run/docker.sock。
  */
+import { createReadStream, createWriteStream } from 'node:fs'
+import { PassThrough } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import Dockerode from 'dockerode'
 import type { ResolvedSpawnSpec } from '../config.js'
 
@@ -166,22 +169,75 @@ export class DockerRunner {
 
   /**
    * 蜂群2计划 P4：跑一个一次性工具容器（节点 home 卷的备份/恢复用），
-   * 退出即自删；退出码非 0 抛错。
+   * stdin/stdout 经 attach 流式对接（stdin=读文件喂给容器，stdout=收流落文件）。
+   *
+   * 债务 R10 实证根因：旧实现把「备份目录」也做成 bind——但 manager 容器里的
+   * /app/data/backups 是 bind mount 的容器视角路径，dockerd 按宿主机语义解析后
+   * 指向宿主机上不存在的目录，tar 产物写进幽灵目录、manager 读不到（ENOENT）。
+   * 流式传输不依赖「宿主路径 = 容器路径」的假设：只绑命名卷，数据走 stdin/stdout。
    */
-  async runTool(image: string, cmd: string[], binds: Array<{ from: string; to: string }>): Promise<void> {
+  async runToolIo(
+    image: string,
+    cmd: string[],
+    binds: Array<{ from: string; to: string }>,
+    io: { stdin?: string; stdout?: string } = {},
+  ): Promise<void> {
     await this.ensureImage(image)
     const container = await this.docker.createContainer({
       Image: image,
       Cmd: cmd,
       HostConfig: {
         Binds: binds.map((b) => `${b.from}:${b.to}`),
-        AutoRemove: true,
       },
+      AttachStdout: true,
+      AttachStderr: true,
+      AttachStdin: io.stdin !== undefined,
+      OpenStdin: io.stdin !== undefined,
+      StdinOnce: io.stdin !== undefined,
     })
     await container.start()
-    const result = await container.wait()
-    if (result.StatusCode !== 0) {
-      throw new Error(`工具容器退出码 ${String(result.StatusCode)}：${cmd.join(' ')}`)
+    try {
+      const stream = await container.attach({ stream: true, stdout: true, stderr: true, stdin: io.stdin !== undefined })
+      const stdout = new PassThrough()
+      const stderr = new PassThrough()
+      this.docker.modem.demuxStream(stream, stdout, stderr)
+      let stderrText = ''
+      stderr.on('data', (chunk: Buffer) => {
+        stderrText += chunk.toString('utf8')
+      })
+      const stdoutDone = (async () => {
+        if (io.stdout === undefined) {
+          stdout.resume()
+          return
+        }
+        await new Promise<void>((resolve, reject) => {
+          const out = createWriteStream(io.stdout as string)
+          out.on('error', reject)
+          out.on('finish', resolve)
+          stdout.pipe(out)
+        })
+      })()
+      // stdin 经 pipeline 喂给 attach 流（文件读完 = EOF；容器先挂 EPIPE 属正常，
+      // 退出码兜底报错）。无 stdin 时 AttachStdin:false，守护进程侧已关 stdin。
+      const stdinDone =
+        io.stdin === undefined
+          ? Promise.resolve()
+          : pipeline(createReadStream(io.stdin), stream).catch(() => undefined)
+      // 等 attach 流关闭（stdout/stderr 全部送达）再判退出码——错误信息才带得全 stderr。
+      const streamDone = new Promise<void>((resolve) => {
+        stream.on('end', resolve)
+        stream.on('close', resolve)
+        stream.on('error', resolve)
+      })
+      const waited = await container.wait()
+      await Promise.all([streamDone, stdoutDone, stdinDone])
+      if (waited.StatusCode !== 0) {
+        throw new Error(
+          `工具容器退出码 ${String(waited.StatusCode)}：${cmd.join(' ')}${stderrText.trim() === '' ? '' : `\n${stderrText.trim()}`}`,
+        )
+      }
+    } finally {
+      await container.remove({ force: true }).catch(() => undefined)
     }
   }
 }
