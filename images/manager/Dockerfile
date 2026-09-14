@@ -40,7 +40,14 @@ COPY templates ./templates
 RUN mkdir -p /app/data \
     && (getent group 1000 >/dev/null || groupadd -g 1000 ohdsh) \
     && (getent passwd 1000 >/dev/null || useradd -u 1000 -g 1000 -s /bin/sh ohdsh) \
-    && chown -R 1000:1000 /app/data
+    && chown -R 1000:1000 /app/data \
+    # 真相文件原子写（<file>.tmp + rename）要求文件所在目录可写：.env /
+    # manager.config.yaml 的 .tmp 落在 /app（bind 挂的是文件本身，父目录仍是
+    # 镜像层 root 属主 755）。容器以 HOST_UID 运行时建 .tmp 会 EACCES
+    # （CI compose-e2e 实证：POST /api/nodes 500 open /app/.env.tmp）。
+    # 单进程控制面容器（唯一进程就是 manager 自己），目录放写与节点镜像
+    # /data 777 同款取舍。
+    && chmod 777 /app
 EXPOSE 8080
 USER 1000:1000
 CMD ["node", "dist/index.js"]
