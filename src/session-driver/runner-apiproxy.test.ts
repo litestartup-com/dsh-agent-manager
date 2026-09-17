@@ -165,8 +165,8 @@ test('债务 A4 回归: 回合中流重连 → 显性失败(结果未知),绝不
     frames: [
       { kind: 'turn_start', seq: 0, turn: 1 },
       { kind: 'stream_reconnected', seq: 0 },
-      // 上游其实已完成,但 turn_end 丢在断线期间——重连后只有通知帧
-      { kind: 'turn_end', seq: 0, turn: 1, reason: 'completed', detail: null },
+      // 上游其实已完成,但 turn_end 丢在断线期间——重连后只有通知帧,再没有别的帧。
+      // 重连决策是异步的(先查恢复通道),无挂起问答且无人等作答 → 显性失败。
     ],
   })
   const outcome = await runAgent({ db }, {
@@ -199,6 +199,35 @@ test('债务卡片链回归: 重连发生在等人作答时 → 不杀回合,答
   })
   assert.equal(outcome.state, 'done', '等人作答时重连不得杀回合')
   assert.deepEqual(seen, ['question_asked', 'stream_reconnected', 'question_resolved', 'turn_end'])
+})
+
+test('债务卡片链: 断线窗口丢掉的 question 帧经 pendingAsks 恢复——卡片重建且不杀回合', async () => {
+  const db = makeDb()
+  const question = { kind: 'question_asked', seq: 0, questionId: 'q-recovered', questions: [{ id: 'a', question: 'go?' }] } as const
+  let calls = 0
+  const fake = new FakeSessionDriver('A', {
+    frames: [
+      { kind: 'turn_start', seq: 0, turn: 1 },
+      // 广播丢在断线窗口:manager 从没收到过 question 帧,awaitingHuman=0。
+      { kind: 'stream_reconnected', seq: 0 },
+      { kind: 'turn_end', seq: 0, turn: 1, reason: 'completed', detail: null },
+    ],
+    pendingAsks: () => {
+      calls += 1
+      // 回合开始查一次(空);重连后查第二次——断线窗口的广播经恢复通道要回。
+      return calls === 1 ? [] : [question]
+    },
+  })
+  const seen: string[] = []
+  const outcome = await runAgent({ db }, {
+    agent: agentFor(mkdtempSync(join(tmpdir(), 'apiproxy-ws-'))),
+    client: dummyClient(), upstream: fake, driver: 'apiproxy', prompt: 'hi', trigger: 'manual',
+    silenceMs: 0, timeoutMs: 5_000,
+    onFrame: (frame) => seen.push(frame.kind),
+  })
+  await new Promise((resolve) => setTimeout(resolve, 20)) // 等恢复查询的微任务链走完
+  assert.equal(outcome.state, 'done', '重连要回挂起问句后不得杀回合')
+  assert.ok(seen.includes('question_asked'), '恢复的问句帧必须转发前端')
 })
 
 test('端口九操作全覆盖：history/answer/decline/decide/release/probe 走记录', async () => {

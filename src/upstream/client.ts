@@ -9,6 +9,7 @@
 
 import type { ResolvedEndpoint } from '../config.js'
 import type { HistoryEvent } from '../gateway/client.js'
+import type { GatewayFrame } from '../gateway/stream.js'
 import type { SessionDriver } from '../session-driver/port.js'
 import { rpc, type UpstreamEndpoint, UpstreamError } from './rpc.js'
 import { respond, type RpcReceipt } from './respond.js'
@@ -17,6 +18,7 @@ import {
   mapEvents, createSessionParams, promptParams,
   cancelParams, historyParams,
   unwrapHistoryEvents, mapSessionList, goalOf,
+  parseMuxPayload, questionRequestedFrame, approvalRequestedFrame,
   type UpstreamGoal,
 } from './translate.js'
 import { compactHistory } from '../chat/replay.js'
@@ -297,6 +299,41 @@ export class UpstreamClient implements SessionDriver {
    */
   subscribe(sessionId: string, listener: MuxListener): () => void {
     return subscribe(this.ep, sessionId, listener)
+  }
+
+  /**
+   * 卡片链(2026-09-17):取回宿主(facade)仍挂起的问答/授权帧。
+   * facade 的 `GET {prefix}/answerer/pending` 返回仍等待应答的载荷——
+   * question/approval 帧只广播一次,断线窗口/manager 重启后经此恢复。
+   * 失败(网络/404/无恢复端点)= 返回空,恢复通道失败不阻断主流程。
+   */
+  async pendingAsks(sessionId: string): Promise<GatewayFrame[]> {
+    if (this.sandboxBase === null) return []
+    try {
+      const response = await fetch(`${this.sandboxBase}/answerer/pending`, {
+        headers: this.sandboxKey === '' ? {} : { 'x-api-key': this.sandboxKey },
+        signal: AbortSignal.timeout(5_000),
+      })
+      if (!response.ok) return []
+      const body = (await response.json()) as { pending?: unknown }
+      if (!Array.isArray(body.pending)) return []
+      const out: GatewayFrame[] = []
+      for (const item of body.pending) {
+        const entry = item as { rpcId?: unknown; method?: unknown; payload?: unknown }
+        if (typeof entry.rpcId !== 'string' || typeof entry.method !== 'string') continue
+        if (entry.payload === null || typeof entry.payload !== 'object') continue
+        const frame = parseMuxPayload(entry.payload)
+        if (frame === null || frame.sessionId !== sessionId) continue
+        if (entry.method === 'question/requested' && frame.type === 'question/requested') {
+          out.push(questionRequestedFrame(entry.rpcId, frame))
+        } else if (entry.method === 'approval/requested' && frame.type === 'approval/requested') {
+          out.push(approvalRequestedFrame(entry.rpcId, frame))
+        }
+      }
+      return out
+    } catch {
+      return []
+    }
   }
 
   // ---- respond (S2) ----

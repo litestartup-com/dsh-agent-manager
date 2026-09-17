@@ -20,6 +20,7 @@
 import type { MuxListener } from '../upstream/mux.js'
 import type { UpstreamCreatedSession, UpstreamModelCatalog, UpstreamModelSelection, UpstreamSessionHistory } from '../upstream/client.js'
 import type { RpcReceipt } from '../upstream/respond.js'
+import type { GatewayFrame } from '../gateway/stream.js'
 
 export interface SessionDriver {
   /** 端点 id（manager 配置里的 key）。 */
@@ -57,4 +58,10 @@ export interface SessionDriver {
   setSandboxMode?(sessionId: string, mode: 'read-only' | 'workspace-write' | 'danger-full-access'): Promise<void>
   /** 节点是否开锁全量沙箱（host.describe 的 allowFullAccess）；缺实现 = 不支持。 */
   allowsFullAccess?(): Promise<boolean>
+  /**
+   * 卡片链(2026-09-17):取回宿主仍挂起的问答/授权帧(question/approval 只广播
+   * 一次,断线窗口/manager 重启后经此恢复)。缺实现(旧插头/不支持) = 无恢复
+   * 能力,上层按空处理;失败必须抛出让上层 catch(恢复失败不阻断主流程)。
+   */
+  pendingAsks?(sessionId: string): Promise<GatewayFrame[]>
 }

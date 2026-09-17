@@ -315,6 +315,20 @@ export const registerChatRoutes = (
       return resolved === null ? current : { ...current, accessMode: resolved }
     }
 
+    // 债务卡片链:向宿主要回仍挂起的问答/授权帧(manager 重启后 in-memory 全丢;
+    // question/approval 只广播一次)——刷新页面时卡片经重放恢复,用户仍可作答
+    // (respond 直达宿主,与回合是否活着无关)。失败静默,恢复通道尽力而为。
+    // 必须在 base 之前:liveFrames 重放要带上刚恢复的卡片。
+    if (driver === 'apiproxy' && upstream !== null && chat.dshSessionId !== null) {
+      try {
+        for (const ask of await (upstream.pendingAsks?.(chat.dshSessionId) ?? Promise.resolve([]))) {
+          rememberLiveFrame(chat.id, ask)
+        }
+      } catch {
+        // 旧 facade 无恢复端点 → 空。
+      }
+    }
+
     const base = {
       chat,
       // `workspacePath` is here rather than left to /api/status because the

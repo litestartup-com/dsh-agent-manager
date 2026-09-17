@@ -32,6 +32,8 @@ export interface FakeScript {
   }
   /** 脚本可控：全量沙箱开锁状态（capabilities.fullAccess）。 */
   fullAccess?: boolean
+  /** 卡片链：pendingAsks 的返回值；函数形态可按调用次序返回不同结果（如首查空、重连查有）。 */
+  pendingAsks?: GatewayFrame[] | (() => GatewayFrame[])
   /** 脚本可控：setSandboxMode 抛 session_not_live（模拟会话转冷的 409）。 */
   sandboxNotLive?: boolean
   /** 脚本可控：host goal 投影（history 里的 goal 字段）。 */
@@ -171,6 +173,13 @@ export class FakeSessionDriver implements SessionDriver {
   /** 脚本可控的全量沙箱开锁状态（测试 capabilities.fullAccess 用）。 */
   async allowsFullAccess(): Promise<boolean> {
     return this.script.fullAccess === true
+  }
+
+  /** 卡片链：脚本可控的挂起问答恢复结果（缺省空 = 无恢复能力）。 */
+  async pendingAsks(_sessionId: string): Promise<GatewayFrame[]> {
+    const pending = this.script.pendingAsks
+    if (pending === undefined) return []
+    return typeof pending === 'function' ? pending() : pending
   }
 
   async probeVersion(): Promise<string> {

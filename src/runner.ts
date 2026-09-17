@@ -549,6 +549,29 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
       // 债务 R8:unsub 存进引用盒(闭包内赋值,外部 finally 读取)——prompt 拒绝/
       // 抛错等提前返回路径不再遗留订阅(旧代码只在 turn_end/重连/abort 里退订)。
       const unsubRef: { cleanup: (() => void) | null } = { cleanup: null }
+      // 债务卡片链(2026-09-17):本回合见过的 ask 帧 id——恢复通道(pendingAsks)
+      // 与重连重放会带来重复帧,按 id 去重(重复 question_asked 会重复计
+      // awaitingHuman、重复画卡)。
+      const seenAskIds = new Set<string>()
+      const askIdOf = (frame: GatewayFrame): string | undefined => {
+        if (frame.kind === 'question_asked') return typeof frame.questionId === 'string' ? frame.questionId : undefined
+        if (frame.kind === 'approval_pending') return typeof frame.decisionId === 'string' ? frame.decisionId : undefined
+        return undefined
+      }
+      // 恢复帧与直播帧同款处理(计 awaitingHuman + 转发前端);question/approval
+      // 帧不会触发回合结束,返回值只用 end 判别(理论上到不了)。
+      const processRecoveredAsk = (frame: GatewayFrame): void => {
+        const id = askIdOf(frame)
+        if (id !== undefined && id !== '') {
+          if (seenAskIds.has(id)) return
+          seenAskIds.add(id)
+        }
+        handleTurnFrame(turnState, { pricing, now }, frame, {
+          relay: (liveFrame) => input.onFrame?.(liveFrame),
+          trackAwaiting,
+          armSilence,
+        })
+      }
       const turnDone = new Promise<RunOutcome>((resolveTurn) => {
         const unsub = upstream.subscribe(sid, (_sid, frame) => {
           // 审计留痕：主脑/agent 问人、要授权的帧到达即记一行，方便事后追溯
@@ -561,6 +584,13 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
             )
           }
 
+          // 债务卡片链:重复 ask 帧(恢复通道/重连重放)不再处理。
+          const askId = askIdOf(frame)
+          if (askId !== undefined && askId !== '') {
+            if (seenAskIds.has(askId)) return
+            seenAskIds.add(askId)
+          }
+
           // 债务 E1:直播帧的共享处理在 handleTurnFrame;apiproxy 循环只留自己
           // 的差异——重连显性失败(结果未知)与审计日志。All mux frames are
           // live (no hello replay), safe to relay.
@@ -569,19 +599,26 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
             trackAwaiting,
             armSilence,
             onReconnect: () => {
-              // 债务 A4:流在回合中重连——turn_end 可能已丢在断线期间,结果未知。
-              // 显性失败而非静默等超时(钱花了,结果必须可见,请查会话历史)。
-              // 例外(2026-09-17 卡片丢失链):正等人作答(awaitingHuman>0)时回合
-              // 不可能已结束——问题/授权还挂在宿主上,turn_end 必然未发生。此时
-              // 杀回合会把开着的卡片与订阅一起毁掉(用户答案仍能经 respond 送达,
-              // 但之后的 question_resolved/turn_end 无人接收 = 界面「卡住」)。
-              // 保持等待,total timeout 兜底。
-              if (awaitingHuman > 0) {
-                log?.info(`run ${runId}: stream reconnected while waiting for human (${awaitingHuman} pending) — keeping the turn alive`)
-                return
-              }
-              unsub()
-              resolveTurn(finish('failed', 'upstream stream reconnected mid-turn: outcome unknown (the turn may have completed); check the session history'))
+              // 债务卡片链:重连先向宿主要回断线窗口丢掉的问答/授权帧
+              // (question/approval 只广播一次)——要回了 = 有人在等作答,
+              // 不杀回合;要不到且无人等作答才走 A4 显性失败。
+              void (async () => {
+                try {
+                  for (const ask of await (upstream.pendingAsks?.(sid) ?? Promise.resolve([]))) {
+                    processRecoveredAsk(ask)
+                  }
+                } catch {
+                  // 恢复通道失败不阻断主流程——退回原 A4 判定。
+                }
+                if (awaitingHuman > 0) {
+                  log?.info(`run ${runId}: stream reconnected with ${awaitingHuman} pending human wait(s) — keeping the turn alive`)
+                  return
+                }
+                // 债务 A4:流在回合中重连——turn_end 可能已丢在断线期间,结果未知。
+                // 显性失败而非静默等超时(钱花了,结果必须可见,请查会话历史)。
+                unsub()
+                resolveTurn(finish('failed', 'upstream stream reconnected mid-turn: outcome unknown (the turn may have completed); check the session history'))
+              })()
             },
           })
           if (result.kind === 'end') {
@@ -608,6 +645,16 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
       // 债务 R8:prompt 与等待结果整体进 try/finally——拒绝/抛错/回合结束/
       // 超时/重连任何路径,最后都兜底退订一次(unsub 幂等,重复调用无害)。
       try {
+        // 债务卡片链:回合开始先取回宿主仍挂起的问答/授权帧——上一回合/重启前
+        // 广播过但本进程没收到(manager 重启),不取回则问句永久无人应答。
+        // 失败静默(恢复通道是尽力而为,不回滚主流程)。
+        try {
+          for (const ask of await (upstream.pendingAsks?.(sid) ?? Promise.resolve([]))) {
+            processRecoveredAsk(ask)
+          }
+        } catch {
+          // 旧 facade 无恢复端点 → 空。
+        }
         armSilence()
         // Send the prompt (also resumes cold sessions: P3 confirmed)
         const promptResult = await upstream.prompt(sid, prompt)

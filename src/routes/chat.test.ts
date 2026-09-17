@@ -437,6 +437,45 @@ test('债务卡片链: turn_done 后未作答的卡片仍可重放(刷新与新 
   assert.ok(frames2.some((f) => f.kind === 'question_asked' && f.questionId === 'q-keep'), 'SSE 重连必须重放挂起卡片')
 })
 
+test('债务卡片链: manager 重启后 GET 经 pendingAsks 恢复挂起卡片(重放可答)', async () => {
+  const question = { kind: 'question_asked', seq: 0, questionId: 'q-restart', questions: [{ id: 'a', question: '重启前的问句' }] } as const
+  let calls = 0
+  const upstream = new FakeSessionDriver('A', {
+    frames: [
+      { kind: 'turn_start', seq: 0, turn: 1 },
+      { kind: 'turn_end', seq: 0, turn: 1, reason: 'completed', detail: null },
+    ],
+    pendingAsks: () => {
+      calls += 1
+      // 回合开始查一次(空)——模拟「广播发生在 manager 重启前,重启后内存全丢」
+      return calls === 1 ? [] : [question]
+    },
+  })
+  const { base } = await boot({ frames: [] }, upstream)
+  const chatId = await newChat(base)
+  const sent = await fetch(`${base}/api/chats/${chatId}/messages`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: 'hi' }),
+  })
+  assert.equal(sent.status, 202)
+
+  // 轮询 GET 直到恢复卡片出现(回合启动/恢复查询是异步的,固定 sleep 在并行
+  // 全量跑下会抖;最多 2s,任一时刻收敛即通过)。
+  let reloaded: Response | null = null
+  let body: { liveFrames?: Array<{ kind: string; questionId?: string }> } = {}
+  for (let i = 0; i < 40; i += 1) {
+    reloaded = await fetch(`${base}/api/chats/${chatId}`)
+    assert.equal(reloaded.status, 200)
+    body = (await reloaded.json()) as { liveFrames?: Array<{ kind: string; questionId?: string }> }
+    if ((body.liveFrames ?? []).some((f) => f.kind === 'question_asked')) break
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  const kept = body.liveFrames?.filter((f) => f.kind === 'question_asked') ?? []
+  assert.equal(kept.length, 1, '重启后 GET 必须经恢复通道重放挂起卡片')
+  assert.equal(kept[0]?.questionId, 'q-restart')
+})
+
 test('债务卡片链: 应答成功后合成 question_resolved——不依赖上游广播,卡片关闭且重放清空', async () => {
   const { base } = await boot({
     gapMs: 20,
