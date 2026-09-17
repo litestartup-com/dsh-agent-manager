@@ -14,6 +14,7 @@ import { pruneExpiredSessions } from './auth/session.js'
 import { makeRequirePage, makeRequireUser } from './auth/hooks.js'
 import { buildClients } from './gateway/client.js'
 import { buildUpstreamClients, closeAllMux } from './upstream/client.js'
+import { setMuxLogger } from './upstream/mux.js'
 import { reconcileAll, startPeriodicReconcile } from './reconcile/index.js'
 import { buildNodeSupervisors } from './nodes/registry.js'
 import { DockerRunner } from './nodes/docker-runner.js'
@@ -97,6 +98,9 @@ const main = async (): Promise<void> => {
 
   const clients = buildClients(config.endpoints)
   const upstreamClients = buildUpstreamClients(config.endpoints)
+  // 债务卡片链(2026-09-17):mux 帧丢弃/断线重连的诊断日志进 app.log——
+  // question/approval 帧被判别拒掉或断线窗口丢失时,卡片不显示有迹可循。
+  setMuxLogger((line) => app.log.warn(line))
   // 蜂群2计划 P2b：只有存在 runner=docker 的节点才连 docker.sock（裸机路径零依赖）
   const needsDocker = Object.values(config.endpoints).some((e) => e.spawn?.runner === 'docker')
   const dockerRunner = needsDocker ? new DockerRunner({}) : null

@@ -571,6 +571,15 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
             onReconnect: () => {
               // 债务 A4:流在回合中重连——turn_end 可能已丢在断线期间,结果未知。
               // 显性失败而非静默等超时(钱花了,结果必须可见,请查会话历史)。
+              // 例外(2026-09-17 卡片丢失链):正等人作答(awaitingHuman>0)时回合
+              // 不可能已结束——问题/授权还挂在宿主上,turn_end 必然未发生。此时
+              // 杀回合会把开着的卡片与订阅一起毁掉(用户答案仍能经 respond 送达,
+              // 但之后的 question_resolved/turn_end 无人接收 = 界面「卡住」)。
+              // 保持等待,total timeout 兜底。
+              if (awaitingHuman > 0) {
+                log?.info(`run ${runId}: stream reconnected while waiting for human (${awaitingHuman} pending) — keeping the turn alive`)
+                return
+              }
               unsub()
               resolveTurn(finish('failed', 'upstream stream reconnected mid-turn: outcome unknown (the turn may have completed); check the session history'))
             },

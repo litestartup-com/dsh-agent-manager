@@ -111,12 +111,87 @@ export const registerChatRoutes = (
   const rememberLiveFrame = (chatId: string, frame: Record<string, unknown>): void => {
     if (frame.kind === 'turn_done') {
       liveFrames.delete(chatId)
+      // 债务卡片链:turn_done 只清回合转录重放——挂起卡片(pendingCards)独立于
+      // 回合生命周期,回合死掉(重连/超时/重启)后卡片仍可重放、仍可作答
+      // (答案经 respond 直达宿主,与回合是否活着无关)。
+      return
+    }
+    // 债务卡片链:已作答/已决断的卡片必须从转录重放里移除——合成 resolved 关闭
+    // 卡片后,回合未结束时刷新(GET 重放 liveFrames)不得把卡片复活。
+    if (frame.kind === 'question_resolved') {
+      const live = (liveFrames.get(chatId) ?? []).filter((l) => !(l.kind === 'question_asked' && l.questionId === frame.questionId))
+      if (live.length === 0) liveFrames.delete(chatId)
+      else liveFrames.set(chatId, live)
+      updatePendingCard(chatId, frame)
+      return
+    }
+    if (frame.kind === 'approval_resolved') {
+      const live = (liveFrames.get(chatId) ?? []).filter((l) => {
+        if (l.kind !== 'approval_pending') return true
+        if (typeof frame.decisionId === 'string') return l.decisionId !== frame.decisionId
+        if (typeof frame.approvalId === 'string') return l.approvalId !== frame.approvalId
+        return true
+      })
+      if (live.length === 0) liveFrames.delete(chatId)
+      else liveFrames.set(chatId, live)
+      updatePendingCard(chatId, frame)
       return
     }
     const frames = liveFrames.get(chatId) ?? []
     frames.push(frame)
     liveFrames.set(chatId, frames)
+    updatePendingCard(chatId, frame)
   }
+
+  // ---- 债务卡片链(2026-09-17):挂起卡片持久化 + 重放 ----
+  // question/approval 帧是「等人作答」状态:上游只广播一次,若断线窗口/页面
+  // 刷新/回合死亡丢掉了它,卡片就永远回不来(ask_user_question 干等)。本 map
+  // 与回合无关地留存卡片帧,resolved 帧或 TTL 才清理;GET 与 SSE 重连都重放。
+  const pendingCards = new Map<string, Array<Record<string, unknown>>>()
+  const CARD_TTL_MS = 15 * 60_000 // runner 总超时上限;facade 10 分钟放手,15 分钟兜底
+  const freshCards = (chatId: string): Array<Record<string, unknown>> =>
+    (pendingCards.get(chatId) ?? []).filter((c) => Date.now() - (typeof c.at === 'number' ? c.at : 0) < CARD_TTL_MS)
+  const updatePendingCard = (chatId: string, frame: Record<string, unknown>): void => {
+    const kind = frame.kind
+    if (kind === 'question_asked' || kind === 'approval_pending') {
+      const id = kind === 'question_asked' ? frame.questionId : frame.decisionId
+      if (typeof id !== 'string') return
+      const cards = (pendingCards.get(chatId) ?? []).filter((c) =>
+        !(c.kind === kind && (kind === 'question_asked' ? c.questionId === id : c.decisionId === id)))
+      cards.push({ ...frame, at: Date.now() })
+      pendingCards.set(chatId, cards)
+      return
+    }
+    if (kind === 'question_resolved') {
+      const id = frame.questionId
+      if (typeof id !== 'string') return
+      const cards = (pendingCards.get(chatId) ?? []).filter((c) => !(c.kind === 'question_asked' && c.questionId === id))
+      if (cards.length === 0) pendingCards.delete(chatId)
+      else pendingCards.set(chatId, cards)
+      return
+    }
+    if (kind === 'approval_resolved') {
+      // resolved 可能只带 approvalId(新连接没见过 request)——两种 id 都扫。
+      const cards = (pendingCards.get(chatId) ?? []).filter((c) => {
+        if (c.kind !== 'approval_pending') return true
+        if (typeof frame.decisionId === 'string') return c.decisionId !== frame.decisionId
+        if (typeof frame.approvalId === 'string') return c.approvalId !== frame.approvalId
+        return true
+      })
+      if (cards.length === 0) pendingCards.delete(chatId)
+      else pendingCards.set(chatId, cards)
+    }
+  }
+  /** GET 重放 = 回合转录(liveFrames) + 存活挂起卡片(去重)。 */
+  const replayFrames = (chatId: string): Array<Record<string, unknown>> => {
+    const live = liveFrames.get(chatId) ?? []
+    const cards = freshCards(chatId).filter((c) => !live.some((l) =>
+      l.kind === c.kind &&
+      (typeof l.questionId === 'string' ? l.questionId === c.questionId : l.decisionId === c.decisionId)))
+    return [...live, ...cards]
+  }
+  /** SSE 重连重放 = 只重放卡片帧(转录帧不重放——reduce 非幂等,会画重块)。 */
+  const pendingCardFrames = (chatId: string): Array<Record<string, unknown>> => freshCards(chatId)
 
   const invalidateHistory = (sessionId: string): void => { historyCache.delete(sessionId) }
 
@@ -253,7 +328,7 @@ export const registerChatRoutes = (
       busyRunId: runningRunId(agent.id),
       activeRuns: activeRunCount(agent.id),
       turns: chatRuns(db, chat.id),
-      liveFrames: liveFrames.get(chat.id) ?? [],
+      liveFrames: replayFrames(chat.id),
     }
 
     if (chat.dshSessionId === null) {
@@ -664,23 +739,35 @@ export const registerChatRoutes = (
       const { chat, client, upstream, driver } = found
       if (chat.dshSessionId === null) return reply.code(409).send({ error: 'no_session' })
       const body = request.body ?? {}
+      // 债务卡片链:应答成功后合成 resolved 帧——上游广播可能永远到不了
+      // (runner 已死/断线窗口),不合成的话卡片在前端会一直开着。
+      // 经 rememberLiveFrame:既从转录重放(liveFrames)移除卡片,又清 pendingCards。
+      const closeQuestion = (outcome: string): void => {
+        const resolved = { kind: 'question_resolved', questionId: request.params.questionId, outcome }
+        rememberLiveFrame(chat.id, resolved)
+        publish(chat.id, resolved)
+      }
       try {
         if (driver === 'apiproxy' && upstream !== null) {
           // apiproxy: questionId is the rpcId from the mux frame.
           if (body.decline === true) {
             await upstream.declineQuestion(request.params.questionId, chat.dshSessionId)
+            closeQuestion('cancelled')
             return reply.send({ ok: true, outcome: 'cancelled' })
           }
           if (!Array.isArray(body.answers)) return reply.code(400).send({ error: 'answers_required' })
           await upstream.answerQuestion(request.params.questionId, chat.dshSessionId, { answers: body.answers })
+          closeQuestion('answered')
           return reply.send({ ok: true, outcome: 'answered' })
         } else {
           if (body.decline === true) {
             await client.declineQuestion(chat.dshSessionId, request.params.questionId)
+            closeQuestion('cancelled')
             return reply.send({ ok: true, outcome: 'cancelled' })
           }
           if (!Array.isArray(body.answers)) return reply.code(400).send({ error: 'answers_required' })
           await client.answerQuestion(chat.dshSessionId, request.params.questionId, body.answers as QuestionAnswer[])
+          closeQuestion('answered')
           return reply.send({ ok: true, outcome: 'answered' })
         }
       } catch (error) {
@@ -709,6 +796,12 @@ export const registerChatRoutes = (
       if (chat.dshSessionId === null) return reply.code(409).send({ error: 'no_session' })
       const outcome = request.body?.outcome
       if (outcome !== 'allowed-once' && outcome !== 'rejected') return reply.code(400).send({ error: 'invalid_outcome' })
+      // 债务卡片链:同 questions 路由——合成 resolved,卡片不依赖上游广播。
+      const closeApproval = (approvalId: string | undefined): void => {
+        const resolved = { kind: 'approval_resolved', decisionId: request.params.decisionId, ...(approvalId === undefined ? {} : { approvalId }), outcome }
+        rememberLiveFrame(chat.id, resolved)
+        publish(chat.id, resolved)
+      }
       try {
         if (driver === 'apiproxy' && upstream !== null) {
           // apiproxy: decisionId is the rpcId from the mux frame; the respond
@@ -718,8 +811,10 @@ export const registerChatRoutes = (
           const approvalId = request.body?.approvalId
           if (typeof approvalId !== 'string' || approvalId === '') return reply.code(400).send({ error: 'approval_id_required' })
           await upstream.decideApproval(request.params.decisionId, chat.dshSessionId, approvalId, outcome)
+          closeApproval(approvalId)
         } else {
           await client.decideApproval(chat.dshSessionId, request.params.decisionId, outcome)
+          closeApproval(undefined)
         }
         return reply.send({ ok: true, outcome })
       } catch (error) {
@@ -735,6 +830,7 @@ export const registerChatRoutes = (
   )
 
   // ---- relay（债务 E2:SSE 事件流已下沉 chat/relay.ts） --------------------
-
-  registerRelayRoute(app, db, requireUser)
+  // 债务卡片链:SSE(重)连时重放挂起卡片帧——断流窗口丢掉的 question/approval
+  // 帧借此回来(转录帧不重放,reduce 非幂等)。
+  registerRelayRoute(app, db, requireUser, pendingCardFrames)
 }

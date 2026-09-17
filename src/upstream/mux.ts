@@ -59,6 +59,15 @@ const connections = new Map<string, MuxConnection>()
 let reconnectCount = 0
 export const getMuxReconnects = (): number => reconnectCount
 
+/**
+ * 债务卡片链(2026-09-17):帧丢弃与重连的诊断日志。生产由 index.ts 注入
+ * app.log.warn;未注入时静默(测试不刷屏)。
+ */
+let muxLog: (line: string) => void = () => {}
+export const setMuxLogger = (log: (line: string) => void): void => {
+  muxLog = log
+}
+
 const RECONNECT_BASE_MS = 3_000
 const RECONNECT_MAX_MS = 30_000
 
@@ -113,7 +122,13 @@ const emit = (conn: MuxConnection, sessionId: string, gw: GatewayFrame): void =>
 const dispatch = (conn: MuxConnection, env: WireEnvelope): void => {
   // 债务 E8:帧体判别——已知帧型形状不符或未知帧型一律丢弃(fail-loud,不猜)。
   const frame = parseMuxPayload(env.payload)
-  if (frame === null) return
+  if (frame === null) {
+    // 债务卡片链:丢弃必须留痕——question/approval 帧被 schema 拒掉时,卡片
+    // 不显示且 ask_user_question 挂起,没有这行日志就无法区分「没收到」与
+    // 「收到但被判别丢弃」。
+    muxLog(`mux ${conn.ep.base}: dropped frame (shape mismatch or unknown type) method=${env.method} payload=${JSON.stringify(env.payload).slice(0, 300)}`)
+    return
+  }
   const sessionId = frame.sessionId
 
   switch (frame.type) {
@@ -177,6 +192,9 @@ const attach = (conn: MuxConnection): void => {
     // 首连(wasConnected=false)不发。
     conn.reconnectAttempt = 0
     if (!conn.wasConnected) return
+    // 债务卡片链:断线窗口内广播的 question/approval 帧已经丢了(上游只发一次),
+    // 重连必须留痕——排障时这行与 facade 的「unanswered, delegating」配对定位。
+    muxLog(`mux ${conn.ep.base}: reconnected (${conn.listeners.size} session(s) subscribed)`)
     for (const sessionId of conn.listeners.keys()) {
       emit(conn, sessionId, { kind: 'stream_reconnected', seq: 0 })
     }
@@ -185,7 +203,12 @@ const attach = (conn: MuxConnection): void => {
   ws.onmessage = (event: MessageEvent) => {
     const data = typeof event.data === 'string' ? event.data : String(event.data)
     const env = parseMuxFrame(data)
-    if (env === null) return
+    if (env === null) {
+      // 非 server-request 信封(或坏 JSON)——老契约里 mux 只下行 server-request,
+      // 出现别的形状值得留一行(节流:截断前 200 字符)。
+      muxLog(`mux ${conn.ep.base}: dropped envelope: ${data.slice(0, 200)}`)
+      return
+    }
     if (env.method === 'stream/error') {
       // Host-side failure: the host closes right after this frame. Treat it as
       // a closed connection so the reconnect path runs.
@@ -206,6 +229,8 @@ const attach = (conn: MuxConnection): void => {
     // Auto-reconnect if there are still listeners.
     if (conn.listeners.size > 0) {
       reconnectCount += 1
+      // 债务卡片链:断线留痕(带订阅会话数)——卡片帧只广播一次,断线窗口即丢失窗口。
+      muxLog(`mux ${conn.ep.base}: connection lost (${conn.listeners.size} session(s) subscribed), reconnecting in ${nextReconnectDelay(Math.max(conn.reconnectAttempt - 1, 0))}ms`)
       if (conn.reconnectTimer === null) {
         const delay = nextReconnectDelay(conn.reconnectAttempt)
         conn.reconnectAttempt += 1

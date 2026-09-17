@@ -1,6 +1,6 @@
 import { after, describe, it, mock } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseMuxFrame, muxUrl, subscribe, nextReconnectDelay, closeAllMux, _setSocketFactory, type MuxListener } from './mux.js'
+import { parseMuxFrame, muxUrl, subscribe, nextReconnectDelay, closeAllMux, _setSocketFactory, setMuxLogger, type MuxListener } from './mux.js'
 import type { UpstreamEndpoint } from './rpc.js'
 
 const EP: UpstreamEndpoint = { base: 'http://127.0.0.1:3080/api', key: '' }
@@ -206,5 +206,61 @@ describe('债务 A4: 连接级行为(注入假 socket)', () => {
 
     unsubNew()
     keepalive()
+  })
+
+  it('债务卡片链: 形状不符的 question/requested 帧被拒时必须留日志(卡片不显示的排障线索)', () => {
+    captured.length = 0
+    _setSocketFactory(() => {
+      const ws = new FakeWs()
+      captured.push(ws)
+      return ws as unknown as WebSocket
+    })
+    const logLines: string[] = []
+    setMuxLogger((line) => logLines.push(line))
+    const unsub = subscribe(EP, 's1', () => {})
+    try {
+      const ws = captured[0]!
+      ws.onopen?.()
+      ws.onmessage?.({
+        data: JSON.stringify({
+          type: 'server-request',
+          rpcId: 'rpc-9',
+          method: 'question/requested',
+          // 缺 questions 字段——schema 必拒;旧行为静默丢弃,卡片不显示且无从排查
+          payload: { type: 'question/requested', sessionId: 's1' },
+        }),
+      })
+      assert.ok(logLines.some((l) => l.includes('dropped frame') && l.includes('question/requested')), `丢弃必须留痕: ${logLines.join(' | ')}`)
+    } finally {
+      unsub()
+      setMuxLogger(() => {})
+    }
+  })
+
+  it('债务卡片链: 断线重连必须留痕(订阅会话数)——定位「广播窗口丢失」用', async () => {
+    mock.timers.enable({ apis: ['setTimeout'] })
+    captured.length = 0
+    _setSocketFactory(() => {
+      const ws = new FakeWs()
+      captured.push(ws)
+      return ws as unknown as WebSocket
+    })
+    const logLines: string[] = []
+    setMuxLogger((line) => logLines.push(line))
+    const unsub = subscribe(EP, 's1', () => {})
+    try {
+      captured[0]!.onopen?.() // 首连(不记重连日志)
+      assert.ok(!logLines.some((l) => l.includes('reconnected')), '首连不得记 reconnected')
+      captured[0]!.close() // 断线
+      await Promise.resolve()
+      await Promise.resolve(mock.timers.tick(4_000))
+      captured[1]!.onopen?.() // 重连成功
+      assert.ok(logLines.some((l) => l.includes('connection lost')), `断线必须留痕: ${logLines.join(' | ')}`)
+      assert.ok(logLines.some((l) => l.includes('reconnected')), `重连必须留痕: ${logLines.join(' | ')}`)
+    } finally {
+      unsub()
+      setMuxLogger(() => {})
+      mock.timers.reset()
+    }
   })
 })

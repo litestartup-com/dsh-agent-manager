@@ -178,6 +178,29 @@ test('债务 A4 回归: 回合中流重连 → 显性失败(结果未知),绝不
   assert.match(outcome.error ?? '', /reconnected|重连|结果未知/, '重连必须显性失败,不得静默等超时')
 })
 
+test('债务卡片链回归: 重连发生在等人作答时 → 不杀回合,答案后照常收尾', async () => {
+  const db = makeDb()
+  const fake = new FakeSessionDriver('A', {
+    frames: [
+      { kind: 'question_asked', seq: 0, questionId: 'q1', questions: [{ id: 'a', question: 'go?' }] },
+      // 卡片正开着、用户在作答时网络抖了一下——回合不可能已结束(问题还挂在宿主上),
+      // 此时杀回合 = 卡片消失 + 退订后 turn_end 无人接收 = 「卡住」。
+      { kind: 'stream_reconnected', seq: 0 },
+      { kind: 'question_resolved', seq: 0, questionId: 'q1', outcome: 'answered' },
+      { kind: 'turn_end', seq: 0, turn: 1, reason: 'completed', detail: null },
+    ],
+  })
+  const seen: string[] = []
+  const outcome = await runAgent({ db }, {
+    agent: agentFor(mkdtempSync(join(tmpdir(), 'apiproxy-ws-'))),
+    client: dummyClient(), upstream: fake, driver: 'apiproxy', prompt: 'hi', trigger: 'manual',
+    silenceMs: 0, timeoutMs: 5_000,
+    onFrame: (frame) => seen.push(frame.kind),
+  })
+  assert.equal(outcome.state, 'done', '等人作答时重连不得杀回合')
+  assert.deepEqual(seen, ['question_asked', 'stream_reconnected', 'question_resolved', 'turn_end'])
+})
+
 test('端口九操作全覆盖：history/answer/decline/decide/release/probe 走记录', async () => {
   const fake = new FakeSessionDriver('A', { frames: [], probeVersion: '0.1.1-rc.2' })
   const history = await fake.history('fake-9')

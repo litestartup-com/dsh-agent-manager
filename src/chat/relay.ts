@@ -76,6 +76,7 @@ export const registerRelayRoute = (
   app: FastifyInstance,
   db: Db,
   requireUser: preHandlerHookHandler,
+  replayCards: (chatId: string) => Array<Record<string, unknown>> = () => [],
 ): void => {
   /**
    * Live frames for one chat, as server-sent events.
@@ -106,6 +107,11 @@ export const registerRelayRoute = (
     })
     reply.raw.write('retry: 3000\n')
     reply.raw.write(`data: ${JSON.stringify({ kind: 'hello', chatId: chat.id, at: Date.now() })}\n\n`)
+    // 债务卡片链(2026-09-17):hello 之后重放挂起卡片帧——断流窗口/页面恢复时
+    // question/approval 卡片必须回来(卡片帧不进 transcript,重放不会画重块)。
+    for (const frame of replayCards(chat.id)) {
+      reply.raw.write(`data: ${JSON.stringify(frame)}\n\n`)
+    }
     relay.subscribers.add(reply)
 
     // Phones drop idle sockets, and so do proxies. A comment line is a no-op for

@@ -402,6 +402,78 @@ test('a refresh restores the current turn and its unanswered question', async ()
   assert.deepEqual(body.liveFrames?.map((frame) => frame.kind), ['user', 'question_asked'])
 })
 
+test('债务卡片链: turn_done 后未作答的卡片仍可重放(刷新与新 SSE 连接都恢复)', async () => {
+  const { base } = await boot({
+    gapMs: 20,
+    frames: [
+      { kind: 'question_asked', questionId: 'q-keep', questions: [{ id: 'choice', question: '继续吗？', options: [{ label: '继续' }] }] },
+      { kind: 'sleep', ms: 150 },
+      // 上游故意不再发 resolved(模拟回合因超时/重连死亡)——问题还挂在宿主上
+      { kind: 'turn_end', reason: 'completed', detail: null },
+    ],
+  })
+  const chatId = await newChat(base)
+  const stream = await fetch(`${base}/api/chats/${chatId}/events`)
+  const done = collectFrames(stream, (f) => f.kind === 'turn_done')
+
+  const sent = await fetch(`${base}/api/chats/${chatId}/messages`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: '请询问我' }),
+  })
+  assert.equal(sent.status, 202)
+  await done
+
+  // 刷新(GET)重放:卡片必须在
+  const reloaded = await fetch(`${base}/api/chats/${chatId}`)
+  const body = (await reloaded.json()) as { liveFrames?: Array<{ kind: string; questionId?: string }> }
+  const kept = body.liveFrames?.filter((f) => f.kind === 'question_asked') ?? []
+  assert.equal(kept.length, 1, 'turn_done 后挂起卡片仍须重放')
+  assert.equal(kept[0]?.questionId, 'q-keep')
+
+  // 新 SSE 连接:hello 之后立即重放卡片帧(断流恢复路径)
+  const stream2 = await fetch(`${base}/api/chats/${chatId}/events`)
+  const frames2 = await collectFrames(stream2, (f) => f.kind === 'question_asked' && f.questionId === 'q-keep')
+  assert.ok(frames2.some((f) => f.kind === 'question_asked' && f.questionId === 'q-keep'), 'SSE 重连必须重放挂起卡片')
+})
+
+test('债务卡片链: 应答成功后合成 question_resolved——不依赖上游广播,卡片关闭且重放清空', async () => {
+  const { base } = await boot({
+    gapMs: 20,
+    frames: [
+      { kind: 'question_asked', questionId: 'q-ans', questions: [{ id: 'choice', question: '继续吗？', options: [{ label: '继续' }] }] },
+      { kind: 'sleep', ms: 300 },
+      // 上游故意不再发 resolved(模拟 runner 已死/断线窗口)
+      { kind: 'turn_end', reason: 'completed', detail: null },
+    ],
+  })
+  const chatId = await newChat(base)
+  const stream = await fetch(`${base}/api/chats/${chatId}/events`)
+  const question = collectFrames(stream, (f) => f.kind === 'question_asked')
+  await fetch(`${base}/api/chats/${chatId}/messages`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: '请询问我' }),
+  })
+  await question
+
+  // 第二个 SSE 连接等 resolved(同一 Response 的流只能锁一个 reader)
+  const stream2 = await fetch(`${base}/api/chats/${chatId}/events`)
+  const resolved = collectFrames(stream2, (f) => f.kind === 'question_resolved')
+  const answer = await fetch(`${base}/api/chats/${chatId}/questions/q-ans`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ answers: [{ id: 'choice', selected: ['继续'] }] }),
+  })
+  assert.equal(answer.status, 200)
+  const frames = await resolved
+  assert.ok(frames.some((f) => f.kind === 'question_resolved' && f.questionId === 'q-ans'), '应答后必须合成 resolved 帧')
+
+  const reloaded = await fetch(`${base}/api/chats/${chatId}`)
+  const body = (await reloaded.json()) as { liveFrames?: Array<{ kind: string }> }
+  assert.ok(!(body.liveFrames ?? []).some((f) => f.kind === 'question_asked'), '应答后挂起卡片必须从重放移除')
+})
+
 test('stopping a question-waiting turn finishes the local run even when its stream stays open', async () => {
   const { base, db } = await boot({
     gapMs: 20,
