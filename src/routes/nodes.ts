@@ -191,7 +191,7 @@ export const registerNodesRoutes = (
       try {
         if (body.clear === true) {
           await withConfigLock(() => mutateYamlFile(configPath, (doc) => doc.deleteIn(['endpoints', request.params.id, 'access'])))
-          config.endpoints[request.params.id]!.access = null
+          ep.access = null
           audit?.(request.currentUser?.username ?? 'unknown', 'node_access_update', `节点 ${request.params.id} 移除原生访问配置`)
           return reply.send({ ok: true, access: null })
         }
@@ -209,7 +209,7 @@ export const registerNodesRoutes = (
           local_port: localPort,
         }
         await withConfigLock(() => mutateYamlFile(configPath, (doc) => doc.setIn(['endpoints', request.params.id, 'access'], access)))
-        config.endpoints[request.params.id]!.access = {
+        ep.access = {
           sshUser: access.ssh_user,
           sshHost: access.ssh_host,
           sshPort: access.ssh_port,
@@ -217,7 +217,7 @@ export const registerNodesRoutes = (
           localPort: access.local_port,
         }
         audit?.(request.currentUser?.username ?? 'unknown', 'node_access_update', `节点 ${request.params.id} 原生访问 → ${access.ssh_user}@${access.ssh_host}:${access.ssh_port} gui=${access.gui_port} local=${access.local_port}`)
-        return reply.send({ ok: true, access: config.endpoints[request.params.id]!.access })
+        return reply.send({ ok: true, access: ep.access })
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         app.log.error(`node ${request.params.id}: access update failed: ${message}`)
