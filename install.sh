@@ -3,8 +3,8 @@
 # nginx + manager + 主脑 spine; the 个人 worker is created by the manager).
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/litestartup-com/dsh-agent-manager/v1.0.4/install.sh -o install.sh && bash install.sh
-#   # one-liner for the impatient: curl -fsSL https://raw.githubusercontent.com/litestartup-com/dsh-agent-manager/v1.0.4/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/litestartup-com/dsh-agent-manager/v1.1.0/install.sh -o install.sh && bash install.sh
+#   # one-liner for the impatient: curl -fsSL https://raw.githubusercontent.com/litestartup-com/dsh-agent-manager/v1.1.0/install.sh | bash
 #
 # Idempotent: Docker present → skipped; .env existing → never overwritten.
 # Non-interactive: DEEPSEEK_API_KEY / MANAGER_PASSWORD / MANAGER_PORT / APP_DOMAIN /
@@ -17,7 +17,7 @@ set -euo pipefail
 
 # 安装目录 = 执行本脚本时所在的目录（cd 到哪装到哪；APP_DIR 环境变量可覆盖）。
 APP_DIR="${APP_DIR:-.}"
-OHDSH_VERSION="${OHDSH_VERSION:-v1.0.4}"
+OHDSH_VERSION="${OHDSH_VERSION:-v1.1.0}"
 RELEASE_BASE="https://github.com/litestartup-com/dsh-agent-manager/releases/download/${OHDSH_VERSION}"
 MANAGER_PORT="${MANAGER_PORT:-8080}"
 DRY_RUN="${DRY_RUN:-0}"

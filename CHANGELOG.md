@@ -1,6 +1,6 @@
 # Changelog
 
-## 未发布（节点三能力 · P1 隧道直开 / P2 宿主机节点 / P3 多版本，2026-09-20）
+## 1.1.0 — 节点三能力 · 隧道直开 / 宿主机节点 / 多版本（2026-09-20）
 
 > 设计/计划：`hive/nodes-install-version-tunnel.md`、`hive/plan-node-capabilities.md`；
 > 依据事实：S0 spike（dsh-facts §11）——nginx 域名反代被上游 loopback 钉死面
