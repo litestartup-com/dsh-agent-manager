@@ -108,7 +108,7 @@ try {
     ['images/node/gen-node-profile.mjs', /GATEWAY_REF = process\.env\.GATEWAY_REF \?\? '([^']+)'/, gatewayRef],
     ['images/node/Dockerfile', /ARG DSH_VERSION=([^\s]+)/, defaultDsh],
     ['images/node/Dockerfile', /ARG GATEWAY_REF=([^\s]+)/, gatewayRef],
-    ['scripts/upgrade-012-win.mjs', /GATEWAY_REF = '([^']+)'/, gatewayRef],
+    ['scripts/upgrade-node-version.mjs', /GATEWAY_REF = '([^']+)'/, gatewayRef],
     ['scripts/make-release.mjs', /nodeImage = process\.env\.DSH_NODE_IMAGE \?\? 'ohdsh\/dsh-node:([^']+)'/, defaultDsh],
   ]
   for (const [file, re, expected] of pinChecks) {
@@ -121,6 +121,21 @@ try {
     if (match[1] !== expected) {
       failures.push(`${file}: 钉版 ${match[1]} 与版本矩阵不一致（期望 ${expected}）——统一改 src/dsh-matrix.ts，禁止多点手改`)
     }
+  }
+  // 升级脚本的 SUPPORTED 表 = 矩阵行集合（dsh 列表 + needsLegacyPeerDeps 对齐）——
+  // 矩阵加行/改 flag 而脚本表漏改 = CI 红。
+  const upgradeSrc = readFileSync(join(root, 'scripts/upgrade-node-version.mjs'), 'utf8')
+  const matrixDsh = [...matrixSrc.matchAll(/dsh: '([^']+)'/g)].map((m) => m[1])
+  const matrixLegacy = [...matrixSrc.matchAll(/dsh: '([^']+)',[^\n]*needsLegacyPeerDeps: true/g)].map((m) => m[1])
+  for (const v of matrixDsh) {
+    if (!upgradeSrc.includes(`dsh: '${v}'`)) failures.push(`scripts/upgrade-node-version.mjs: SUPPORTED 表缺矩阵行 ${v}`)
+  }
+  const scriptRows = [...upgradeSrc.matchAll(/\{ dsh: '([^']+)', legacyPeerDeps: (true|false) \}/g)]
+  for (const v of matrixDsh) {
+    const row = scriptRows.find((m) => m[1] === v)
+    if (row === undefined) continue
+    const wantsLegacy = matrixLegacy.includes(v)
+    if ((row[2] === 'true') !== wantsLegacy) failures.push(`scripts/upgrade-node-version.mjs: 行 ${v} 的 legacyPeerDeps=${row[2]} 与矩阵 needsLegacyPeerDeps=${wantsLegacy} 不一致`)
   }
 } catch (error) {
   failures.push(`钉版同步守卫失败: ${error instanceof Error ? error.message : String(error)}`)

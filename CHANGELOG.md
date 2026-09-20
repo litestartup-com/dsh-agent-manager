@@ -1,6 +1,6 @@
 # Changelog
 
-## 未发布（节点三能力 · P1 隧道一键直开，2026-09-20）
+## 未发布（节点三能力 · P1 隧道直开 / P2 宿主机节点 / P3 多版本，2026-09-20）
 
 > 设计/计划：`hive/nodes-install-version-tunnel.md`、`hive/plan-node-capabilities.md`；
 > 依据事实：S0 spike（dsh-facts §11）——nginx 域名反代被上游 loopback 钉死面
@@ -19,6 +19,21 @@
   `@deepseek-ai/dsh` 自身——隔离安装后 spawn 优先用 profile 内 bin.js
   （回退全局，存量兼容）；向导形态选择「自动 / 容器工蜂 / 宿主机进程」，
   宿主机进程黄字确认 + 审计 `node_create_host`，显式 docker 但未挂 sock 时 400
+- **能力二 · 节点级多版本 DSH**：`src/dsh-matrix.ts` 版本矩阵（(dsh ↔ facade)
+  配对表，唯一真相源；`src/dsh-version.ts` 退化为 re-export 垫片）；矩阵两行
+  0.1.2-rc.1 / 0.1.5-rc.2 均已 **verified**——0.1.5 经服务器 smoke15 全链
+  smoke（host.describe 合成版本 / session.create / session.prompt 真实回合 /
+  mux 帧流 user→assistant→turn/end；安装需 `--legacy-peer-deps`、运行时需
+  node ≥22.19，事实卡 dsh-facts §12）；向导/API 支持 `dsh_version` 按节点钉版
+  ——profile 钉目标版本、yaml 仅显式设置才落盘（默认跟随矩阵首行，不冻结）、
+  未知版本 400、pending 配对黄字警告；节点页显示配置版本 + 漂移探测 +
+  `POST /api/nodes/:id/align-version` 一键对齐（reseed→installDeps→隔离 bin
+  重启，审计 `node_align_version`，容器节点 409 显性拒绝）；容器镜像随钉版
+  `ohdsh/dsh-node:<dshVersion>`；`profileInstallCommand`/后台安装按矩阵配对自动
+  追加 `--legacy-peer-deps`（0.1.5 ERESOLVE 修复，dsh-facts §12）；升级脚本泛化
+  `scripts/upgrade-node-version.mjs`（目标版本参数化、幂等、`--dry-run`、备份
+  `.pre-<version>.bak`、`.env` 镜像 tag 同升），旧 `upgrade-012-win.mjs` 留兼容壳，
+  check-docs 守卫升级为「脚本 SUPPORTED 表与矩阵逐行对齐」断言
 
 ## 1.0.4 — 安全修复 + 四批技术债清偿（2026-09-12）
 

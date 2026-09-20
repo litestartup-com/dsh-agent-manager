@@ -55,6 +55,8 @@ DeepSeek Harness 提供 agent 运行时（会话 / 工具 / 沙箱 / 文件系�
 - **原生 GUI 一键直开**：节点页「原生 GUI」卡——一条 SSH 隧道命令（密钥只在你本机）+
   一键打开节点原生界面，0.1.5 的 token 由 manager 自动捕获拼接、重启轮换自动跟随
   （DSH 原生 UI 只绑 loopback，反代不可行——见设计库事实卡 dsh-facts §11）
+- **节点级 DSH 版本**：(dsh ↔ facade) 版本矩阵为唯一真相源；建节点可钉版本，
+  节点页显示配置版本 + 漂移状态，一键对齐（重建 profile → 重装依赖 → 重启）
 
 ## 打开节点原生 GUI（SSH 隧道）
 
@@ -64,6 +66,14 @@ DeepSeek Harness 提供 agent 运行时（会话 / 工具 / 沙箱 / 文件系�
 
 manager 只生成「怎么连」的命令，**SSH 私钥永不进入 manager**；隧道两端都绑
 loopback，节点 GUI 端口也只发布在宿主机 127.0.0.1（不进公网面）。
+
+## 节点级 DSH 版本
+
+节点向导可填 `dsh_version`，按版本矩阵 `SUPPORTED_DSH`（`src/dsh-matrix.ts`——
+每行 = DSH 版本 ↔ facade ref 配对）校验：未知版本直接拒绝，未验证配对安装带
+黄字警告。每个节点的 profile 钉自己的版本；节点页显示配置版本 + 漂移状态，
+「对齐版本」= 重建 profile → 重装依赖 → 按钉版重启。容器节点用镜像
+`ohdsh/dsh-node:<version>`。
 
 ## 从源码运行（开发者）
 

@@ -57,6 +57,9 @@ server ──► node (= one DSH agent process + its own DSH_HOME) ──► wor
   native UI. The 0.1.5 token is captured from node logs automatically and follows
   restarts. (The DSH web UI binds loopback only; reverse-proxying is not possible —
   see facts card dsh-facts §11.)
+- **Per-node DSH version**: the (dsh, facade) version matrix is the single source of
+  truth; nodes can pin a version at creation, the nodes page shows the configured
+  version + drift state, and one click aligns it (reseed → reinstall → restart)
 
 ## Open a node's native GUI (SSH tunnel)
 
@@ -68,6 +71,16 @@ server ──► node (= one DSH agent process + its own DSH_HOME) ──► wor
 The manager only generates the "how to connect" command — **the SSH private key
 never enters the manager**. Both tunnel ends bind loopback, and node GUI ports are
 published on the host's 127.0.0.1 only (never the public surface).
+
+## Per-node DSH version
+
+The node wizard accepts an optional `dsh_version`, validated against the version
+matrix `SUPPORTED_DSH` (`src/dsh-matrix.ts` — each row pairs a DSH version with a
+facade ref; unknown versions are rejected, and pairs not yet verified install with
+a warning). Each node's profile is pinned to its version; the nodes page shows the
+configured version plus drift state, and "Align version" reseeds the profile,
+reinstalls dependencies, and restarts the node on its pinned version. Container
+nodes use image `ohdsh/dsh-node:<version>`.
 
 ## Run from source (developers)
 
