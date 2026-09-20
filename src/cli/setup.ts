@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import net from 'node:net'
@@ -8,7 +8,15 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { withConfigLock, writeFileAtomic } from '../config-store.js'
 import type { ManagerConfigFile } from '../config.js'
 import { initWorkspace } from '../workspace/init.js'
-import { COMPAT_DSH_VERSION, DSH_INSTALL_COMMAND, GATEWAY_PACKAGE, GATEWAY_REF, dshCompatible } from '../dsh-version.js'
+import { COMPAT_DSH_VERSION, DSH_INSTALL_COMMAND, GATEWAY_REF, dshCompatible } from '../dsh-version.js'
+// 能力一（2026-09-20）：profile 生成/安装/钥匙/依赖命令已抽到 host-node 公共模块
+// （setup 与 provision 共用）；本文件 import 自用 + re-export 保持既有导入面。
+import { ensureNodeCredentials, ensureNodeProfiles, profileInstallCommand, resolveGatewayKey, type ProfileSpec } from '../host-node/profile.js'
+export {
+  ensureNodeProfiles, ensureNodeCredentials, profileFiles, profileInstallCommand,
+  resolveGatewayKey, dshBinInProfile, PROFILE_BUNDLES, profileDependencies,
+  type ProfileSpec,
+} from '../host-node/profile.js'
 
 /**
  * `npm run setup -- [选项]` — 蜂群 P4：默认安装。
@@ -40,96 +48,6 @@ interface SetupOptions {
   force: boolean
   /** 蜂群2计划 P1：DSH 版本不符时放行（显式声明风险自负）。 */
   skipVersionCheck: boolean
-}
-
-interface ProfileSpec {
-  name: string
-  port: number
-}
-
-// 蜂群2计划 P1：bundle 钉版本（= COMPAT_DSH_VERSION），根治裸机安装漂移；
-// gateway 既是 bundle 又是依赖，引用由 gatewayDep 决定（默认钉 commit）。
-const PROFILE_BUNDLES: Record<string, string> = {
-  '@deepseek-ai/dsh-base': COMPAT_DSH_VERSION,
-  '@deepseek-ai/dsh-web-app': COMPAT_DSH_VERSION,
-}
-
-const profileFiles = (spec: ProfileSpec, gatewayDep: string): Record<string, string> => {
-  const pkg = {
-    name: `dsh-profile-${spec.name}`,
-    private: true,
-    dsh: { profile: { bundles: [...Object.keys(PROFILE_BUNDLES), GATEWAY_PACKAGE] } },
-    dependencies: { ...PROFILE_BUNDLES, [GATEWAY_PACKAGE]: gatewayDep },
-  }
-  const patch = [
-    {
-      id: 'webserver',
-      config: {
-        // 整行 config 替换（无深度合并，README 原话）：节点永远只绑回环。
-        host: '127.0.0.1',
-        port: spec.port,
-      },
-    },
-  ]
-  return {
-    'package.json': JSON.stringify(pkg, null, 2) + '\n',
-    // pnpm ≥10 默认拒绝运行依赖构建脚本（ERR_PNPM_IGNORED_BUILDS，实测容器构建撞过）——
-    // 显式批准 DSH 依赖链里必须构建的原生/后置脚本包。10 认顶层键、11 认 pnpm 嵌套键，
-    // 两个形态都给（9 及以下直接忽略，按旧语义照跑）。
-    'pnpm-workspace.yaml': [
-      'packages:',
-      '  - .',
-      '',
-      'nodeLinker: hoisted',
-      'autoInstallPeers: false',
-      'onlyBuiltDependencies:',
-      "  - '@deepseek-ai/dsh-subprocess-local'",
-      "  - '@google/genai'",
-      '  - koffi',
-      '  - node-pty',
-      '  - protobufjs',
-      'pnpm:',
-      '  onlyBuiltDependencies:',
-      "    - '@deepseek-ai/dsh-subprocess-local'",
-      "    - '@google/genai'",
-      '    - koffi',
-      '    - node-pty',
-      '    - protobufjs',
-      '',
-    ].join('\n'),
-    'cordis.yml': '# dsh profile root — empty entry list; edit cordis.patch.yml\n[]\n',
-    'cordis.patch.yml': stringifyYaml(patch),
-  }
-}
-
-/**
- * 在 nodesHome 下为每个节点生成独立 DSH_HOME（<nodesHome>/<name>/profiles/<name>）。
- * 节点目录已存在则不动。
- */
-export const ensureNodeProfiles = (nodesHome: string, specs: ProfileSpec[], gatewayDep: string): string[] => {
-  mkdirSync(nodesHome, { recursive: true })
-  const created: string[] = []
-  for (const spec of specs) {
-    const nodeHome = join(nodesHome, spec.name)
-    const dir = join(nodeHome, 'profiles', spec.name)
-    if (existsSync(dir)) continue
-    mkdirSync(dir, { recursive: true })
-    for (const [name, content] of Object.entries(profileFiles(spec, gatewayDep))) {
-      writeFileSync(join(dir, name), content, 'utf8')
-    }
-    created.push(nodeHome)
-  }
-  return created
-}
-
-/** 把主 DSH_HOME 的模型凭据复制进节点目录（同一用户同一把 key，缺省不覆盖）。 */
-export const ensureNodeCredentials = (mainDshHome: string, nodeHome: string): boolean => {
-  const source = join(mainDshHome, '.credentials.yaml')
-  const target = join(nodeHome, '.credentials.yaml')
-  if (!existsSync(source) || existsSync(target)) return false
-  mkdirSync(nodeHome, { recursive: true })
-  writeFileSync(target, readFileSync(source, 'utf8'), 'utf8')
-  return true
 }
 
 /** 解析 DSH 命令所在目录：优先 $DSH_BIN，其次 `where dsh` 的 .ps1 包装器。 */
@@ -178,44 +96,6 @@ export const detectDshBin = (dshHome: string, override: string | null): string =
   for (const guess of guesses) if (existsSync(guess)) return resolve(guess)
   throw new Error(`找不到 DSH 的 bin.js：请先安装钉死版本（${DSH_INSTALL_COMMAND}），或用 --dsh-bin 指定路径`)
 }
-
-/**
- * 解析 gateway 密钥：优先 settings.yaml 里 facade 命名空间的 provisionedKey；
- * 没有则生成一个并追加到 apiKeys（gateway 的静态密钥数组，settings live 生效）。
- * 命名空间 = GATEWAY_PACKAGE（0.1.2 切主路起 ohdsh-api-facade；旧 dsh-api-gw
- * 段的钥匙不会被新 facade 读取——容器路径同款坑，别再踩）。
- */
-export const resolveGatewayKey = (dshHome: string, settingsPath: string | null): string => {
-  const ns = GATEWAY_PACKAGE
-  const path = settingsPath ?? join(dshHome, 'settings.yaml')
-  if (existsSync(path)) {
-    const parsed = parseYaml(readFileSync(path, 'utf8')) as Record<string, { provisionedKey?: string; apiKeys?: string[] } | undefined>
-    const section = parsed[ns]
-    if (typeof section?.provisionedKey === 'string' && section.provisionedKey !== '') return section.provisionedKey
-    const keys = Array.isArray(section?.apiKeys) ? section.apiKeys.filter((k) => k !== '') : []
-    const first = keys[0]
-    if (first !== undefined) return first
-  }
-  const minted = 'apigw-' + randomBytes(24).toString('hex')
-  const parsed = existsSync(path) ? (parseYaml(readFileSync(path, 'utf8')) as Record<string, unknown>) : {}
-  const section = (parsed[ns] ?? {}) as Record<string, unknown>
-  const apiKeys = Array.isArray(section.apiKeys) ? [...section.apiKeys, minted] : [minted]
-  parsed[ns] = { ...section, apiKeys }
-  writeFileSync(path, stringifyYaml(parsed), 'utf8')
-  return minted
-}
-
-/**
- * 节点 profile 依赖安装命令。0.1.2 切主路实测（容器路径同款结论）：
- * pnpm@9 对 harness 0.1.2-rc.1 的内层预发布区间（dsh-settings@>=0.1.2
- * <0.2.0-0）解析失败、pnpm@11 的 onlyBuiltDependencies 白名单失效——
- * 改用 npm（同版本集实证可解析，且按旧语义跑原生构建脚本）。
- * Windows：npm 是 .cmd 垫片，调用处必须 shell: true（CVE-2024-27980，EINVAL 实测）。
- */
-export const profileInstallCommand = (_platform: NodeJS.Platform): { cmd: string; args: string[] } => ({
-  cmd: process.platform === 'win32' ? 'npm' : 'npm',
-  args: ['install', '--no-audit', '--no-fund'],
-})
 
 /**
  * 蜂群2计划 P6 回归：setup 写进 .env 的密钥集（含首启密码）。
