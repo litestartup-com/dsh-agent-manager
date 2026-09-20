@@ -20,6 +20,7 @@ const endpointFor = (id: string, driver: 'gateway' | 'apiproxy', spawn: Resolved
   sandboxBase: null,
   sandboxKey: 'apigw-test-key',
   spawn,
+  access: null,
 })
 
 const managedProcess: ResolvedEndpoint['spawn'] = {

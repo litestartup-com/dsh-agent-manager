@@ -32,7 +32,7 @@ const ep = (base: string): ResolvedEndpoint => ({
   key: '',
   sandboxBase: base,
   sandboxKey: 'apigw-test',
-  spawn: null,
+  spawn: null, access: null,
 })
 
 test('蜂群2计划 P6 回归: 网关 settings 竞态的 401 hint 重试一次后成功（DSH-FACTS §7）', async () => {

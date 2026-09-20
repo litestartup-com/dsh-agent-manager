@@ -68,7 +68,7 @@ const makeDb = (): Db => makeHarnessDb().db
 const agentFor = personalAgent
 
 const dummyClient = (): GatewayClient =>
-  new GatewayClient({ id: 'A', url: 'http://127.0.0.1:1', driver: 'apiproxy', prefix: '/api', key: '', sandboxBase: null, sandboxKey: '', spawn: null })
+  new GatewayClient({ id: 'A', url: 'http://127.0.0.1:1', driver: 'apiproxy', prefix: '/api', key: '', sandboxBase: null, sandboxKey: '', spawn: null, access: null })
 
 test('插头二九操作：probe/create/subscribe/prompt 帧泵/history/release', async () => {
   const { driver } = driverFor({ chunks: ['你', '好'] })

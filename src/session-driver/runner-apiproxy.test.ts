@@ -36,7 +36,7 @@ const agentFor = (workspacePath: string, sandboxMode: 'read-only' | 'workspace-w
 
 /** 端口不涉及 GatewayClient，但 RunInput 要求一个（gateway 分支才用得到）。 */
 const dummyClient = (): GatewayClient =>
-  new GatewayClient({ id: 'A', url: 'http://127.0.0.1:1', driver: 'apiproxy', prefix: '/api', key: '', sandboxBase: null, sandboxKey: '', spawn: null })
+  new GatewayClient({ id: 'A', url: 'http://127.0.0.1:1', driver: 'apiproxy', prefix: '/api', key: '', sandboxBase: null, sandboxKey: '', spawn: null, access: null })
 
 test('apiproxy turn: create → sandbox → prompt → frames → turn_end，全部走端口', async () => {
   const db = makeDb()

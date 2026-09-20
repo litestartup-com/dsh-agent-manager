@@ -55,6 +55,22 @@ const spawnSchema = z
     message: 'spawn: runner=docker 需要 docker 段；runner=process 需要 command',
   })
 
+/**
+ * 能力三 v1（2026-09-20）：节点原生 GUI 的 SSH 隧道元数据。
+ * 未配置 = 该端点无「打开原生 GUI」能力（节点页不显示入口）。
+ * 红线：ssh 私钥绝不进配置——manager 只记「怎么连」，不记「凭什么连」；
+ * 隧道永远绑用户本机 loopback（local_port 是用户机器上的映射口）。
+ */
+const accessSchema = z.object({
+  ssh_user: z.string().min(1),
+  ssh_host: z.string().min(1),
+  ssh_port: z.number().int().positive().default(22),
+  /** 节点宿主机上 GUI 端口（容器 = 发布到宿主的 loopback 端口）。 */
+  gui_port: z.number().int().positive().default(3080),
+  /** 用户本机映射端口（manager 建议值，可改）。 */
+  local_port: z.number().int().positive(),
+})
+
 const endpointSchema = z.object({
   url: z.string().url(),
   driver: z.enum(['gateway', 'apiproxy']).default('gateway'),
@@ -66,6 +82,8 @@ const endpointSchema = z.object({
   sandbox_key_ref: z.string().default(''),
   // 蜂群 P1：节点进程生命周期（manager 拉起/停止/重启）。缺省 = 不托管。
   spawn: spawnSchema.optional(),
+  // 能力三 v1：原生 GUI 隧道元数据。缺省 = 无「打开原生 GUI」能力。
+  access: accessSchema.optional(),
 })
 
 const agentSchema = z.object({
@@ -198,6 +216,15 @@ export interface ResolvedSpawnSpec {
   } | null
 }
 
+/** 能力三 v1：节点原生 GUI 隧道元数据（配置文件的 access 段解析结果）。 */
+export interface ResolvedEndpointAccess {
+  sshUser: string
+  sshHost: string
+  sshPort: number
+  guiPort: number
+  localPort: number
+}
+
 export interface ResolvedEndpoint {
   id: string
   url: string
@@ -211,6 +238,8 @@ export interface ResolvedEndpoint {
   sandboxKey: string
   /** Node lifecycle spec; null = this endpoint's DSH process is externally managed. */
   spawn: ResolvedSpawnSpec | null
+  /** 原生 GUI 隧道元数据；null = 无「打开原生 GUI」能力。 */
+  access: ResolvedEndpointAccess | null
 }
 
 export interface ResolvedAgent {
@@ -382,6 +411,17 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
       sandboxBase,
       sandboxKey,
       spawn,
+      // 能力三 v1：隧道元数据显式映射（snake_case → camelCase）；缺省 = null
+      access:
+        ep.access === undefined
+          ? null
+          : {
+              sshUser: ep.access.ssh_user,
+              sshHost: ep.access.ssh_host,
+              sshPort: ep.access.ssh_port,
+              guiPort: ep.access.gui_port,
+              localPort: ep.access.local_port,
+            },
     }
   }
 

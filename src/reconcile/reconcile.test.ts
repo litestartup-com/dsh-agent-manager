@@ -97,7 +97,7 @@ test('修路 A2/A3: convergeNodes healOnly——cold 不动、offline restart �
     } as unknown as NodeSupervisor
   }
   const config = configOf({ personal: {} })
-  config.endpoints['A'] = { id: 'A', url: 'http://x', driver: 'apiproxy', prefix: '/api', key: '', sandboxBase: null, sandboxKey: '', spawn: spec }
+  config.endpoints['A'] = { id: 'A', url: 'http://x', driver: 'apiproxy', prefix: '/api', key: '', sandboxBase: null, sandboxKey: '', spawn: spec, access: null }
 
   // boot 形态：冷态 = 从未启动 → 拉起（走完整路径）
   const cold = new Map([['A', mk('A', 'cold')]])

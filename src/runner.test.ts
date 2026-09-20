@@ -19,7 +19,7 @@ const makeDb = (): Db => makeHarnessDb().db
 const agentFor = personalAgent
 
 const clientFor = (gw: FakeGateway): GatewayClient =>
-  new GatewayClient({ id: 'A', url: gw.url, driver: 'gateway', prefix: gw.prefix, key: API_KEY, sandboxBase: null, sandboxKey: '', spawn: null })
+  new GatewayClient({ id: 'A', url: gw.url, driver: 'gateway', prefix: gw.prefix, key: API_KEY, sandboxBase: null, sandboxKey: '', spawn: null, access: null })
 
 const gateways: FakeGateway[] = []
 const boot = async (script: FakeScript): Promise<FakeGateway> => {

@@ -17,7 +17,7 @@ const endpoint: ResolvedEndpoint = {
   key: 'test-key',
   sandboxBase: null,
   sandboxKey: '',
-  spawn: null,
+  spawn: null, access: null,
 }
 
 const agent: ResolvedAgent = agentWith({ id: 'personal', name: '个人', workspacePath: '.' })

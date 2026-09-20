@@ -389,6 +389,8 @@ export const registerProvisionRoutes = (
           sandboxBase: `http://node-${body.name}:${port}/api-gw/v1`,
           sandboxKey: key,
           spawn,
+          // 能力三 v1：新节点缺省无隧道元数据（向导未配置 = 无「打开原生 GUI」）
+          access: null,
         }
         config.endpoints[body.name] = endpoint
         const fresh = buildUpstreamClients({ [body.name]: endpoint })
@@ -473,6 +475,8 @@ export const registerProvisionRoutes = (
         sandboxBase: `http://127.0.0.1:${port}/api-gw/v1`,
         sandboxKey: key,
         spawn: spawnFor(dshBin, body.name, nodeHomePath),
+        // 能力三 v1：新节点缺省无隧道元数据
+        access: null,
       }
       config.endpoints[body.name] = endpoint
       const fresh = buildUpstreamClients({ [body.name]: endpoint })

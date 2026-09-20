@@ -170,6 +170,7 @@ test('蜂群2计划 P6: 容器模式新节点 = docker runner（不找 DSH bin�
         namedVolumes: { 'ohdsh-personal': '/data' },
       },
     },
+    access: null,
   }
 
   const created = await app.inject({ method: 'POST', url: '/api/nodes', payload: { name: 'product' } })
@@ -236,6 +237,7 @@ test('蜂群2计划 P6 回归: 容器模式新建节点同步镜像进 DB（chat
         namedVolumes: { 'ohdsh-personal': '/data' },
       },
     },
+    access: null,
   }
 
   const created = await app.inject({
@@ -355,6 +357,7 @@ test('债务 R9: 热变更经 reconcile 收敛——不借 provision 抢拉用�
       runner: 'process',
       docker: null,
     },
+    access: null,
   }
 
   const created = await app.inject({

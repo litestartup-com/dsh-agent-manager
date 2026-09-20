@@ -27,7 +27,7 @@ const endpoint = (gw: FakeGateway): ResolvedEndpoint => ({
   key: API_KEY,
   sandboxBase: null,
   sandboxKey: '',
-  spawn: null,
+  spawn: null, access: null,
 })
 
 const agentFor = (workspacePath: string): ResolvedAgent =>

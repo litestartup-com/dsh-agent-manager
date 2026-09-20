@@ -28,7 +28,7 @@ const configFor = (): AppConfig => {
   const dir = mkdtempSync(join(tmpdir(), 'ratelimit-mut-'))
   return {
     listen: { host: '127.0.0.1', port: 0 },
-    endpoints: { A: { id: 'A', url: 'http://127.0.0.1:1', driver: 'gateway', prefix: '/api-gw/v1', key: 'k', sandboxBase: null, sandboxKey: '', spawn: null } },
+    endpoints: { A: { id: 'A', url: 'http://127.0.0.1:1', driver: 'gateway', prefix: '/api-gw/v1', key: 'k', sandboxBase: null, sandboxKey: '', spawn: null, access: null } },
     agents: {
       personal: { id: 'personal', name: '个人', endpoint: 'A', workspacePath: '.', public: false, preset: null, sandboxMode: null, gitRemote: null, provider: null, model: null, validate: null },
     },

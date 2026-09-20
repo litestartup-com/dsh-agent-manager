@@ -41,7 +41,7 @@ const agentFor = (workspacePath: string): ResolvedAgent => ({
 
 const configFor = (gw: FakeGateway, agent: ResolvedAgent): AppConfig => ({
   listen: { host: '127.0.0.1', port: 0 },
-  endpoints: { A: { id: 'A', url: gw.url, driver: 'gateway', prefix: gw.prefix, key: API_KEY, sandboxBase: null, sandboxKey: '', spawn: null } },
+  endpoints: { A: { id: 'A', url: gw.url, driver: 'gateway', prefix: gw.prefix, key: API_KEY, sandboxBase: null, sandboxKey: '', spawn: null, access: null } },
   agents: { personal: agent },
   runner: { timeoutMs: 10_000, silenceMs: 0, maxConsecutiveFailures: 3, dailyBudgetMicroUsd: null },
   databasePath: ':memory:',
@@ -83,7 +83,7 @@ const boot = async (script: FakeScript, upstream?: SessionDriver): Promise<Harne
 
   const app = Fastify()
   apps.push(app)
-  const clients = new Map([['A', new GatewayClient({ id: 'A', url: gw.url, driver: 'gateway', prefix: gw.prefix, key: API_KEY, sandboxBase: null, sandboxKey: '', spawn: null })]])
+  const clients = new Map([['A', new GatewayClient({ id: 'A', url: gw.url, driver: 'gateway', prefix: gw.prefix, key: API_KEY, sandboxBase: null, sandboxKey: '', spawn: null, access: null })]])
   // Auth has its own tests; every request here counts as signed in.
   const config = configFor(gw, agent)
   const endpoint = config.endpoints.A

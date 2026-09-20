@@ -13,7 +13,7 @@ const configFor = (): AppConfig => {
   return {
     listen: { host: '127.0.0.1', port: 8080 },
     endpoints: {
-      brain: { id: 'brain', url: 'http://node-brain:3082', driver: 'apiproxy', prefix: '/api', key: '', sandboxBase: null, sandboxKey: '', spawn: null },
+      brain: { id: 'brain', url: 'http://node-brain:3082', driver: 'apiproxy', prefix: '/api', key: '', sandboxBase: null, sandboxKey: '', spawn: null, access: null },
       personal: {
         id: 'personal',
         url: 'http://node-personal:3081',
@@ -35,6 +35,7 @@ const configFor = (): AppConfig => {
           runner: 'docker',
           docker: { image: 'x', containerName: null, network: 'ohdsh-hive', port: 3081, hostVolumes: {}, namedVolumes: { 'ohdsh-personal': '/data' } },
         },
+        access: null,
       },
     },
     agents: {

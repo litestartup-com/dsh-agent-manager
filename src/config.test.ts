@@ -123,6 +123,58 @@ test('defaults: no sandbox surface, no preset, no mode', () => {
   assert.equal(agent.sandboxMode, null)
 })
 
+test('债务 P1 回归: endpoint.access 隧道元数据解析与缺省(未配置 = 无能力)', () => {
+  const cfg = loadFrom(baseConfig({
+    endpoints: {
+      A: {
+        url: 'http://127.0.0.1:3080',
+        driver: 'apiproxy',
+        access: {
+          ssh_user: 'ubuntu',
+          ssh_host: '10.0.0.5',
+          ssh_port: 2222,
+          gui_port: 3082,
+          local_port: 3088,
+        },
+      },
+    },
+  }))
+  const ep = cfg.endpoints['A']
+  assert.ok(ep !== undefined)
+  assert.deepEqual(ep.access, { sshUser: 'ubuntu', sshHost: '10.0.0.5', sshPort: 2222, guiPort: 3082, localPort: 3088 })
+
+  // 未配置 access = null(节点页不显示「打开原生 GUI」)
+  const bare = loadFrom(baseConfig())
+  assert.equal(bare.endpoints['A']?.access, null)
+})
+
+test('债务 P1 回归: access 缺省端口(ssh 22 / gui 3080)与非法值拒绝', () => {
+  const cfg = loadFrom(baseConfig({
+    endpoints: {
+      A: {
+        url: 'http://127.0.0.1:3080',
+        driver: 'apiproxy',
+        access: { ssh_user: 'ubuntu', ssh_host: '10.0.0.5', local_port: 3088 },
+      },
+    },
+  }))
+  const access = cfg.endpoints['A']?.access
+  assert.deepEqual(access, { sshUser: 'ubuntu', sshHost: '10.0.0.5', sshPort: 22, guiPort: 3080, localPort: 3088 })
+
+  assert.throws(
+    () => loadFrom(baseConfig({
+      endpoints: {
+        A: {
+          url: 'http://127.0.0.1:3080',
+          driver: 'apiproxy',
+          access: { ssh_user: 'ubuntu', ssh_host: '10.0.0.5' }, // 缺 local_port
+        },
+      },
+    })),
+    /local_port/,
+  )
+})
+
 test('agent sandbox_mode without endpoint sandbox_base fails loud at boot', () => {
   assert.throws(
     () => loadFrom(baseConfig({

@@ -19,7 +19,7 @@ const ep = (gw: FakeGateway) => ({
   key: API_KEY,
   sandboxBase: null,
   sandboxKey: '',
-  spawn: null,
+  spawn: null, access: null,
 })
 
 const configFor = (gw: FakeGateway): AppConfig => ({

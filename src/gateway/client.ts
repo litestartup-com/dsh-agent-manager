@@ -309,5 +309,5 @@ export const dummyGatewayClient = (): GatewayClient =>
     key: '',
     sandboxBase: null,
     sandboxKey: '',
-    spawn: null,
+    spawn: null, access: null,
   })

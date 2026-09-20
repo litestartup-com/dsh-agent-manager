@@ -33,7 +33,7 @@ const ep: ResolvedEndpoint = {
   key: '',
   sandboxBase,
   sandboxKey: process.env.SMOKE_SANDBOX_KEY ?? '',
-  spawn: null,
+  spawn: null, access: null,
 }
 const client = new UpstreamClient(ep)
 
