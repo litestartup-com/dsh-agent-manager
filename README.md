@@ -64,13 +64,20 @@ server ──► node (= one DSH agent process + its own DSH_HOME) ──► wor
 ## Open a node's native GUI (SSH tunnel)
 
 1. On the nodes page, click "Configure native access" once: SSH user / host / port
-   and the local mapped port;
+   and the local mapped port — optional SSH private-key path (your machine's key
+   file, so the command can carry `-i`);
 2. Run the `ssh -L` command from the card in a terminal (keep it open);
 3. Click "Open GUI" — a new tab lands on that node's native DSH UI.
 
+**Local nodes skip the tunnel entirely**: when a node's endpoint URL is loopback
+(127.0.0.1/localhost), the card switches to "direct open" — the browser and the
+node are both on loopback, so one click opens the native UI (the URL uses the
+port the node itself printed in its startup line, token included).
+
 The manager only generates the "how to connect" command — **the SSH private key
-never enters the manager**. Both tunnel ends bind loopback, and node GUI ports are
-published on the host's 127.0.0.1 only (never the public surface).
+never enters the manager** (only an optional local key *path* is recorded). Both
+tunnel ends bind loopback, and node GUI ports are published on the host's
+127.0.0.1 only (never the public surface).
 
 ## Per-node DSH version
 

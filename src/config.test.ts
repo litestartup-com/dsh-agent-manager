@@ -135,13 +135,14 @@ test('债务 P1 回归: endpoint.access 隧道元数据解析与缺省(未配置
           ssh_port: 2222,
           gui_port: 3082,
           local_port: 3088,
+          ssh_key: 'C:\\Users\\you\\.ssh\\id_ed25519',
         },
       },
     },
   }))
   const ep = cfg.endpoints['A']
   assert.ok(ep !== undefined)
-  assert.deepEqual(ep.access, { sshUser: 'ubuntu', sshHost: '10.0.0.5', sshPort: 2222, guiPort: 3082, localPort: 3088 })
+  assert.deepEqual(ep.access, { sshUser: 'ubuntu', sshHost: '10.0.0.5', sshPort: 2222, guiPort: 3082, localPort: 3088, sshKey: 'C:\\Users\\you\\.ssh\\id_ed25519' })
 
   // 未配置 access = null(节点页不显示「打开原生 GUI」)
   const bare = loadFrom(baseConfig())
@@ -159,7 +160,7 @@ test('债务 P1 回归: access 缺省端口(ssh 22 / gui 3080)与非法值拒绝
     },
   }))
   const access = cfg.endpoints['A']?.access
-  assert.deepEqual(access, { sshUser: 'ubuntu', sshHost: '10.0.0.5', sshPort: 22, guiPort: 3080, localPort: 3088 })
+  assert.deepEqual(access, { sshUser: 'ubuntu', sshHost: '10.0.0.5', sshPort: 22, guiPort: 3080, localPort: 3088, sshKey: null })
 
   assert.throws(
     () => loadFrom(baseConfig({

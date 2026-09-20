@@ -253,11 +253,12 @@ test('债务 P1 回归: POST /api/nodes/:id/access 写真相源并热加载;clea
   const set = await app.inject({
     method: 'POST',
     url: '/api/nodes/A/access',
-    payload: { ssh_user: 'ubuntu', ssh_host: '10.0.0.5', local_port: 3088 },
+    payload: { ssh_user: 'ubuntu', ssh_host: '10.0.0.5', local_port: 3088, ssh_key: 'C:\\Users\\you\\.ssh\\id_ed25519' },
   })
   assert.equal(set.statusCode, 200)
-  assert.deepEqual(config.endpoints['A']?.access, { sshUser: 'ubuntu', sshHost: '10.0.0.5', sshPort: 22, guiPort: 3080, localPort: 3088 }, '内存热加载')
+  assert.deepEqual(config.endpoints['A']?.access, { sshUser: 'ubuntu', sshHost: '10.0.0.5', sshPort: 22, guiPort: 3080, localPort: 3088, sshKey: 'C:\\Users\\you\\.ssh\\id_ed25519' }, '内存热加载')
   assert.match(readFileSync(configPath, 'utf8'), /access:/, '真相源落盘')
+  assert.match(readFileSync(configPath, 'utf8'), /ssh_key/, '私钥路径落盘（非密钥内容）')
   assert.ok(audits.includes('node_access_update'), '审计留痕')
 
   const clear = await app.inject({ method: 'POST', url: '/api/nodes/A/access', payload: { clear: true } })
@@ -276,7 +277,7 @@ test('债务 P1 回归: GET /api/nodes 挂 access + guiUrl（token 从日志即�
   const gw = await startFakeGateway({ frames: [] }, API_KEY)
   gateways.push(gw)
   const config = configFor(gw)
-  config.endpoints['A']!.access = { sshUser: 'ubuntu', sshHost: '10.0.0.5', sshPort: 22, guiPort: 3080, localPort: 3088 }
+  config.endpoints['A']!.access = { sshUser: 'ubuntu', sshHost: '10.0.0.5', sshPort: 22, guiPort: 3080, localPort: 3088, sshKey: null }
   config.endpoints['A']!.spawn = managedSpawn as never
   const app = Fastify()
   const supervisor = stubSupervisor({ start: 0, stop: 0, restart: 0 }) as unknown as NodeSupervisor & { logs: () => string }
@@ -286,7 +287,7 @@ test('债务 P1 回归: GET /api/nodes 挂 access + guiUrl（token 从日志即�
   const res = await app.inject({ method: 'GET', url: '/api/nodes' })
   assert.equal(res.statusCode, 200)
   const node = (res.json() as { nodes: Array<{ access: unknown; guiUrl: string | null }> }).nodes[0]
-  assert.deepEqual(node?.access, { sshUser: 'ubuntu', sshHost: '10.0.0.5', sshPort: 22, guiPort: 3080, localPort: 3088 })
+  assert.deepEqual(node?.access, { sshUser: 'ubuntu', sshHost: '10.0.0.5', sshPort: 22, guiPort: 3080, localPort: 3088, sshKey: null })
   assert.equal(node?.guiUrl, 'http://127.0.0.1:3088/?token=tok-abc')
 
   // 重启轮换：日志里出现新 token 行 → guiUrl 自动跟随
@@ -294,10 +295,18 @@ test('债务 P1 回归: GET /api/nodes 挂 access + guiUrl（token 从日志即�
   const after = await app.inject({ method: 'GET', url: '/api/nodes' })
   assert.equal((after.json() as { nodes: Array<{ guiUrl: string | null }> }).nodes[0]?.guiUrl, 'http://127.0.0.1:3088/?token=tok-new')
 
-  // 未配置 access 的节点：access=null 且 guiUrl=null
+  // 未配置 access 的非 loopback 节点：access=null 且 guiUrl=null（无打开能力）
   config.endpoints['A']!.access = null
+  config.endpoints['A']!.url = 'http://10.0.0.5:3080'
   const bare = await app.inject({ method: 'GET', url: '/api/nodes' })
   const bareNode = (bare.json() as { nodes: Array<{ access: unknown; guiUrl: string | null }> }).nodes[0]
   assert.equal(bareNode?.access, null)
   assert.equal(bareNode?.guiUrl, null)
+
+  // 体验优化：本机 loopback 节点未配置 access 也直连——guiUrl 用启动行里的真实端口
+  config.endpoints['A']!.url = 'http://127.0.0.1:3081'
+  const direct = await app.inject({ method: 'GET', url: '/api/nodes' })
+  const directNode = (direct.json() as { nodes: Array<{ access: unknown; guiUrl: string | null }> }).nodes[0]
+  assert.equal(directNode?.access, null)
+  assert.equal(directNode?.guiUrl, 'http://127.0.0.1:3080/?token=tok-new', '直连用日志端口（3080）而非配置端口（3081）')
 })

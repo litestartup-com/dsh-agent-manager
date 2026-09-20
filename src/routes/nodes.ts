@@ -8,7 +8,7 @@ import type { SessionDriver } from '../session-driver/port.js'
 import type { NodeSupervisor } from '../nodes/supervisor.js'
 import type { AuditKind } from '../audit.js'
 import { mutateYamlFile, withConfigLock } from '../config-store.js'
-import { captureGuiToken, guiOpenUrl } from '../gui-token.js'
+import { captureGuiToken, guiDirectUrl, guiOpenUrl } from '../gui-token.js'
 import { dshBinInProfile, profileDrift, reseedProfile } from '../host-node/profile.js'
 import { COMPAT_DSH_VERSION, GATEWAY_REF, resolvePair } from '../dsh-matrix.js'
 import { installNodeDepsAsync } from './provision.js'
@@ -52,8 +52,15 @@ export const registerNodesRoutes = (
   app.get('/api/nodes', { preHandler: requireUser }, async () => {
     // 能力三 v1：按节点从日志即时捕获 GUI token 并拼装打开 URL——每次请求
     // 重新读日志,节点重启轮换 token 后自动跟随,无需任何缓存/失效机制。
+    const isLoopbackBase = (urlStr: string): boolean => {
+      try {
+        const host = new URL(urlStr).hostname
+        return host === '127.0.0.1' || host === 'localhost' || host === '::1'
+      } catch {
+        return false
+      }
+    }
     const guiUrlOf = async (ep: ResolvedEndpoint, supervisor: NodeSupervisor | undefined): Promise<string | null> => {
-      if (ep.access === null) return null
       let logs = ''
       if (ep.spawn?.logFile !== undefined && ep.spawn.logFile !== null) {
         try {
@@ -69,7 +76,13 @@ export const registerNodesRoutes = (
           logs = supervisor.logs()
         }
       }
-      return guiOpenUrl(ep.access.localPort, captureGuiToken(logs))
+      const capture = captureGuiToken(logs)
+      // 已配置 access = 用户选了隧道形态（本机映射口打开）
+      if (ep.access !== null) return guiOpenUrl(ep.access.localPort, capture)
+      // 体验优化：本机 loopback 节点无需隧道——浏览器即 loopback，直接用启动行
+      // 里的真实 GUI 端口直连（非 loopback 且无 access = 无打开能力）
+      if (isLoopbackBase(ep.url)) return guiDirectUrl(capture)
+      return null
     }
     const nodes = await Promise.all(
       Object.keys(config.endpoints).map(async (id) => {
@@ -230,6 +243,8 @@ export const registerNodesRoutes = (
     ssh_port: z.number().int().positive().optional(),
     gui_port: z.number().int().positive().optional(),
     local_port: z.number().int().positive().optional(),
+    /** 体验优化：用户本机私钥路径（非密钥内容），命令带 -i；缺省用 ssh 默认密钥。 */
+    ssh_key: z.string().min(1).optional(),
   })
 
   app.post<{ Params: { id: string }; Body: unknown }>(
@@ -262,6 +277,7 @@ export const registerNodesRoutes = (
           ssh_port: body.ssh_port ?? 22,
           gui_port: body.gui_port ?? 3080,
           local_port: localPort,
+          ...(body.ssh_key === undefined ? {} : { ssh_key: body.ssh_key }),
         }
         await withConfigLock(() => mutateYamlFile(configPath, (doc) => doc.setIn(['endpoints', request.params.id, 'access'], access)))
         ep.access = {
@@ -270,6 +286,7 @@ export const registerNodesRoutes = (
           sshPort: access.ssh_port,
           guiPort: access.gui_port,
           localPort: access.local_port,
+          sshKey: body.ssh_key ?? null,
         }
         audit?.(request.currentUser?.username ?? 'unknown', 'node_access_update', `节点 ${request.params.id} 原生访问 → ${access.ssh_user}@${access.ssh_host}:${access.ssh_port} gui=${access.gui_port} local=${access.local_port}`)
         return reply.send({ ok: true, access: ep.access })

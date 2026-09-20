@@ -13,7 +13,10 @@
   clear 移除）；节点页「原生 GUI」卡：隧道命令 + 复制 + 一键打开，0.1.5 的
   `?token=` 从节点日志（buffer/docker/file 三源）即时捕获、重启轮换自动跟随；
   节点 GUI 端口只发布宿主机 loopback（compose node-brain + 动态工蜂
-  PortBindings 127.0.0.1）
+  PortBindings 127.0.0.1）。体验优化（验收反馈）：隧道命令加 `-N`（纯隧道）+
+  `-o ExitOnForwardFailure=yes` + 可选 `ssh_key` 私钥路径（`-i`，只存路径不存
+  密钥）；**本机 loopback 节点免隧道**——卡片直接「本机直连」打开（URL 用节点
+  启动行自报端口 + token）
 - **能力一 · 宿主机节点安装**：profile 生成/安装/钥匙/依赖命令抽公共模块
   `src/host-node/`（setup 与 provision 共用）；profile 依赖新增
   `@deepseek-ai/dsh` 自身——隔离安装后 spawn 优先用 profile 内 bin.js

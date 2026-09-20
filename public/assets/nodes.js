@@ -5,7 +5,7 @@
 // 能力三 v1：节点行挂「原生 GUI」卡（隧道命令 + 打开/配置），纯函数层在
 // gui-access.js。
 import { $, ago, esc, setHtml, apiJson, poll } from './ui.js'
-import { guiCardHtml, guiSetupButton } from './gui-access.js'
+import { guiCardHtml, guiDirectCardHtml, guiSetupButton } from './gui-access.js'
 import { nodeCreatePayload, hostRunnerConfirmText } from './node-form.js'
 
 const NODE_STATE_DOT = { live: 'ok', cold: 'muted', starting: 'warn', restarting: 'warn', offline: 'bad' }
@@ -46,11 +46,13 @@ const nodeRow = (n) => {
         <button type="button" class="btn-quiet btn-sm" data-node-rm="${esc(n.id)}" title="解除托管（磁盘目录保留）">删除</button>
       </div>`
     : '<span class="muted small">外管 · 手动维护</span>'
-  // 能力三 v1：原生 GUI 卡（已配置）或配置入口（未配置）。
+  // 能力三 v1：原生 GUI 卡（隧道 / 本机直连 / 配置入口 三形态）。
   const guiBits =
     n.access !== null && n.access !== undefined
       ? `<div class="node-side">${guiCardHtml(n.id, n.access, n.guiUrl)}</div>`
-      : `<div class="node-side">${guiSetupButton(n.id)}</div>`
+      : n.guiUrl !== null && n.guiUrl !== undefined
+        ? `<div class="node-side">${guiDirectCardHtml(n.id, n.guiUrl)}</div>`
+        : `<div class="node-side">${guiSetupButton(n.id)}</div>`
   return `<div class="node-row" data-node-row="${esc(n.id)}">
     <div class="node-main">
       <div class="node-title"><span class="dot ${dot}"></span>${esc(n.id)} <span class="muted">· ${esc(label)}</span> ${versionWarn}</div>
@@ -273,7 +275,7 @@ $('node-form').addEventListener('submit', async (event) => {
 
 // ---- 能力三 v1：原生访问配置（SSH 隧道元数据） ----
 
-/** @type {Record<string, { sshUser: string, sshHost: string, sshPort: number, guiPort: number, localPort: number } | null>} */
+/** @type {Record<string, { sshUser: string, sshHost: string, sshPort: number, guiPort: number, localPort: number, sshKey: string | null } | null>} */
 let accessById = {}
 /** @type {string | null} 编辑器当前编辑的节点 id。 */
 let accessNode = null
@@ -287,6 +289,7 @@ const openAccessEditor = (id) => {
   $('f-acc-sshport').value = current !== null && current !== undefined ? String(current.sshPort) : ''
   $('f-acc-gui').value = current !== null && current !== undefined ? String(current.guiPort) : ''
   $('f-acc-local').value = current !== null && current !== undefined ? String(current.localPort) : ''
+  $('f-acc-key').value = current?.sshKey ?? ''
   $('f-acc-warn').textContent = ''
   $('node-access-editor').hidden = false
   $('f-acc-user').focus()
@@ -331,12 +334,14 @@ $('node-access-form').addEventListener('submit', async (event) => {
   }
   const sshPort = Number($('f-acc-sshport').value.trim())
   const guiPort = Number($('f-acc-gui').value.trim())
+  const sshKey = $('f-acc-key').value.trim()
   const payload = {
     ssh_user: user,
     ssh_host: host,
     local_port: local,
     ...(Number.isInteger(sshPort) && sshPort > 0 ? { ssh_port: sshPort } : {}),
     ...(Number.isInteger(guiPort) && guiPort > 0 ? { gui_port: guiPort } : {}),
+    ...(sshKey === '' ? {} : { ssh_key: sshKey }),
   }
   try {
     const r = await apiJson(`/api/nodes/${encodeURIComponent(accessNode)}/access`, {

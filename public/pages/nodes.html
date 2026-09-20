@@ -107,6 +107,10 @@
             <span class="field-label">本机映射端口</span>
             <input id="f-acc-local" class="text-input mono" type="number" min="1024" max="65535" placeholder="3088" />
           </label>
+          <label class="field">
+            <span class="field-label">SSH 私钥路径（可选，默认密钥则留空）</span>
+            <input id="f-acc-key" class="text-input mono" maxlength="256" placeholder="C:\Users\you\.ssh\id_ed25519" />
+          </label>
         </div>
         <div class="field-hint muted small">浏览器开 http://127.0.0.1:&lt;本机端口&gt;；隧道命令由 manager 生成，SSH 密钥只在你自己的电脑上。</div>
         <div id="f-acc-warn"></div>

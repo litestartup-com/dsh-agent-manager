@@ -74,6 +74,8 @@ const accessSchema = z.object({
   gui_port: z.number().int().positive().default(3080),
   /** 用户本机映射端口（manager 建议值，可改）。 */
   local_port: z.number().int().positive(),
+  /** 体验优化：用户本机私钥路径（非密钥内容），命令带 -i；缺省用 ssh 默认密钥。 */
+  ssh_key: z.string().min(1).optional(),
 })
 
 const endpointSchema = z.object({
@@ -232,6 +234,8 @@ export interface ResolvedEndpointAccess {
   sshPort: number
   guiPort: number
   localPort: number
+  /** 用户本机私钥路径（非密钥内容，命令里只带 -i 路径）；未配置 = null。 */
+  sshKey: string | null
 }
 
 export interface ResolvedEndpoint {
@@ -436,6 +440,7 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
               sshPort: ep.access.ssh_port,
               guiPort: ep.access.gui_port,
               localPort: ep.access.local_port,
+              sshKey: ep.access.ssh_key ?? null,
             },
     }
   }
