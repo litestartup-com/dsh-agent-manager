@@ -6,6 +6,7 @@
 // gui-access.js。
 import { $, ago, esc, setHtml, apiJson, poll } from './ui.js'
 import { guiCardHtml, guiSetupButton } from './gui-access.js'
+import { nodeCreatePayload, hostRunnerConfirmText } from './node-form.js'
 
 const NODE_STATE_DOT = { live: 'ok', cold: 'muted', starting: 'warn', restarting: 'warn', offline: 'bad' }
 const NODE_STATE_LABEL = { live: 'live', cold: '未启动', starting: '启动中', restarting: '重启中', offline: 'offline' }
@@ -221,10 +222,15 @@ $('node-form').addEventListener('submit', async (event) => {
   const portRaw = $('f-node-port').value.trim()
   if (name === '') return
 
+  // 能力一：宿主机进程形态 = 整机能力，黄字确认（与审计 node_create_host 同源）。
+  const runner = $('f-node-runner').value
+  if (runner === 'process' && !window.confirm(hostRunnerConfirmText(name))) return
+
   // 工作区总是创建；clean 的字段省略（后端按节点名生成同款默认）。
-  const payload = {
+  const payload = nodeCreatePayload({
     name,
-    ...(portRaw === '' ? {} : { port: Number(portRaw) }),
+    port: portRaw,
+    runner,
     agent: {
       ...(advancedDirty.has('f-agent-id') ? { id: $('f-agent-id').value.trim() } : {}),
       ...(advancedDirty.has('f-agent-name') ? { name: $('f-agent-name').value.trim() } : {}),
@@ -232,7 +238,7 @@ $('node-form').addEventListener('submit', async (event) => {
       ...($('f-agent-preset').value.trim() === '' ? {} : { preset: $('f-agent-preset').value.trim() }),
       sandboxMode: $('f-agent-sandbox').value,
     },
-  }
+  })
 
   const save = $('f-save')
   save.disabled = true

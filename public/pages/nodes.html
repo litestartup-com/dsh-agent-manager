@@ -23,6 +23,14 @@
             <span class="field-label">端口（留空自动分配）</span>
             <input id="f-node-port" class="text-input mono" type="number" min="1024" max="65535" placeholder="自动" />
           </label>
+          <label class="field">
+            <span class="field-label">形态</span>
+            <select id="f-node-runner" class="text-input pill-select">
+              <option value="auto">自动（跟随部署形态）</option>
+              <option value="docker">容器工蜂（隔离）</option>
+              <option value="process">宿主机进程（可操作整台机器 ⚠️）</option>
+            </select>
+          </label>
         </div>
 
         <details class="node-advanced">
