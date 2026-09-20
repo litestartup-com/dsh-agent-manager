@@ -133,6 +133,27 @@ test('蜂群 P5.5: deleting a node removes its workspace binding rows too, files
   assert.equal(missing.statusCode, 404)
 })
 
+test('能力二回归: dsh_version 按节点钉版——profile 钉目标版本、pending 黄字、未知版本 400', async () => {
+  const { app, config, supervisors } = await boot()
+  const created = await app.inject({
+    method: 'POST',
+    url: '/api/nodes',
+    payload: { name: 'v15', install: false, dsh_version: '0.1.5-rc.2' },
+  })
+  assert.equal(created.statusCode, 201, JSON.stringify(created.body))
+  const body = created.json() as { versionWarning?: boolean }
+  assert.equal(body.versionWarning, true, 'pending 配对 → 黄字警告')
+  assert.equal(config.endpoints['v15']?.spawn?.dshVersion, '0.1.5-rc.2', '内存端点钉版')
+  const pkg = JSON.parse(readFileSync(join(nodesRoot, 'v15', 'profiles', 'v15', 'package.json'), 'utf8'))
+  assert.equal(pkg.dependencies['@deepseek-ai/dsh'], '0.1.5-rc.2', 'profile 钉目标版本')
+  assert.match(readFileSync(join(dir, 'manager.config.yaml'), 'utf8'), /dsh_version: 0.1.5-rc.2/, 'yaml 落盘钉版')
+  const supervisor = supervisors.get('v15')!
+  stopped.push(supervisor)
+
+  const bad = await app.inject({ method: 'POST', url: '/api/nodes', payload: { name: 'vbad', install: false, dsh_version: '0.9.9' } })
+  assert.equal(bad.statusCode, 400, '未知版本显性拒绝')
+})
+
 test('蜂群 P5.5: unknown agent id shape is rejected', async () => {
   const { app } = await boot()
   const bad = await app.inject({ method: 'POST', url: '/api/nodes', payload: { name: 'BAD NAME', install: false } })

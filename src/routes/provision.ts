@@ -19,6 +19,7 @@ import { dshBinInProfile } from '../host-node/profile.js'
 import { ensureWorkspaceGit } from '../workspace/init.js'
 import { reconcileAll, removeAgentRow } from '../reconcile/index.js'
 import { GATEWAY_REF } from '../dsh-version.js'
+import { SUPPORTED_DSH, defaultDshVersion, resolvePair } from '../dsh-matrix.js'
 import { recordAudit } from '../audit.js'
 
 /**
@@ -34,7 +35,6 @@ import { recordAudit } from '../audit.js'
  * 回滚台账（H2 顺序）与 B1 异步 install 流程留在分支内。
  */
 
-const GATEWAY_DEP = GATEWAY_REF // 0.1.2 线：钉 next-012 commit（dsh-version 单一真相源）
 const CONFIG_PATH = 'manager.config.yaml'
 const ENV_PATH = '.env'
 
@@ -167,6 +167,8 @@ const provisionBody = z.object({
    * 宿主机整机能力节点（黄字风险 + 审计 node_create_host）。
    */
   runner: z.enum(['docker', 'process']).optional(),
+  /** 能力二：按节点钉 DSH 版本（必须在 SUPPORTED_DSH 矩阵内；pending 配对黄字警告）。 */
+  dsh_version: z.string().min(1).optional(),
   /**
    * 向导总是带着 agent（节点 = agent 节点，创建即配工作区）；字段都可省，
    * 缺省 = id/名称同节点名、路径 ~/.dsh-ohdsh/workspaces/<节点名>。
@@ -206,7 +208,7 @@ const suggestPort = (config: AppConfig): number => {
 }
 
 /** 新节点的 spawn 规格（与写入 yaml 的值一一对应，热加载用）。 */
-const spawnFor = (dshBin: string, name: string, nodeHomePath: string): ResolvedSpawnSpec => ({
+const spawnFor = (dshBin: string, name: string, nodeHomePath: string, pins?: { dshVersion?: string; gatewayRef?: string }): ResolvedSpawnSpec => ({
   managed: true,
   command: 'node',
   args: [dshBin, '--profile', name, '--no-open'],
@@ -218,6 +220,9 @@ const spawnFor = (dshBin: string, name: string, nodeHomePath: string): ResolvedS
   restart: { maxAttempts: 3, baseDelayMs: 1_000, maxDelayMs: 30_000 },
   runner: 'process',
   docker: null,
+  // 能力二：按节点钉版（未显式钉 = 不写字段，跟随全局默认）
+  ...(pins?.dshVersion === undefined ? {} : { dshVersion: pins.dshVersion }),
+  ...(pins?.gatewayRef === undefined ? {} : { gatewayRef: pins.gatewayRef }),
 })
 
 interface ProvisionDeps {
@@ -292,6 +297,15 @@ export const registerProvisionRoutes = (
     if (body.runner === 'docker' && deps.docker === undefined) {
       return reply.code(400).send({ error: 'docker_unavailable', detail: '本部署没有 docker runner（manager 未挂 docker.sock）——请选宿主机进程形态' })
     }
+    // 能力二：按节点钉 DSH 版本——矩阵内解析 + pending 黄字；未知版本显性拒绝。
+    const pinnedDsh = body.dsh_version
+    const pair = pinnedDsh === undefined ? null : resolvePair(pinnedDsh)
+    if (pinnedDsh !== undefined && pair === null) {
+      return reply.code(400).send({ error: 'unknown_dsh_version', detail: `DSH 版本 ${pinnedDsh} 不在版本矩阵 SUPPORTED_DSH 里（支持：${SUPPORTED_DSH.map((p) => p.dsh).join(' / ')}）` })
+    }
+    const dshVersion = pair?.dsh ?? defaultDshVersion()
+    const gatewayRef = pair?.gateway ?? GATEWAY_REF
+    const versionWarning = pair !== null && pair.status === 'pending'
     const workspaceDefault = wantProcess
       ? join(nodesHome(), 'workspaces', body.name)
       : `/opt/ohdsh/workspaces/${body.name}`
@@ -342,7 +356,8 @@ export const registerProvisionRoutes = (
         const hostKey = deriveHostWorkspacePath(config, body.name, agentSpec?.workspace)
 
         const dockerSpec = {
-          image: process.env.DSH_NODE_IMAGE ?? 'ohdsh/dsh-node:0.1.2-rc.1',
+          // 能力二：显式钉版 = 镜像 tag 按版本约定 ohdsh/dsh-node:<版本>；缺省跟随 .env DSH_NODE_IMAGE
+          image: pinnedDsh === undefined ? (process.env.DSH_NODE_IMAGE ?? `ohdsh/dsh-node:${defaultDshVersion()}`) : `ohdsh/dsh-node:${dshVersion}`,
           network: 'ohdsh-hive',
           port,
           host_volumes: { [hostKey]: agentSpec?.workspace ?? workspaceDefault },
@@ -368,6 +383,8 @@ export const registerProvisionRoutes = (
               runner: 'docker',
               ready_timeout_ms: 30_000,
               docker: dockerSpec,
+              // 能力二：显式钉版才写真相源（缺省跟随全局默认，不冻结）
+              ...(pinnedDsh === undefined ? {} : { dsh_version: dshVersion, gateway_ref: gatewayRef }),
             },
           },
         )
@@ -393,6 +410,8 @@ export const registerProvisionRoutes = (
             hostVolumes: dockerSpec.host_volumes,
             namedVolumes: dockerSpec.named_volumes,
           },
+          // 能力二：显式钉版才挂（缺省跟随全局默认）
+          ...(pinnedDsh === undefined ? {} : { dshVersion, gatewayRef }),
         }
         const endpoint: ResolvedEndpoint = {
           id: body.name,
@@ -432,13 +451,15 @@ export const registerProvisionRoutes = (
           node: { id: body.name, port, home: `ohdsh-${body.name}` },
           workspace: agentSpec === null ? null : { id: agentSpec.id, path: agentSpec.workspace },
           workspaceWarning,
+          ...(versionWarning ? { versionWarning: true } : {}),
         })
       }
 
       const dshBin = detectDshBin(join(userHome(), '.dsh'), null)
 
       // 1. 节点三件套：profile → 凭据 → gateway 密钥（文件层）
-      ensureNodeProfiles(nodesHome(), [{ name: body.name, port }], GATEWAY_DEP)
+      // 能力二：profile 按节点钉版生成（dshVersion/gatewayRef 来自矩阵配对）。
+      ensureNodeProfiles(nodesHome(), [{ name: body.name, port }], gatewayRef, dshVersion)
       createdHome = nodeHomePath
       ensureNodeCredentials(join(userHome(), '.dsh'), nodeHomePath)
       const key = resolveGatewayKey(nodeHomePath, null)
@@ -478,6 +499,8 @@ export const registerProvisionRoutes = (
             args: [dshBin, '--profile', body.name, '--no-open'],
             ready_timeout_ms: 30_000,
             env: { DSH_HOME: nodeHomePath },
+            // 能力二：只有显式钉版才写进真相源（缺省 = 跟随全局默认，不冻结）
+            ...(pinnedDsh === undefined ? {} : { dsh_version: dshVersion, gateway_ref: gatewayRef }),
           },
         },
       )
@@ -494,7 +517,7 @@ export const registerProvisionRoutes = (
         key,
         sandboxBase: `http://127.0.0.1:${port}/api-gw/v1`,
         sandboxKey: key,
-        spawn: spawnFor(dshBin, body.name, nodeHomePath),
+        spawn: spawnFor(dshBin, body.name, nodeHomePath, pinnedDsh === undefined ? undefined : { dshVersion, gatewayRef }),
         // 能力三 v1：新节点缺省无隧道元数据
         access: null,
       }
@@ -516,7 +539,9 @@ export const registerProvisionRoutes = (
       const startAfterInstall = (): void => {
         if (rolledBack) return
         const isolatedBin = dshBinInProfile(installDir)
-        if (isolatedBin !== null) endpoint.spawn = spawnFor(isolatedBin, body.name, nodeHomePath)
+        if (isolatedBin !== null) {
+          endpoint.spawn = spawnFor(isolatedBin, body.name, nodeHomePath, pinnedDsh === undefined ? undefined : { dshVersion, gatewayRef })
+        }
         supervisorStarted = supervisor
         // 债务 R9:节点拉起也走 reconcile(单一入口),不再自己 supervisor.start。
         void reconcile(new Set([body.name])).catch((error: unknown) => {
@@ -541,6 +566,7 @@ export const registerProvisionRoutes = (
         node: { id: body.name, port, home: nodeHomePath, state: supervisor.current.state },
         workspace: agentSpec === null ? null : { id: agentSpec.id, path: agentSpec.workspace },
         workspaceWarning,
+        ...(versionWarning ? { versionWarning: true } : {}),
       })
     } catch (error) {
       // 债务 H2：全量回滚——按完成步骤反向撤销，绝不留下半开通的幽灵节点。

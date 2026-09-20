@@ -7,6 +7,7 @@ import { DEFAULT_PRICING, parseUtcTime, type ModelPricing, type PricingTable } f
 import { USD_TO_MICRO } from './usage/store.js'
 import type { ValidateRules } from './workspace/validate.js'
 import { envSchema } from './env.js'
+import { resolvePair } from './dsh-matrix.js'
 
 dotenv.config()
 
@@ -50,6 +51,10 @@ const spawnSchema = z
     // docker = 经 docker.sock 以容器形态管理（compose 脊柱场景的工蜂）。
     runner: z.enum(['process', 'docker']).default('process'),
     docker: dockerSpawnSchema.optional(),
+    // 能力二（2026-09-20）：按节点钉版。缺省 = 跟随全局默认（版本矩阵首行）；
+    // 显式值必须能在 SUPPORTED_DSH 矩阵里解析（loadConfig 校验）。
+    dsh_version: z.string().min(1).optional(),
+    gateway_ref: z.string().min(1).optional(),
   })
   .refine((v) => (v.runner === 'docker' ? v.docker !== undefined : v.command !== undefined), {
     message: 'spawn: runner=docker 需要 docker 段；runner=process 需要 command',
@@ -214,6 +219,10 @@ export interface ResolvedSpawnSpec {
     hostVolumes: Record<string, string>
     namedVolumes: Record<string, string>
   } | null
+  /** 能力二：按节点钉死的 DSH 版本；null = 跟随全局默认（矩阵首行）。 */
+  dshVersion?: string | null
+  /** 能力二：按节点钉死的 facade ref；null = 跟随该 DSH 配对的矩阵默认。 */
+  gatewayRef?: string | null
 }
 
 /** 能力三 v1：节点原生 GUI 隧道元数据（配置文件的 access 段解析结果）。 */
@@ -372,6 +381,10 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
     // 蜂群 P1：节点的进程生命周期配置。managed: true 意味着 manager 会真的 spawn
     // 这个 DSH 进程——命令/参数要指向 dsh 的 bin.js + 该节点自己的 profile。
     const spawnRaw = ep.spawn
+    // 能力二：按节点钉版必须在矩阵内可解析，fail-loud（未知版本绝不悄悄装）。
+    if (spawnRaw?.dsh_version !== undefined && resolvePair(spawnRaw.dsh_version) === null) {
+      throw new Error(`endpoint "${id}": spawn.dsh_version "${spawnRaw.dsh_version}" 不在版本矩阵 SUPPORTED_DSH 里`)
+    }
     const spawn: ResolvedSpawnSpec | null =
       spawnRaw === undefined
         ? null
@@ -401,6 +414,8 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
                     hostVolumes: spawnRaw.docker.host_volumes,
                     namedVolumes: spawnRaw.docker.named_volumes,
                   },
+            dshVersion: spawnRaw.dsh_version ?? null,
+            gatewayRef: spawnRaw.gateway_ref ?? null,
           }
     endpoints[id] = {
       id,

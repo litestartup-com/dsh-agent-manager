@@ -175,6 +175,38 @@ test('债务 P1 回归: access 缺省端口(ssh 22 / gui 3080)与非法值拒绝
   )
 })
 
+test('债务 P3 回归: spawn.dsh_version / gateway_ref 按节点钉版解析（缺省 = null 跟随全局默认）', () => {
+  const pinned = loadFrom(baseConfig({
+    endpoints: {
+      A: {
+        url: 'http://127.0.0.1:3080',
+        driver: 'apiproxy',
+        spawn: {
+          managed: true,
+          command: 'node',
+          args: ['bin.js'],
+          dsh_version: '0.1.5-rc.2',
+          gateway_ref: 'github:litestartup-com/dsh-api-gateway#deadbeef',
+        },
+      },
+    },
+  }))
+  assert.equal(pinned.endpoints['A']?.spawn?.dshVersion, '0.1.5-rc.2')
+  assert.equal(pinned.endpoints['A']?.spawn?.gatewayRef, 'github:litestartup-com/dsh-api-gateway#deadbeef')
+
+  const defaults = loadFrom(baseConfig({
+    endpoints: {
+      A: {
+        url: 'http://127.0.0.1:3080',
+        driver: 'apiproxy',
+        spawn: { managed: true, command: 'node', args: ['bin.js'] },
+      },
+    },
+  }))
+  assert.equal(defaults.endpoints['A']?.spawn?.dshVersion ?? null, null, '缺省 null = 跟随全局默认')
+  assert.equal(defaults.endpoints['A']?.spawn?.gatewayRef ?? null, null)
+})
+
 test('agent sandbox_mode without endpoint sandbox_base fails loud at boot', () => {
   assert.throws(
     () => loadFrom(baseConfig({

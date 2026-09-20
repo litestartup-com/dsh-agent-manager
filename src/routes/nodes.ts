@@ -73,6 +73,8 @@ export const registerNodesRoutes = (
             agents: agentIds,
             dshVersion: probe.dshVersion,
             dshCompatible: probe.dshCompatible,
+            // 能力二：配置钉版（null = 跟随全局默认）；漂移 UI/对齐见 P3-3
+            configuredDshVersion: ep?.spawn?.dshVersion ?? null,
             ...(image === null ? {} : { image }),
             // 能力三 v1：隧道元数据 + 拼好的打开 URL（未配置/未捕获 = null）
             access: ep?.access ?? null,
@@ -90,6 +92,7 @@ export const registerNodesRoutes = (
           agents: agentIds,
           dshVersion: probe.dshVersion,
           dshCompatible: probe.dshCompatible,
+          configuredDshVersion: ep?.spawn?.dshVersion ?? null,
           access: ep?.access ?? null,
           guiUrl,
         }
