@@ -143,9 +143,10 @@ const hotLoadAgent = (config: AppConfig, endpointId: string, agentSpec: NewAgent
  */
 export const installNodeDepsAsync = (
   dir: string,
+  dshVersion?: string,
   spawnImpl: typeof spawn = spawn,
 ): Promise<void> => {
-  const { cmd, args } = profileInstallCommand(process.platform)
+  const { cmd, args } = profileInstallCommand(process.platform, dshVersion)
   return new Promise((resolve, reject) => {
     const child = spawnImpl(cmd, [...args, '--prefer-offline'], { cwd: dir, shell: true, stdio: 'inherit' })
     child.on('error', (error: Error) => reject(error))
@@ -468,7 +469,7 @@ export const registerProvisionRoutes = (
       // 201 先返回;install 完成才拉起节点;失败 = 审计留痕 + 仍拉起(节点
       // 缺依赖时崩溃,supervisor 状态机显性 offline,错误可见)。
       const installDir = join(nodeHomePath, 'profiles', body.name)
-      const installPromise: Promise<void> = body.install !== false ? installNodeDepsAsync(installDir) : Promise.resolve()
+      const installPromise: Promise<void> = body.install !== false ? installNodeDepsAsync(installDir, dshVersion) : Promise.resolve()
 
       // 流水线 1:工作区（目录 + git init + 通用 AGENTS.md,文件即真相,运行才有审计）
       const workspaceWarning = prepareWorkspace(agentSpec)

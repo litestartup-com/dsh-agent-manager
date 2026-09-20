@@ -9,6 +9,7 @@ import { DEFAULT_PRICING } from '../pricing.js'
 import { openDb, schema, type Db } from '../db/index.js'
 import type { NodeSupervisor } from '../nodes/supervisor.js'
 import { registerProvisionRoutes, installNodeDepsAsync } from './provision.js'
+import { GATEWAY_REF, _setMatrixForTest, _resetMatrixForTest } from '../dsh-matrix.js'
 
 const configFor = (): AppConfig => ({
   listen: { host: '127.0.0.1', port: 8080 },
@@ -133,25 +134,37 @@ test('蜂群 P5.5: deleting a node removes its workspace binding rows too, files
   assert.equal(missing.statusCode, 404)
 })
 
-test('能力二回归: dsh_version 按节点钉版——profile 钉目标版本、pending 黄字、未知版本 400', async () => {
+test('能力二回归: dsh_version 按节点钉版——pending 黄字、未知版本 400、verified 无警告', async () => {
   const { app, config, supervisors } = await boot()
-  const created = await app.inject({
-    method: 'POST',
-    url: '/api/nodes',
-    payload: { name: 'v15', install: false, dsh_version: '0.1.5-rc.2' },
-  })
-  assert.equal(created.statusCode, 201, JSON.stringify(created.body))
-  const body = created.json() as { versionWarning?: boolean }
-  assert.equal(body.versionWarning, true, 'pending 配对 → 黄字警告')
-  assert.equal(config.endpoints['v15']?.spawn?.dshVersion, '0.1.5-rc.2', '内存端点钉版')
-  const pkg = JSON.parse(readFileSync(join(nodesRoot, 'v15', 'profiles', 'v15', 'package.json'), 'utf8'))
-  assert.equal(pkg.dependencies['@deepseek-ai/dsh'], '0.1.5-rc.2', 'profile 钉目标版本')
-  assert.match(readFileSync(join(dir, 'manager.config.yaml'), 'utf8'), /dsh_version: 0.1.5-rc.2/, 'yaml 落盘钉版')
-  const supervisor = supervisors.get('v15')!
-  stopped.push(supervisor)
+  // 真实矩阵两行均已 verified；pending 黄字路径经测试注入缝覆盖。
+  _setMatrixForTest([{ dsh: '0.1.5-rc.2', gateway: GATEWAY_REF, status: 'pending' }])
+  try {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/nodes',
+      payload: { name: 'v15', install: false, dsh_version: '0.1.5-rc.2' },
+    })
+    assert.equal(created.statusCode, 201, JSON.stringify(created.body))
+    const body = created.json() as { versionWarning?: boolean }
+    assert.equal(body.versionWarning, true, 'pending 配对 → 黄字警告')
+    assert.equal(config.endpoints['v15']?.spawn?.dshVersion, '0.1.5-rc.2', '内存端点钉版')
+    const pkg = JSON.parse(readFileSync(join(nodesRoot, 'v15', 'profiles', 'v15', 'package.json'), 'utf8'))
+    assert.equal(pkg.dependencies['@deepseek-ai/dsh'], '0.1.5-rc.2', 'profile 钉目标版本')
+    assert.match(readFileSync(join(dir, 'manager.config.yaml'), 'utf8'), /dsh_version: 0.1.5-rc.2/, 'yaml 落盘钉版')
+    const supervisor = supervisors.get('v15')!
+    stopped.push(supervisor)
 
-  const bad = await app.inject({ method: 'POST', url: '/api/nodes', payload: { name: 'vbad', install: false, dsh_version: '0.9.9' } })
-  assert.equal(bad.statusCode, 400, '未知版本显性拒绝')
+    const bad = await app.inject({ method: 'POST', url: '/api/nodes', payload: { name: 'vbad', install: false, dsh_version: '0.9.9' } })
+    assert.equal(bad.statusCode, 400, '未知版本显性拒绝')
+  } finally {
+    _resetMatrixForTest()
+  }
+
+  const clean = await app.inject({ method: 'POST', url: '/api/nodes', payload: { name: 'v15c', install: false, dsh_version: '0.1.5-rc.2' } })
+  assert.equal(clean.statusCode, 201, JSON.stringify(clean.body))
+  assert.equal((clean.json() as { versionWarning?: boolean }).versionWarning, undefined, 'verified 配对不再黄字')
+  const supervisorClean = supervisors.get('v15c')!
+  stopped.push(supervisorClean)
 })
 
 test('蜂群 P5.5: unknown agent id shape is rejected', async () => {
@@ -341,7 +354,7 @@ test('债务 B1 回归: 依赖安装后台化——installNodeDepsAsync 不冻�
     setTimeout(() => listeners['exit']?.(0), 400) // 400ms 后 exit 0
     return child
   }
-  const promise = installNodeDepsAsync('/tmp/node-home/profiles/x', fakeSpawn as never)
+  const promise = installNodeDepsAsync('/tmp/node-home/profiles/x', undefined, fakeSpawn as never)
   // 事件循环未被冻结:install 完成前,立即排队的 timer 必须先触发(旧同步 execFileSync 会冻结)
   let ticked = false
   setTimeout(() => {
@@ -367,10 +380,30 @@ test('债务 B1 回归: 后台 install 非零退出 = reject(调用方据此审�
     return child
   }
   await assert.rejects(
-    () => installNodeDepsAsync('/tmp/any', fakeSpawn as never),
+    () => installNodeDepsAsync('/tmp/any', undefined, fakeSpawn as never),
     /exit|失败|failed/i,
     '非零退出必须 reject',
   )
+})
+
+test('能力二回归: 0.1.5 配对安装自动带 --legacy-peer-deps，0.1.2 不带（dsh-facts §12 ERESOLVE 修复）', async () => {
+  const seen: string[][] = []
+  const fakeSpawn = (_cmd: string, args: string[]): unknown => {
+    seen.push(args)
+    const listeners: Record<string, (code: number) => void> = {}
+    const child = {
+      on: (ev: string, fn: (code: number) => void) => {
+        listeners[ev] = fn
+        return child
+      },
+    }
+    setTimeout(() => listeners['exit']?.(0), 5)
+    return child
+  }
+  await installNodeDepsAsync('/tmp/n15', '0.1.5-rc.2', fakeSpawn as never)
+  await installNodeDepsAsync('/tmp/n12', '0.1.2-rc.1', fakeSpawn as never)
+  assert.ok(seen[0]?.includes('--legacy-peer-deps'), `0.1.5 必须带 --legacy-peer-deps，实得 ${JSON.stringify(seen[0])}`)
+  assert.ok(seen[1] !== undefined && !seen[1].includes('--legacy-peer-deps'), '0.1.2 不需要该 flag')
 })
 
 test('债务 H2 回归: DB 写入失败 → provision 全量回滚,无幽灵节点残留', async () => {

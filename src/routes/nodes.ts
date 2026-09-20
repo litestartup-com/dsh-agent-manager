@@ -31,7 +31,7 @@ export const registerNodesRoutes = (
   /** 蜂群2计划 P3：节点操作审计回调（wiring 层注入，测试可不传）。 */
   audit?: (actor: string, kind: AuditKind, detail: string) => void,
   /** 能力二：对齐路由的依赖安装器（测试注入假实现；缺省 = 真实 npm install）。 */
-  installDeps: (dir: string) => Promise<void> = installNodeDepsAsync,
+  installDeps: (dir: string, dshVersion?: string) => Promise<void> = (dir, version) => installNodeDepsAsync(dir, version),
 ): void => {
   /**
    * 能力二：进程节点的配置钉版（显式值 > 矩阵默认）与 profile 目录。
@@ -311,7 +311,7 @@ export const registerNodesRoutes = (
       }
 
       // 后台重装依赖 → 完成/失败都重启（缺依赖崩溃 → offline 显性，同 provision 口径）
-      void installDeps(profileDir)
+      void installDeps(profileDir, version)
         .then(() => {
           const isolatedBin = dshBinInProfile(profileDir)
           if (isolatedBin !== null) {

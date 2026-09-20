@@ -17,6 +17,12 @@ export interface DshPair {
   gateway: string
   /** verified = 全链 smoke 通过；pending = 未验证（安装黄字警告）。 */
   status: 'verified' | 'pending'
+  /**
+   * 该配对的 profile npm 安装必须带 --legacy-peer-deps（facade peer 区间
+   * `^0.1.2-rc.1` 覆盖不到该 DSH 线 → ERESOLVE）。事实：dsh-facts §12
+   * （0.1.5 服务器实测）；0.1.2 线不需要。
+   */
+  needsLegacyPeerDeps?: boolean
 }
 
 /**
@@ -29,8 +35,12 @@ export const GATEWAY_REF = 'github:litestartup-com/dsh-api-gateway#b592b4f'
 
 export const SUPPORTED_DSH: DshPair[] = [
   { dsh: '0.1.2-rc.1', gateway: GATEWAY_REF, status: 'verified' },
-  // 生产服务器已实跑 0.1.5-rc.2（access 报告）；配对 facade 待 P3 smoke 验证。
-  { dsh: '0.1.5-rc.2', gateway: GATEWAY_REF, status: 'pending' },
+  // P3 smoke（2026-09-20，服务器 192.168.33.11 smoke15 节点）：0.1.5-rc.2 宿主 +
+  // facade b592b4f 全链通过——host.describe 合成版本 / session.create /
+  // session.prompt 真实回合 / mux 帧流（user→assistant→turn/end）。事实卡
+  // dsh-facts.md §9/§10：安装需 --legacy-peer-deps（facade peer 区间未覆盖
+  // 0.1.5 线），运行时需 node ≥22.19（用 node 24）。
+  { dsh: '0.1.5-rc.2', gateway: GATEWAY_REF, status: 'verified', needsLegacyPeerDeps: true },
 ]
 
 /** 默认版本 = 矩阵首行（新节点缺省）。 */
@@ -39,11 +49,25 @@ export const COMPAT_DSH_VERSION = SUPPORTED_DSH[0]?.dsh ?? '0.1.2-rc.1'
 /** 安装命令：版本钉死，不追最新。 */
 export const DSH_INSTALL_COMMAND = `npm install -g ${COMPAT_DSH_PACKAGE}@${COMPAT_DSH_VERSION}`
 
+/**
+ * 测试注入缝（同 mux.ts 的 _setSocketFactory 模式）：替换配对表后
+ * resolvePair 家族立即生效——provision 的「pending 黄字」路径依赖矩阵里有
+ * pending 行，真实矩阵全 verified 后由测试注入一个 pending 行覆盖。
+ */
+let matrixOverride: DshPair[] | null = null
+export const _setMatrixForTest = (pairs: DshPair[]): void => {
+  matrixOverride = pairs
+}
+export const _resetMatrixForTest = (): void => {
+  matrixOverride = null
+}
+const activeMatrix = (): DshPair[] => matrixOverride ?? SUPPORTED_DSH
+
 export const defaultDshVersion = (): string => COMPAT_DSH_VERSION
 
 /** 已知配对回矩阵行；未知版本回 null（调用方按「不在矩阵」处理）。 */
 export const resolvePair = (version: string): DshPair | null =>
-  SUPPORTED_DSH.find((p) => p.dsh === version.replace(/^v/, '')) ?? null
+  activeMatrix().find((p) => p.dsh === version.replace(/^v/, '')) ?? null
 
 /** verified | pending | null（不在矩阵）。 */
 export const pairStatus = (version: string): 'verified' | 'pending' | null => {

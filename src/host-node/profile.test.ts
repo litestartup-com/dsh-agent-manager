@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { profileFiles, profileDependencies, dshBinInProfile, ensureNodeProfiles, profileSeed, currentProfileSeed, profileDrift } from './profile.js'
+import { profileFiles, profileDependencies, dshBinInProfile, ensureNodeProfiles, profileSeed, currentProfileSeed, profileDrift, profileInstallCommand } from './profile.js'
 import { COMPAT_DSH_VERSION, GATEWAY_PACKAGE, GATEWAY_REF } from '../dsh-version.js'
 
 test('能力一回归: profile 依赖含 @deepseek-ai/dsh 自身（隔离安装后不依赖全局 dsh）', () => {
@@ -36,6 +36,16 @@ test('能力一回归: dshBinInProfile——隔离安装后指向 profile 内 bi
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('能力二回归: profileInstallCommand 按矩阵配对追加 --legacy-peer-deps（dsh-facts §12）', () => {
+  const legacy = profileInstallCommand('win32', '0.1.5-rc.2')
+  assert.ok(legacy.args.includes('--legacy-peer-deps'), '0.1.5 配对必须带 flag（facade peer 区间不覆盖 → ERESOLVE）')
+  const clean = profileInstallCommand('win32', '0.1.2-rc.1')
+  assert.ok(!clean.args.includes('--legacy-peer-deps'), '0.1.2 配对不需要')
+  const dflt = profileInstallCommand('linux')
+  assert.ok(!dflt.args.includes('--legacy-peer-deps'), '缺省（矩阵首行）不带')
+  assert.equal(clean.cmd, 'npm')
 })
 
 test('能力二回归: .seed-version 标记与漂移判定——生成即带标记，版本/ref 变化即漂移', () => {

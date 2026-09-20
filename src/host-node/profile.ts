@@ -13,7 +13,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
-import { COMPAT_DSH_VERSION, GATEWAY_PACKAGE, GATEWAY_REF } from '../dsh-version.js'
+import { COMPAT_DSH_VERSION, GATEWAY_PACKAGE, GATEWAY_REF, resolvePair } from '../dsh-version.js'
 
 export interface ProfileSpec {
   name: string
@@ -153,11 +153,16 @@ export const ensureNodeCredentials = (mainDshHome: string, nodeHome: string): bo
  * pnpm@9 对 harness 0.1.2-rc.1 的内层预发布区间解析失败、pnpm@11 的
  * onlyBuiltDependencies 白名单失效——改用 npm（同版本集实证可解析，且按
  * 旧语义跑原生构建脚本）。Windows：npm 是 .cmd 垫片，调用处必须 shell: true。
+ *
+ * 能力二：目标版本在矩阵里标 needsLegacyPeerDeps 的配对追加
+ * `--legacy-peer-deps`（0.1.5 实测 ERESOLVE——facade peer 区间 ^0.1.2-rc.1
+ * 覆盖不到 0.1.5 宿主树，事实卡 dsh-facts §12）。
  */
-export const profileInstallCommand = (_platform: NodeJS.Platform): { cmd: string; args: string[] } => ({
-  cmd: 'npm',
-  args: ['install', '--no-audit', '--no-fund'],
-})
+export const profileInstallCommand = (_platform: NodeJS.Platform, dshVersion: string = COMPAT_DSH_VERSION): { cmd: string; args: string[] } => {
+  const args = ['install', '--no-audit', '--no-fund']
+  if (resolvePair(dshVersion)?.needsLegacyPeerDeps === true) args.push('--legacy-peer-deps')
+  return { cmd: 'npm', args }
+}
 
 /**
  * 能力一：节点 profile 内隔离安装的 dsh bin（@deepseek-ai/dsh 的 bin 入口
