@@ -71,6 +71,46 @@
 
   <div id="banners" role="alert"></div>
 
+  <!-- 能力三 v1：节点原生访问配置（SSH 隧道元数据）。私钥永不进 manager。 -->
+  <section id="node-access-editor" class="section" hidden>
+    <div class="card">
+      <form id="node-access-form" novalidate>
+        <h3 id="f-acc-title">配置原生访问</h3>
+        <div class="field-row">
+          <label class="field">
+            <span class="field-label">SSH 账号</span>
+            <input id="f-acc-user" class="text-input mono" maxlength="64" placeholder="ubuntu" />
+          </label>
+          <label class="field">
+            <span class="field-label">SSH 主机</span>
+            <input id="f-acc-host" class="text-input mono" maxlength="128" placeholder="10.0.0.5" />
+          </label>
+        </div>
+        <div class="field-row">
+          <label class="field">
+            <span class="field-label">SSH 端口（默认 22）</span>
+            <input id="f-acc-sshport" class="text-input mono" type="number" min="1" max="65535" placeholder="22" />
+          </label>
+          <label class="field">
+            <span class="field-label">节点 GUI 端口（宿主机侧，默认 3080）</span>
+            <input id="f-acc-gui" class="text-input mono" type="number" min="1" max="65535" placeholder="3080" />
+          </label>
+          <label class="field">
+            <span class="field-label">本机映射端口</span>
+            <input id="f-acc-local" class="text-input mono" type="number" min="1024" max="65535" placeholder="3088" />
+          </label>
+        </div>
+        <div class="field-hint muted small">浏览器开 http://127.0.0.1:&lt;本机端口&gt;；隧道命令由 manager 生成，SSH 密钥只在你自己的电脑上。</div>
+        <div id="f-acc-warn"></div>
+        <div class="form-actions">
+          <button type="button" id="f-acc-cancel" class="btn-quiet btn-sm">取消</button>
+          <button type="button" id="f-acc-clear" class="btn-quiet btn-sm">清除配置</button>
+          <button type="submit" id="f-acc-save" class="btn btn-sm">保存</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
   <section class="section">
     <div class="section-head">
       <h2>全部节点</h2>

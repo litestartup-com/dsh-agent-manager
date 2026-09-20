@@ -2,7 +2,10 @@
 //
 // 两个列表：全部节点（托管读监督器状态机，外管读探活）+ 全局最近任务
 // 流。15 秒轮询，与侧栏同一数据源 /api/nodes，不另起真相。
+// 能力三 v1：节点行挂「原生 GUI」卡（隧道命令 + 打开/配置），纯函数层在
+// gui-access.js。
 import { $, ago, esc, setHtml, apiJson, poll } from './ui.js'
+import { guiCardHtml, guiSetupButton } from './gui-access.js'
 
 const NODE_STATE_DOT = { live: 'ok', cold: 'muted', starting: 'warn', restarting: 'warn', offline: 'bad' }
 const NODE_STATE_LABEL = { live: 'live', cold: '未启动', starting: '启动中', restarting: '重启中', offline: 'offline' }
@@ -42,6 +45,11 @@ const nodeRow = (n) => {
         <button type="button" class="btn-quiet btn-sm" data-node-rm="${esc(n.id)}" title="解除托管（磁盘目录保留）">删除</button>
       </div>`
     : '<span class="muted small">外管 · 手动维护</span>'
+  // 能力三 v1：原生 GUI 卡（已配置）或配置入口（未配置）。
+  const guiBits =
+    n.access !== null && n.access !== undefined
+      ? `<div class="node-side">${guiCardHtml(n.id, n.access, n.guiUrl)}</div>`
+      : `<div class="node-side">${guiSetupButton(n.id)}</div>`
   return `<div class="node-row" data-node-row="${esc(n.id)}">
     <div class="node-main">
       <div class="node-title"><span class="dot ${dot}"></span>${esc(n.id)} <span class="muted">· ${esc(label)}</span> ${versionWarn}</div>
@@ -49,6 +57,7 @@ const nodeRow = (n) => {
       <div class="node-detail">${detail}</div>
     </div>
     ${controls}
+    ${guiBits}
   </div>`
 }
 
@@ -131,6 +140,24 @@ $('nodes-list').addEventListener('click', (event) => {
   if (logs !== null) return void openLogs(logs.dataset.nodeLogs)
   const rm = event.target.closest('[data-node-rm]')
   if (rm !== null) return void removeNode(rm.dataset.nodeRm)
+  // 能力三 v1：原生 GUI 卡操作
+  const guiOpen = event.target.closest('[data-gui-open]')
+  if (guiOpen !== null) {
+    const url = guiOpen.dataset.guiUrl
+    if (typeof url === 'string' && url !== '') window.open(url, '_blank', 'noopener')
+    return
+  }
+  const guiCopy = event.target.closest('[data-gui-copy]')
+  if (guiCopy !== null) {
+    const command = guiCopy.dataset.guiCmd ?? ''
+    navigator.clipboard
+      ?.writeText(command)
+      .then(() => alert('隧道命令已复制——在终端跑起来（窗口别关），再点「打开 GUI」。'))
+      .catch(() => alert(`复制失败，手动复制：\n${command}`))
+    return
+  }
+  const access = event.target.closest('[data-node-access]')
+  if (access !== null) return void openAccessEditor(access.dataset.nodeAccess)
 })
 
 $('node-logs-refresh').addEventListener('click', () => void refreshLogs())
@@ -238,6 +265,90 @@ $('node-form').addEventListener('submit', async (event) => {
   }
 })
 
+// ---- 能力三 v1：原生访问配置（SSH 隧道元数据） ----
+
+/** @type {Record<string, { sshUser: string, sshHost: string, sshPort: number, guiPort: number, localPort: number } | null>} */
+let accessById = {}
+/** @type {string | null} 编辑器当前编辑的节点 id。 */
+let accessNode = null
+
+const openAccessEditor = (id) => {
+  accessNode = id
+  const current = accessById[id]
+  $('f-acc-title').textContent = `配置原生访问 · ${id}`
+  $('f-acc-user').value = current?.sshUser ?? ''
+  $('f-acc-host').value = current?.sshHost ?? ''
+  $('f-acc-sshport').value = current !== null && current !== undefined ? String(current.sshPort) : ''
+  $('f-acc-gui').value = current !== null && current !== undefined ? String(current.guiPort) : ''
+  $('f-acc-local').value = current !== null && current !== undefined ? String(current.localPort) : ''
+  $('f-acc-warn').textContent = ''
+  $('node-access-editor').hidden = false
+  $('f-acc-user').focus()
+}
+
+const closeAccessEditor = () => {
+  accessNode = null
+  $('node-access-editor').hidden = true
+}
+
+$('f-acc-cancel').addEventListener('click', closeAccessEditor)
+
+$('f-acc-clear').addEventListener('click', async () => {
+  if (accessNode === null) return
+  if (!window.confirm(`清除节点「${accessNode}」的原生访问配置？`)) return
+  try {
+    const r = await apiJson(`/api/nodes/${encodeURIComponent(accessNode)}/access`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ clear: true }),
+    })
+    if (!r.ok) {
+      $('f-acc-warn').textContent = r.detail
+      return
+    }
+    closeAccessEditor()
+    await load()
+  } catch (error) {
+    $('f-acc-warn').textContent = `清除失败：${error.message}`
+  }
+})
+
+$('node-access-form').addEventListener('submit', async (event) => {
+  event.preventDefault()
+  if (accessNode === null) return
+  const user = $('f-acc-user').value.trim()
+  const host = $('f-acc-host').value.trim()
+  const local = Number($('f-acc-local').value.trim())
+  if (user === '' || host === '' || !Number.isInteger(local) || local <= 0) {
+    $('f-acc-warn').textContent = 'SSH 账号 / 主机 / 本机映射端口必填'
+    return
+  }
+  const sshPort = Number($('f-acc-sshport').value.trim())
+  const guiPort = Number($('f-acc-gui').value.trim())
+  const payload = {
+    ssh_user: user,
+    ssh_host: host,
+    local_port: local,
+    ...(Number.isInteger(sshPort) && sshPort > 0 ? { ssh_port: sshPort } : {}),
+    ...(Number.isInteger(guiPort) && guiPort > 0 ? { gui_port: guiPort } : {}),
+  }
+  try {
+    const r = await apiJson(`/api/nodes/${encodeURIComponent(accessNode)}/access`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    if (!r.ok) {
+      $('f-acc-warn').textContent = r.detail
+      return
+    }
+    closeAccessEditor()
+    await load()
+  } catch (error) {
+    $('f-acc-warn').textContent = `保存失败：${error.message}`
+  }
+})
+
 const load = async () => {
   try {
     // 债务 F6:统一 Result 层。
@@ -245,6 +356,8 @@ const load = async () => {
     if (!nodesResult.ok) return
     const { nodes, dockerMode: isDocker } = nodesResult.data
     dockerMode = isDocker === true
+    // 能力三 v1：access 真相缓存（编辑器预填用）
+    accessById = Object.fromEntries(nodes.map((n) => [n.id, n.access ?? null]))
     const live = nodes.filter((n) => n.state === 'live').length
     const abnormal = nodes.filter((n) => n.state !== 'live').length
     $('nodes-count').textContent = `${live}/${nodes.length} 正常${abnormal > 0 ? ` · ${abnormal} 个异常` : ''}`
