@@ -1895,6 +1895,48 @@ button:disabled {
   flex: 0 0 auto;
 }
 
+/* 能力三 v1：节点行里的「原生 GUI」卡（隧道 / 本机直连 共用）。
+   宽度显式约束——长隧道命令不得用 max-content 撑爆整行挤压节点信息区。 */
+.node-gui {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 330px;
+  max-width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--sh-1);
+}
+
+.node-gui-title {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.node-gui-cmd {
+  display: block;
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 6px 8px;
+  background: var(--surface-sunken);
+  border-radius: var(--r-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 窄容器：卡片下折整行，不再横向挤压 */
+@media (max-width: 1100px) {
+  .node-row {
+    flex-wrap: wrap;
+  }
+
+  .node-gui {
+    width: 100%;
+  }
+}
+
 /* 蜂群 P5.1：节点管控按钮 + 日志抽屉 */
 .node-actions {
   display: flex;
