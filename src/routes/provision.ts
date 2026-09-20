@@ -15,6 +15,7 @@ import type { NodeSupervisor } from '../nodes/supervisor.js'
 import type { DockerRunner } from '../nodes/docker-runner.js'
 import { makeSupervisor } from '../nodes/registry.js'
 import { detectDshBin, ensureNodeCredentials, ensureNodeProfiles, mergeEnv, profileInstallCommand, resolveGatewayKey } from '../cli/setup.js'
+import { dshBinInProfile } from '../host-node/profile.js'
 import { ensureWorkspaceGit } from '../workspace/init.js'
 import { reconcileAll, removeAgentRow } from '../reconcile/index.js'
 import { GATEWAY_REF } from '../dsh-version.js'
@@ -161,6 +162,12 @@ const provisionBody = z.object({
   /** 测试与离线环境：跳过 pnpm install。 */
   install: z.boolean().optional(),
   /**
+   * 能力一（2026-09-20）：节点形态显式选择。缺省 = 自动判定（部署里有
+   * docker runner 端点 → 容器工蜂；否则宿主机进程）。显式 process =
+   * 宿主机整机能力节点（黄字风险 + 审计 node_create_host）。
+   */
+  runner: z.enum(['docker', 'process']).optional(),
+  /**
    * 向导总是带着 agent（节点 = agent 节点，创建即配工作区）；字段都可省，
    * 缺省 = id/名称同节点名、路径 ~/.dsh-ohdsh/workspaces/<节点名>。
    */
@@ -275,12 +282,19 @@ export const registerProvisionRoutes = (
       return reply.code(409).send({ error: 'duplicate_node', detail: `节点 ${body.name} 已存在` })
     }
     // 归一化工作区规格：缺省值全部由节点名推导（与向导展示的默认一致）。
-    // 蜂群2计划 P6：容器模式（任何既有 endpoint 用 docker runner）下新节点同形态，
-    // 工作区默认落在 manager 挂载视角 /opt/ohdsh/workspaces/<名>。
+    // 能力一（2026-09-20）：形态判定 = 显式 runner 覆盖 > 自动（部署里有 docker
+    // runner 端点 → 容器工蜂；否则宿主机进程）。显式 process = 宿主机整机能力。
     const dockerMode = Object.values(config.endpoints).some((e) => e.spawn?.runner === 'docker')
-    const workspaceDefault = dockerMode
-      ? `/opt/ohdsh/workspaces/${body.name}`
-      : join(nodesHome(), 'workspaces', body.name)
+    const wantDocker = body.runner === 'docker' || (body.runner === undefined && dockerMode)
+    const wantProcess = body.runner === 'process' || (body.runner === undefined && !dockerMode)
+    // 显式点选 docker 但部署没接 docker.sock = 用户误配，显性拒绝；
+    // 自动判定的 docker 分支不动（存量部署的判定语义不变）。
+    if (body.runner === 'docker' && deps.docker === undefined) {
+      return reply.code(400).send({ error: 'docker_unavailable', detail: '本部署没有 docker runner（manager 未挂 docker.sock）——请选宿主机进程形态' })
+    }
+    const workspaceDefault = wantProcess
+      ? join(nodesHome(), 'workspaces', body.name)
+      : `/opt/ohdsh/workspaces/${body.name}`
     const agentSpec =
       body.agent === undefined
         ? null
@@ -316,7 +330,8 @@ export const registerProvisionRoutes = (
     try {
       // 蜂群2计划 P6：容器模式分支——节点 = docker runner 工蜂（镜像 + 命名卷 +
       // 网络别名），不找 DSH bin、不做 profile/pnpm（运行时零安装）。
-      if (dockerMode) {
+      // 能力一：wantDocker 含显式 runner=docker 覆盖。
+      if (wantDocker) {
         const key = 'apigw-' + randomBytes(24).toString('hex')
 
         // 流水线 1:工作区
@@ -439,8 +454,13 @@ export const registerProvisionRoutes = (
 
       // 流水线 2:DB 先行(债务 H2/R9)
       dbRowInserted = markDbFirst(db, agentSpec)
-      // 蜂群2计划 P3：审计留痕（创建节点）
-      recordAudit(db, { actor: request.currentUser?.username ?? 'unknown', kind: 'node_create', detail: `节点 ${body.name}（端口 ${port}，工作区 ${agentSpec?.workspace ?? '—'}）` })
+      // 蜂群2计划 P3：审计留痕（创建节点）。能力一：显式宿主机进程形态用
+      // node_create_host（整机能力风险面，黄字警告的同源留痕）。
+      recordAudit(db, {
+        actor: request.currentUser?.username ?? 'unknown',
+        kind: body.runner === 'process' ? 'node_create_host' : 'node_create',
+        detail: `节点 ${body.name}（${body.runner === 'process' ? '宿主机进程' : '进程'}，端口 ${port}，工作区 ${agentSpec?.workspace ?? '—'}）`,
+      })
 
       // 流水线 3:真相文件（带快照，失败可还原;债务 A3 原子写 + R6 锁入口）
       const snaps = await writeNodeTruth(
@@ -491,8 +511,12 @@ export const registerProvisionRoutes = (
       supervisors.set(body.name, supervisor)
       // 债务 B1:拉起延后到依赖安装完成(201 先返回,请求路径不再等待安装)。
       // 回滚后的迟到安装完成不得再拉起(rolledBack 防泄漏)。
+      // 能力一：install 完成后优先用 profile 内隔离安装的 dsh bin（不依赖全局）；
+      // 未装成（离线/失败）回退全局 bin（存量兼容路径）。
       const startAfterInstall = (): void => {
         if (rolledBack) return
+        const isolatedBin = dshBinInProfile(installDir)
+        if (isolatedBin !== null) endpoint.spawn = spawnFor(isolatedBin, body.name, nodeHomePath)
         supervisorStarted = supervisor
         // 债务 R9:节点拉起也走 reconcile(单一入口),不再自己 supervisor.start。
         void reconcile(new Set([body.name])).catch((error: unknown) => {

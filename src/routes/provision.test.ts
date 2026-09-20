@@ -139,6 +139,59 @@ test('蜂群 P5.5: unknown agent id shape is rejected', async () => {
   assert.equal(bad.statusCode, 400)
 })
 
+test('能力一回归: 显式 runner=process 在 docker 部署上建宿主机进程节点（审计 node_create_host）', async () => {
+  const { app, config, db, supervisors } = await boot()
+  // 预置 docker 端点使部署进入 docker 形态（同 P6 测试的 personal 脊柱）
+  config.endpoints['personal'] = {
+    id: 'personal',
+    url: 'http://node-personal:3081',
+    driver: 'apiproxy',
+    prefix: '/api',
+    key: '',
+    sandboxBase: 'http://node-personal:3081/api-gw/v1',
+    sandboxKey: 'apigw-x',
+    spawn: {
+      managed: true,
+      command: '',
+      args: [],
+      cwd: null,
+      readyTimeoutMs: 30_000,
+      detached: false,
+      logFile: null,
+      env: {},
+      restart: { maxAttempts: 3, baseDelayMs: 1_000, maxDelayMs: 30_000 },
+      runner: 'docker',
+      docker: {
+        image: 'ohdsh/dsh-node:0.1.1-rc.2',
+        containerName: null,
+        network: 'ohdsh-hive',
+        port: 3081,
+        hostVolumes: { '/srv/ohdsh/workspaces/personal': '/opt/ohdsh/workspaces/personal' },
+        namedVolumes: { 'ohdsh-personal': '/data' },
+      },
+    },
+    access: null,
+  }
+
+  const created = await app.inject({
+    method: 'POST',
+    url: '/api/nodes',
+    payload: { name: 'hostnode', install: false, runner: 'process' },
+  })
+  assert.equal(created.statusCode, 201, JSON.stringify(created.body))
+  const spawn = config.endpoints['hostnode']?.spawn
+  assert.equal(spawn?.runner, 'process', '显式 process 覆盖 docker 形态自动判定')
+  const yaml = readFileSync(join(dir, 'manager.config.yaml'), 'utf8')
+  assert.match(yaml, /hostnode:/, 'yaml 落盘新节点')
+  assert.match(yaml, /command: node/, 'yaml 落盘进程形态（runner 缺省即 process，不序列化）')
+  assert.doesNotMatch(yaml, /runner: docker/, 'yaml 不得落 docker 形态')
+  const auditKinds = db.select().from(schema.auditLog).all().map((r) => r.kind)
+  assert.ok(auditKinds.includes('node_create_host'), '宿主机进程形态创建审计 node_create_host')
+
+  const supervisor = supervisors.get('hostnode')!
+  stopped.push(supervisor)
+})
+
 test('蜂群2计划 P6: 容器模式新节点 = docker runner（不找 DSH bin，命名卷 + 内网别名 + 宿主路径推导）', async () => {
   const { app, config, supervisors } = await boot()
   // 模拟脊柱部署已存在 personal 工蜂（docker runner），向导据此进入容器模式

@@ -10,6 +10,7 @@ export type AuditKind =
   | 'login_failed'
   | 'password_change'
   | 'node_create'
+  | 'node_create_host'
   | 'node_delete'
   | 'node_up'
   | 'node_down'
