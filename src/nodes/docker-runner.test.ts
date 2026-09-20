@@ -117,10 +117,12 @@ test('蜂群2计划 P2b: start 创建容器（名称/标签/命令/环境/挂载
   assert.deepEqual(created.Cmd, ['--port', '3081', '--trusted-host', 'node-personal', 'node-personal:3081'])
   assert.deepEqual(created.Labels, { 'com.ohdsh.managed': 'true', 'com.ohdsh.node': 'personal' })
   assert.deepEqual(created.Env, ['DSH_HOME=/data', 'GW_KEY=apigw-x'])
-  const host = created.HostConfig as { NetworkMode: string; Binds: string[]; RestartPolicy: { Name: string } }
+  const host = created.HostConfig as { NetworkMode: string; Binds: string[]; RestartPolicy: { Name: string }; PortBindings?: Record<string, unknown> }
   assert.equal(host.NetworkMode, 'hive')
   assert.deepEqual(host.Binds, ['/opt/ohdsh/workspaces/personal:/workspace', 'ohdsh-personal:/data'])
   assert.deepEqual(host.RestartPolicy, { Name: 'unless-stopped' })
+  // 能力三 v1：节点 GUI 端口只发布到宿主机 loopback（SSH 隧道目标；绝不进公网面）
+  assert.deepEqual(host.PortBindings, { '3081/tcp': [{ HostIp: '127.0.0.1', HostPort: '3081' }] }, 'GUI 端口必须只绑 127.0.0.1')
   // 网络别名：manager 探活 URL http://node-<id>:port 靠它解析（fetch failed 根因回归）
   const net = created.NetworkingConfig as { EndpointsConfig: Record<string, { Aliases: string[] }> }
   assert.deepEqual(net.EndpointsConfig['hive']?.Aliases, ['node-personal', 'personal'])

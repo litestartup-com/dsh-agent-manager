@@ -60,6 +60,9 @@ services:
       dockerfile: Dockerfile
     image: ${DSH_NODE_IMAGE:-ohdsh/dsh-node:0.1.2-rc.1}
     container_name: ohdsh-node-brain
+    # 能力三 v1：GUI 端口只发布到宿主机 loopback（SSH 隧道目标；绝不进公网面）
+    ports:
+      - "127.0.0.1:3082:3082"
     # 与宿主机部署用户同 uid：工作区 bind mount 两边读写一致（v0.1 同款约定）
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     # 0.1.2：--trusted-host 已删（CLI 无此参数，传了直接启动失败）；

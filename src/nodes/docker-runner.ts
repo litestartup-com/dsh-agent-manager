@@ -92,6 +92,11 @@ export class DockerRunner {
       WorkingDir: '/workspace',
       HostConfig: {
         NetworkMode: d.network,
+        // 能力三 v1：节点 GUI 端口只发布到宿主机 loopback——SSH 隧道的目标
+        // （浏览器经用户侧 ssh -L 打到 127.0.0.1:<port>）；绝不进公网面。
+        PortBindings: {
+          [`${d.port}/tcp`]: [{ HostIp: '127.0.0.1', HostPort: String(d.port) }],
+        },
         Binds: [
           ...Object.entries(d.hostVolumes).map(([host, containerPath]) => `${host}:${containerPath}`),
           ...Object.entries(d.namedVolumes).map(([volume, containerPath]) => `${volume}:${containerPath}`),
