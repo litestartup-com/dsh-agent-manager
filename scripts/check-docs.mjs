@@ -96,9 +96,39 @@ try {
   failures.push(`容器部署红线断言失败: ${error instanceof Error ? error.message : String(error)}`)
 }
 
+// ---- 6) 能力二（2026-09-20）：钉版同步守卫——DSH/gateway 钉版只许来自版本矩阵
+//          src/dsh-matrix.ts；安装器/镜像/升级脚本/发布包出现不一致 = CI 即红 ----
+try {
+  const matrixSrc = readFileSync(join(root, 'src/dsh-matrix.ts'), 'utf8')
+  const defaultDsh = /dsh: '([^']+)'/.exec(matrixSrc)?.[1] ?? ''
+  const gatewayRef = /GATEWAY_REF = '([^']+)'/.exec(matrixSrc)?.[1] ?? ''
+  const pinChecks = [
+    ['install.ps1', /\$DSH_VERSION = '([^']+)'/, defaultDsh],
+    ['images/node/gen-node-profile.mjs', /DSH_VERSION = process\.env\.DSH_VERSION \?\? '([^']+)'/, defaultDsh],
+    ['images/node/gen-node-profile.mjs', /GATEWAY_REF = process\.env\.GATEWAY_REF \?\? '([^']+)'/, gatewayRef],
+    ['images/node/Dockerfile', /ARG DSH_VERSION=([^\s]+)/, defaultDsh],
+    ['images/node/Dockerfile', /ARG GATEWAY_REF=([^\s]+)/, gatewayRef],
+    ['scripts/upgrade-012-win.mjs', /GATEWAY_REF = '([^']+)'/, gatewayRef],
+    ['scripts/make-release.mjs', /nodeImage = process\.env\.DSH_NODE_IMAGE \?\? 'ohdsh\/dsh-node:([^']+)'/, defaultDsh],
+  ]
+  for (const [file, re, expected] of pinChecks) {
+    const content = readFileSync(join(root, file), 'utf8')
+    const match = re.exec(content)
+    if (match === null) {
+      failures.push(`${file}: 找不到钉版字面量（能力二守卫；格式变更请同步本断言）`)
+      continue
+    }
+    if (match[1] !== expected) {
+      failures.push(`${file}: 钉版 ${match[1]} 与版本矩阵不一致（期望 ${expected}）——统一改 src/dsh-matrix.ts，禁止多点手改`)
+    }
+  }
+} catch (error) {
+  failures.push(`钉版同步守卫失败: ${error instanceof Error ? error.message : String(error)}`)
+}
+
 if (failures.length > 0) {
   console.error('check-docs FAILED:')
   for (const f of failures) console.error(`  - ${f}`)
   process.exit(1)
 }
-console.log('check-docs: OK（README 无死链、无手写测试数、部署文件完整）')
+console.log('check-docs: OK（README 无死链、无手写测试数、部署文件完整、钉版与矩阵一致）')
