@@ -1,10 +1,13 @@
 import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { z } from 'zod'
 import type { FastifyInstance, preHandlerHookHandler } from 'fastify'
 import type { AppConfig } from '../config.js'
 import type { GatewayClient } from '../gateway/client.js'
 import type { SessionDriver } from '../session-driver/port.js'
 import type { NodeSupervisor } from '../nodes/supervisor.js'
 import type { AuditKind } from '../audit.js'
+import { mutateYamlFile, withConfigLock } from '../config-store.js'
 import { probeEndpoint } from './status.js'
 
 /**
@@ -156,6 +159,70 @@ export const registerNodesRoutes = (
         if (dockerLogs !== null) return reply.send({ logs: tail(dockerLogs), source: 'docker' })
       }
       return reply.send({ logs: tail(supervisor.logs()), source: 'buffer' })
+    },
+  )
+
+  /**
+   * 能力三 v1：节点原生 GUI 的 SSH 隧道元数据（真相源 = endpoints.<id>.access）。
+   * clear=true 移除该段；否则 ssh_user/ssh_host/local_port 必填，ssh_port/gui_port
+   * 缺省 22/3080。写真相源（锁 + 原子写）后热加载进内存配置。
+   * 红线：ssh 私钥不进本接口——manager 只记「怎么连」，不记「凭什么连」。
+   */
+  const accessBody = z.object({
+    clear: z.boolean().optional(),
+    ssh_user: z.string().min(1).optional(),
+    ssh_host: z.string().min(1).optional(),
+    ssh_port: z.number().int().positive().optional(),
+    gui_port: z.number().int().positive().optional(),
+    local_port: z.number().int().positive().optional(),
+  })
+
+  app.post<{ Params: { id: string }; Body: unknown }>(
+    '/api/nodes/:id/access',
+    { preHandler: requireUser, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      const ep = config.endpoints[request.params.id]
+      if (ep === undefined) return reply.code(404).send({ error: 'unknown_node' })
+      const parsed = accessBody.safeParse(request.body)
+      if (!parsed.success) return reply.code(400).send({ error: 'invalid_body', detail: parsed.error.issues.map((i) => i.message) })
+      const body = parsed.data
+      const configPath = config.configPath ?? resolve('manager.config.yaml')
+
+      try {
+        if (body.clear === true) {
+          await withConfigLock(() => mutateYamlFile(configPath, (doc) => doc.deleteIn(['endpoints', request.params.id, 'access'])))
+          config.endpoints[request.params.id]!.access = null
+          audit?.(request.currentUser?.username ?? 'unknown', 'node_access_update', `节点 ${request.params.id} 移除原生访问配置`)
+          return reply.send({ ok: true, access: null })
+        }
+        const sshUser = body.ssh_user
+        const sshHost = body.ssh_host
+        const localPort = body.local_port
+        if (sshUser === undefined || sshHost === undefined || localPort === undefined) {
+          return reply.code(400).send({ error: 'missing_fields', detail: 'ssh_user / ssh_host / local_port 必填（clear=true 表示移除）' })
+        }
+        const access = {
+          ssh_user: sshUser,
+          ssh_host: sshHost,
+          ssh_port: body.ssh_port ?? 22,
+          gui_port: body.gui_port ?? 3080,
+          local_port: localPort,
+        }
+        await withConfigLock(() => mutateYamlFile(configPath, (doc) => doc.setIn(['endpoints', request.params.id, 'access'], access)))
+        config.endpoints[request.params.id]!.access = {
+          sshUser: access.ssh_user,
+          sshHost: access.ssh_host,
+          sshPort: access.ssh_port,
+          guiPort: access.gui_port,
+          localPort: access.local_port,
+        }
+        audit?.(request.currentUser?.username ?? 'unknown', 'node_access_update', `节点 ${request.params.id} 原生访问 → ${access.ssh_user}@${access.ssh_host}:${access.ssh_port} gui=${access.gui_port} local=${access.local_port}`)
+        return reply.send({ ok: true, access: config.endpoints[request.params.id]!.access })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        app.log.error(`node ${request.params.id}: access update failed: ${message}`)
+        return reply.code(500).send({ error: 'config_write_failed', detail: message })
+      }
     },
   )
 }

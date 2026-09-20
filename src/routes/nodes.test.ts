@@ -1,5 +1,8 @@
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import Fastify from 'fastify'
 import type { AppConfig } from '../config.js'
 import { DEFAULT_PRICING } from '../pricing.js'
@@ -190,4 +193,38 @@ test('蜂群2计划 P2b: docker runner 节点的日志走 docker logs', async ()
   assert.equal(logs.statusCode, 200)
   assert.equal((logs.json()).logs, 'container-log\n')
   assert.equal((logs.json()).source, 'docker')
+})
+
+test('债务 P1 回归: POST /api/nodes/:id/access 写真相源并热加载;clear 移除;非法值 400', async () => {
+  const gw = await startFakeGateway({ frames: [] }, API_KEY)
+  gateways.push(gw)
+  const config = configFor(gw)
+  const dir = mkdtempSync(join(tmpdir(), 'nodes-access-'))
+  const configPath = join(dir, 'manager.config.yaml')
+  writeFileSync(configPath, 'endpoints:\n  A:\n    url: http://x\n', 'utf8')
+  config.configPath = configPath
+  const audits: string[] = []
+  const app = Fastify()
+  registerNodesRoutes(app, config, new Map(), new Map(), new Map(), async () => {}, (_actor, kind) => audits.push(kind))
+
+  const set = await app.inject({
+    method: 'POST',
+    url: '/api/nodes/A/access',
+    payload: { ssh_user: 'ubuntu', ssh_host: '10.0.0.5', local_port: 3088 },
+  })
+  assert.equal(set.statusCode, 200)
+  assert.deepEqual(config.endpoints['A']?.access, { sshUser: 'ubuntu', sshHost: '10.0.0.5', sshPort: 22, guiPort: 3080, localPort: 3088 }, '内存热加载')
+  assert.match(readFileSync(configPath, 'utf8'), /access:/, '真相源落盘')
+  assert.ok(audits.includes('node_access_update'), '审计留痕')
+
+  const clear = await app.inject({ method: 'POST', url: '/api/nodes/A/access', payload: { clear: true } })
+  assert.equal(clear.statusCode, 200)
+  assert.equal(config.endpoints['A']?.access, null)
+  assert.doesNotMatch(readFileSync(configPath, 'utf8'), /access:/)
+
+  const bad = await app.inject({ method: 'POST', url: '/api/nodes/A/access', payload: { ssh_user: 'u', ssh_host: 'h' } })
+  assert.equal(bad.statusCode, 400)
+
+  const missing = await app.inject({ method: 'POST', url: '/api/nodes/nope/access', payload: { ssh_user: 'u', ssh_host: 'h', local_port: 1 } })
+  assert.equal(missing.statusCode, 404)
 })
