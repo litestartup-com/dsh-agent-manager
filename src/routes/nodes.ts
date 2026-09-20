@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { z } from 'zod'
 import type { FastifyInstance, preHandlerHookHandler } from 'fastify'
 import type { AppConfig, ResolvedEndpoint } from '../config.js'
@@ -9,6 +9,9 @@ import type { NodeSupervisor } from '../nodes/supervisor.js'
 import type { AuditKind } from '../audit.js'
 import { mutateYamlFile, withConfigLock } from '../config-store.js'
 import { captureGuiToken, guiOpenUrl } from '../gui-token.js'
+import { dshBinInProfile, profileDrift, reseedProfile } from '../host-node/profile.js'
+import { COMPAT_DSH_VERSION, GATEWAY_REF, resolvePair } from '../dsh-matrix.js'
+import { installNodeDepsAsync } from './provision.js'
 import { probeEndpoint } from './status.js'
 
 /**
@@ -27,7 +30,25 @@ export const registerNodesRoutes = (
   requireUser: preHandlerHookHandler,
   /** 蜂群2计划 P3：节点操作审计回调（wiring 层注入，测试可不传）。 */
   audit?: (actor: string, kind: AuditKind, detail: string) => void,
+  /** 能力二：对齐路由的依赖安装器（测试注入假实现；缺省 = 真实 npm install）。 */
+  installDeps: (dir: string) => Promise<void> = installNodeDepsAsync,
 ): void => {
+  /**
+   * 能力二：进程节点的配置钉版（显式值 > 矩阵默认）与 profile 目录。
+   * 容器节点返回 null（换版本 = 改镜像 tag，不在本路由范围）。
+   */
+  const pinnedOf = (ep: ResolvedEndpoint): { version: string; gatewayRef: string; profileDir: string | null } => {
+    const version = ep.spawn?.dshVersion ?? COMPAT_DSH_VERSION
+    const gatewayRef = ep.spawn?.gatewayRef ?? (resolvePair(version)?.gateway ?? GATEWAY_REF)
+    const dshHome = ep.spawn?.env['DSH_HOME']
+    const profileDir = dshHome === undefined || dshHome === '' ? null : join(dshHome, 'profiles', ep.id)
+    return { version, gatewayRef, profileDir }
+  }
+  const driftOf = (ep: ResolvedEndpoint): boolean => {
+    if (ep.spawn === null || ep.spawn.runner !== 'process') return false
+    const { version, gatewayRef, profileDir } = pinnedOf(ep)
+    return profileDir !== null && profileDrift(profileDir, version, gatewayRef)
+  }
   app.get('/api/nodes', { preHandler: requireUser }, async () => {
     // 能力三 v1：按节点从日志即时捕获 GUI token 并拼装打开 URL——每次请求
     // 重新读日志,节点重启轮换 token 后自动跟随,无需任何缓存/失效机制。
@@ -73,8 +94,9 @@ export const registerNodesRoutes = (
             agents: agentIds,
             dshVersion: probe.dshVersion,
             dshCompatible: probe.dshCompatible,
-            // 能力二：配置钉版（null = 跟随全局默认）；漂移 UI/对齐见 P3-3
+            // 能力二：配置钉版（null = 跟随全局默认）；漂移 = profile 种子与钉版不符
             configuredDshVersion: ep?.spawn?.dshVersion ?? null,
+            dshDrift: ep === undefined ? false : driftOf(ep),
             ...(image === null ? {} : { image }),
             // 能力三 v1：隧道元数据 + 拼好的打开 URL（未配置/未捕获 = null）
             access: ep?.access ?? null,
@@ -93,6 +115,7 @@ export const registerNodesRoutes = (
           dshVersion: probe.dshVersion,
           dshCompatible: probe.dshCompatible,
           configuredDshVersion: ep?.spawn?.dshVersion ?? null,
+          dshDrift: ep === undefined ? false : driftOf(ep),
           access: ep?.access ?? null,
           guiUrl,
         }
@@ -255,6 +278,55 @@ export const registerNodesRoutes = (
         app.log.error(`node ${request.params.id}: access update failed: ${message}`)
         return reply.code(500).send({ error: 'config_write_failed', detail: message })
       }
+    },
+  )
+
+  /**
+   * 能力二：版本对齐——把进程节点的 profile 重播种到配置钉版（重写依赖清单 +
+   * .seed-version）→ 后台重装依赖 → 用 profile 内隔离 bin 重启节点（幂等）。
+   * 容器节点 409（换版本 = 改镜像 tag，语义不同）。审计 node_align_version。
+   */
+  app.post<{ Params: { id: string } }>(
+    '/api/nodes/:id/align-version',
+    { preHandler: requireUser, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      const ep = config.endpoints[request.params.id]
+      if (ep === undefined) return reply.code(404).send({ error: 'unknown_node' })
+      const spawn = ep.spawn
+      if (spawn === null || spawn.runner !== 'process') {
+        return reply.code(409).send({ error: 'not_host_process', detail: '只有宿主机进程节点支持版本对齐；容器节点请改镜像 tag' })
+      }
+      const supervisor = supervisors.get(request.params.id)
+      if (supervisor === undefined) return reply.code(409).send({ error: 'not_managed', detail: '外部管理的节点无法对齐' })
+      const { version, gatewayRef, profileDir } = pinnedOf(ep)
+      if (profileDir === null) return reply.code(400).send({ error: 'no_dsh_home', detail: '节点的 spawn.env 缺 DSH_HOME，无法定位 profile 目录' })
+
+      const port = Number(new URL(ep.url).port || 3080)
+      try {
+        reseedProfile(profileDir, { name: request.params.id, port }, gatewayRef, version)
+        audit?.(request.currentUser?.username ?? 'unknown', 'node_align_version', `节点 ${request.params.id} 对齐到 DSH ${version}（facade ${gatewayRef}）`)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        return reply.code(500).send({ error: 'reseed_failed', detail: message })
+      }
+
+      // 后台重装依赖 → 完成/失败都重启（缺依赖崩溃 → offline 显性，同 provision 口径）
+      void installDeps(profileDir)
+        .then(() => {
+          const isolatedBin = dshBinInProfile(profileDir)
+          if (isolatedBin !== null) {
+            const next = { ...spawn, args: [isolatedBin, ...spawn.args.slice(1)] }
+            ep.spawn = next
+            supervisor.restart(next)
+            return
+          }
+          supervisor.restart(spawn)
+        })
+        .catch((error: unknown) => {
+          app.log.warn(`node ${request.params.id}: align install failed: ${error instanceof Error ? error.message : String(error)}`)
+          supervisor.restart(spawn)
+        })
+      return reply.code(202).send({ ok: true, aligning: true, version, gatewayRef })
     },
   )
 }

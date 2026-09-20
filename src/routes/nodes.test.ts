@@ -1,6 +1,6 @@
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import Fastify from 'fastify'
@@ -195,6 +195,47 @@ test('蜂群2计划 P2b: docker runner 节点的日志走 docker logs', async ()
   assert.equal(logs.statusCode, 200)
   assert.equal((logs.json()).logs, 'container-log\n')
   assert.equal((logs.json()).source, 'docker')
+})
+
+test('债务 P3 回归: 进程节点漂移检测 + align-version 对齐（重播种/重装/重启，幂等）', async () => {
+  const gw = await startFakeGateway({ frames: [] }, API_KEY)
+  gateways.push(gw)
+  const config = configFor(gw)
+  const profileDir = mkdtempSync(join(tmpdir(), 'nodes-align-'))
+  const spawn = {
+    ...managedSpawn,
+    runner: 'process' as const,
+    env: { DSH_HOME: join(profileDir, '..') }, // profile 目录 = DSH_HOME/profiles/<id>
+    docker: null,
+  }
+  config.endpoints['A']!.spawn = spawn
+  mkdirSync(join(profileDir, '..', 'profiles', 'A'), { recursive: true })
+  writeFileSync(join(profileDir, '..', 'profiles', 'A', '.seed-version'), 'stale-seed\n', 'utf8')
+  const calls = { start: 0, stop: 0, restart: 0 }
+  const app = Fastify()
+  registerNodesRoutes(
+    app, config, new Map([['A', stubSupervisor(calls)]]), new Map(), new Map(), async () => {},
+    undefined,
+    async (dir) => {
+      // 假安装器：不触网——写一个假的 profile 内 bin 就算装完
+      const binDir = join(dir, 'node_modules', '@deepseek-ai', 'dsh', 'lib')
+      mkdirSync(binDir, { recursive: true })
+      writeFileSync(join(binDir, 'bin.js'), '', 'utf8')
+    },
+  )
+
+  const before = await app.inject({ method: 'GET', url: '/api/nodes' })
+  assert.equal((before.json() as { nodes: Array<{ dshDrift: boolean }> }).nodes[0]?.dshDrift, true, '旧标记 → 漂移')
+
+  const align = await app.inject({ method: 'POST', url: '/api/nodes/A/align-version' })
+  assert.equal(align.statusCode, 202)
+  await new Promise((resolve) => setTimeout(resolve, 20))
+
+  const after = await app.inject({ method: 'GET', url: '/api/nodes' })
+  assert.equal((after.json() as { nodes: Array<{ dshDrift: boolean }> }).nodes[0]?.dshDrift, false, '对齐后漂移消失')
+  assert.equal(calls.restart, 1, '对齐完成后重启节点')
+  const marker = readFileSync(join(profileDir, '..', 'profiles', 'A', '.seed-version'), 'utf8').trim()
+  assert.equal(marker.length, 40, '标记重写为 sha1')
 })
 
 test('债务 P1 回归: POST /api/nodes/:id/access 写真相源并热加载;clear 移除;非法值 400', async () => {

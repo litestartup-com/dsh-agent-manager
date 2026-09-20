@@ -16,6 +16,7 @@ export type AuditKind =
   | 'node_down'
   | 'node_restart'
   | 'node_access_update'
+  | 'node_align_version'
   | 'sandbox_mode'
   | 'backup'
 

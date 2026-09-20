@@ -9,6 +9,7 @@
  * pnpm-workspace.yaml（npm 安装时的构建脚本白名单兼容件）。
  */
 import { randomBytes } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
@@ -103,9 +104,38 @@ export const ensureNodeProfiles = (nodesHome: string, specs: ProfileSpec[], gate
     for (const [name, content] of Object.entries(profileFiles(spec, gatewayDep, dshVersion))) {
       writeFileSync(join(dir, name), content, 'utf8')
     }
+    // 能力二：播种版本标记（容器 entrypoint 同款）——boot 对账/align 据此判定
+    // 版本/ref 漂移；存量老 profile（无标记）视同漂移，一键对齐入口兜底。
+    writeFileSync(join(dir, '.seed-version'), profileSeed(dshVersion, gatewayDep) + '\n', 'utf8')
     created.push(nodeHome)
   }
   return created
+}
+
+/** 能力二：profile 的版本种子 = sha1(dshVersion|gatewayRef)，容器 entrypoint 同款。 */
+export const profileSeed = (dshVersion: string, gatewayRef: string): string =>
+  createHash('sha1').update(`${dshVersion}|${gatewayRef}`).digest('hex')
+
+/** 读 profile 目录的 .seed-version 标记；不存在 = null（存量老 profile）。 */
+export const currentProfileSeed = (profileDir: string): string | null => {
+  try {
+    return readFileSync(join(profileDir, '.seed-version'), 'utf8').trim()
+  } catch {
+    return null
+  }
+}
+
+/** 漂移判定：标记缺失或与期望种子不一致 = 需要重播种对齐。 */
+export const profileDrift = (profileDir: string, dshVersion: string, gatewayRef: string): boolean =>
+  currentProfileSeed(profileDir) !== profileSeed(dshVersion, gatewayRef)
+
+/** 能力二：无条件重播种 profile（对齐路由用——版本切换/漂移收敛，幂等）。 */
+export const reseedProfile = (profileDir: string, spec: ProfileSpec, gatewayDep: string, dshVersion: string = COMPAT_DSH_VERSION): void => {
+  mkdirSync(profileDir, { recursive: true })
+  for (const [name, content] of Object.entries(profileFiles(spec, gatewayDep, dshVersion))) {
+    writeFileSync(join(profileDir, name), content, 'utf8')
+  }
+  writeFileSync(join(profileDir, '.seed-version'), profileSeed(dshVersion, gatewayDep) + '\n', 'utf8')
 }
 
 /** 把主 DSH_HOME 的模型凭据复制进节点目录（同一用户同一把 key，缺省不覆盖）。 */
