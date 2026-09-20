@@ -137,6 +137,21 @@ try {
     const wantsLegacy = matrixLegacy.includes(v)
     if ((row[2] === 'true') !== wantsLegacy) failures.push(`scripts/upgrade-node-version.mjs: 行 ${v} 的 legacyPeerDeps=${row[2]} 与矩阵 needsLegacyPeerDeps=${wantsLegacy} 不一致`)
   }
+  // 容器构建脚本的 LEGACY_PEER_DEPS_VERSIONS = 矩阵 needsLegacyPeerDeps 行集合——
+  // 构建 0.1.5 镜像时 profile 安装不带 --legacy-peer-deps 必 ERESOLVE（dsh-facts §12）。
+  const genProfileSrc = readFileSync(join(root, 'images/node/gen-node-profile.mjs'), 'utf8')
+  const legacyListMatch = /const LEGACY_PEER_DEPS_VERSIONS = \[([^\]]*)\]/.exec(genProfileSrc)
+  if (legacyListMatch === null) {
+    failures.push('images/node/gen-node-profile.mjs: 缺 LEGACY_PEER_DEPS_VERSIONS 声明（能力二守卫；格式变更请同步本断言）')
+  } else {
+    const scriptLegacy = [...legacyListMatch[1].matchAll(/'([^']+)'/g)].map((m) => m[1])
+    for (const v of matrixLegacy) {
+      if (!scriptLegacy.includes(v)) failures.push(`images/node/gen-node-profile.mjs: LEGACY_PEER_DEPS_VERSIONS 缺矩阵行 ${v}`)
+    }
+    for (const v of scriptLegacy) {
+      if (!matrixLegacy.includes(v)) failures.push(`images/node/gen-node-profile.mjs: LEGACY_PEER_DEPS_VERSIONS 的 ${v} 在矩阵里不是 needsLegacyPeerDeps`)
+    }
+  }
 } catch (error) {
   failures.push(`钉版同步守卫失败: ${error instanceof Error ? error.message : String(error)}`)
 }

@@ -9,6 +9,10 @@ const DSH_VERSION = process.env.DSH_VERSION ?? '0.1.2-rc.1'
 const GATEWAY_REF = process.env.GATEWAY_REF ?? 'github:litestartup-com/dsh-api-gateway#b592b4f'
 const NPM_REGISTRY = process.env.NPM_REGISTRY ?? 'https://registry.npmjs.org'
 const out = process.env.PROFILE_DIR ?? '/opt/ohdsh-profile'
+// 与 src/dsh-matrix.ts 的 needsLegacyPeerDeps 保持一致（check-docs.mjs 常驻断言）：
+// facade peer 区间 ^0.1.2-rc.1 覆盖不到 0.1.5 线 → 不带 --legacy-peer-deps 必 ERESOLVE
+// （服务器 smoke15 实测，事实卡 dsh-facts §12；裸机路径 profileInstallCommand 同款修复）。
+const LEGACY_PEER_DEPS_VERSIONS = ['0.1.5-rc.2']
 
 mkdirSync(out, { recursive: true })
 
@@ -40,5 +44,7 @@ writeFileSync(
   'utf8',
 )
 
-execFileSync('npm', ['install', '--no-audit', '--no-fund', `--registry=${NPM_REGISTRY}`], { cwd: out, stdio: 'inherit', shell: process.platform === 'win32' })
+const installArgs = ['install', '--no-audit', '--no-fund', `--registry=${NPM_REGISTRY}`]
+if (LEGACY_PEER_DEPS_VERSIONS.includes(DSH_VERSION)) installArgs.push('--legacy-peer-deps')
+execFileSync('npm', installArgs, { cwd: out, stdio: 'inherit', shell: process.platform === 'win32' })
 console.log(`[gen-node-profile] ${out} ready (DSH ${DSH_VERSION}, gateway ${GATEWAY_REF})`)
