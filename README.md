@@ -52,6 +52,22 @@ server ──► node (= one DSH agent process + its own DSH_HOME) ──► wor
 - **Backup & restore**: 15-minute automatic snapshots + retention policy (24h full → daily 30 days → weekly 12 weeks) + one-click restore
 - **Service**: auto-start on boot (Windows Task Scheduler / Linux systemd)
 - **Self-update**: backup → pull → build → health probe, auto-rollback on failure
+- **Native GUI one-click open**: each node row carries a "Native GUI" card — one SSH
+  tunnel command (the key stays on your machine) plus a one-click open of the node's
+  native UI. The 0.1.5 token is captured from node logs automatically and follows
+  restarts. (The DSH web UI binds loopback only; reverse-proxying is not possible —
+  see facts card dsh-facts §11.)
+
+## Open a node's native GUI (SSH tunnel)
+
+1. On the nodes page, click "Configure native access" once: SSH user / host / port
+   and the local mapped port;
+2. Run the `ssh -L` command from the card in a terminal (keep it open);
+3. Click "Open GUI" — a new tab lands on that node's native DSH UI.
+
+The manager only generates the "how to connect" command — **the SSH private key
+never enters the manager**. Both tunnel ends bind loopback, and node GUI ports are
+published on the host's 127.0.0.1 only (never the public surface).
 
 ## Run from source (developers)
 

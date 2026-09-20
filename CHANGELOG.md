@@ -1,5 +1,20 @@
 # Changelog
 
+## 未发布（节点三能力 · P1 隧道一键直开，2026-09-20）
+
+> 设计/计划：`hive/nodes-install-version-tunnel.md`、`hive/plan-node-capabilities.md`；
+> 依据事实：S0 spike（dsh-facts §11）——nginx 域名反代被上游 loopback 钉死面
+> （PRIVILEGED_METHODS / dynamicCordisRunner）否决，原生 GUI 全功能通道 =
+> 用户侧 SSH 隧道（浏览器即 loopback）。
+
+- **能力三 v1**：配置真相源 `endpoints.*.access`（ssh_user/ssh_host/ssh_port/
+  gui_port/local_port，缺省 22/3080）——manager 只记「怎么连」，**SSH 私钥永不进
+  配置**；`POST /api/nodes/:id/access` 写回（锁+原子写+审计 `node_access_update`+
+  clear 移除）；节点页「原生 GUI」卡：隧道命令 + 复制 + 一键打开，0.1.5 的
+  `?token=` 从节点日志（buffer/docker/file 三源）即时捕获、重启轮换自动跟随；
+  节点 GUI 端口只发布宿主机 loopback（compose node-brain + 动态工蜂
+  PortBindings 127.0.0.1）
+
 ## 1.0.4 — 安全修复 + 四批技术债清偿（2026-09-12）
 
 > ⚠️ **升级注意**：
