@@ -28,12 +28,23 @@ const nodeRow = (n) => {
     typeof n.dshVersion === 'string' && n.dshVersion !== '' && n.dshCompatible === false
       ? `<span class="pill-mini warn" title="节点 DSH ${esc(n.dshVersion)} 与验证版本不符，契约未经此版本验证">版本告警</span>`
       : ''
+  // 能力二：profile 种子与配置钉版不一致 = 漂移（对齐按钮入口）
+  const driftWarn =
+    n.dshDrift === true
+      ? `<span class="pill-mini warn" title="profile 与配置钉版不一致（DSH 版本或 facade 引用漂移）——点「对齐版本」收敛">版本漂移</span>`
+      : ''
   // 版本信息：容器形态先展示镜像标签（tag 即 DSH 版本），再补 DSH 版本行。
   const versionBits = []
   if (typeof n.image === 'string' && n.image !== '') versionBits.push(esc(n.image))
   if (typeof n.dshVersion === 'string' && n.dshVersion !== '') versionBits.push(`DSH ${esc(n.dshVersion)}`)
+  // 显式钉版值得展示；跟随默认（null）不显示
+  if (typeof n.configuredDshVersion === 'string' && n.configuredDshVersion !== '') versionBits.push(`钉 ${esc(n.configuredDshVersion)}`)
   const detail = `agent：${esc(agents)}${versionBits.length > 0 ? ` · ${versionBits.join(' · ')}` : ''}`
   const starting = n.state === 'starting'
+  const alignBtn =
+    n.dshDrift === true
+      ? `<button type="button" class="btn-quiet btn-sm" data-node-align="${esc(n.id)}" title="重建 profile → 重装依赖 → 重启（幂等）">对齐版本</button>`
+      : ''
   const controls = n.managed
     ? `<div class="node-actions">
         ${
@@ -42,6 +53,7 @@ const nodeRow = (n) => {
             : `<button type="button" class="btn-quiet btn-sm" data-node-down="${esc(n.id)}" ${starting ? 'disabled' : ''}>停止</button>
                <button type="button" class="btn-quiet btn-sm" data-node-restart="${esc(n.id)}" ${starting ? 'disabled' : ''}>重启</button>`
         }
+        ${alignBtn}
         <button type="button" class="btn-quiet btn-sm" data-node-logs="${esc(n.id)}">日志</button>
         <button type="button" class="btn-quiet btn-sm" data-node-rm="${esc(n.id)}" title="解除托管（磁盘目录保留）">删除</button>
       </div>`
@@ -55,7 +67,7 @@ const nodeRow = (n) => {
         : `<div class="node-side">${guiSetupButton(n.id)}</div>`
   return `<div class="node-row" data-node-row="${esc(n.id)}">
     <div class="node-main">
-      <div class="node-title"><span class="dot ${dot}"></span>${esc(n.id)} <span class="muted">· ${esc(label)}</span> ${versionWarn}</div>
+      <div class="node-title"><span class="dot ${dot}"></span>${esc(n.id)} <span class="muted">· ${esc(label)}</span> ${versionWarn} ${driftWarn}</div>
       <div class="node-meta">${esc(meta)}${esc(err)}</div>
       <div class="node-detail">${detail}</div>
     </div>
@@ -101,6 +113,19 @@ const nodeAction = async (id, action) => {
   await load()
 }
 
+// 能力二：版本对齐 = 异步重播种 + 重装 + 重启（202 即受理）。
+const alignNode = async (id) => {
+  if (!window.confirm(`把节点「${id}」的 profile 对齐到配置钉版？\n\n重建 profile → 重装依赖 → 重启节点（幂等，约 1-2 分钟）。`)) return
+  try {
+    const r = await apiJson(`/api/nodes/${encodeURIComponent(id)}/align-version`, { method: 'POST' })
+    if (!r.ok) alert(r.detail)
+    else alert('已提交对齐（重播种 → 重装 → 重启）。约 1-2 分钟后自动刷新查看。')
+  } catch (error) {
+    alert(`操作失败：${error.message}`)
+  }
+  await load()
+}
+
 let logsNode = null
 let logsTimer = null
 
@@ -139,6 +164,8 @@ $('nodes-list').addEventListener('click', (event) => {
   if (down !== null) return void nodeAction(down.dataset.nodeDown, 'down')
   const restart = event.target.closest('[data-node-restart]')
   if (restart !== null) return void nodeAction(restart.dataset.nodeRestart, 'restart')
+  const align = event.target.closest('[data-node-align]')
+  if (align !== null) return void alignNode(align.dataset.nodeAlign)
   const logs = event.target.closest('[data-node-logs]')
   if (logs !== null) return void openLogs(logs.dataset.nodeLogs)
   const rm = event.target.closest('[data-node-rm]')
@@ -233,6 +260,7 @@ $('node-form').addEventListener('submit', async (event) => {
     name,
     port: portRaw,
     runner,
+    dshVersion: $('f-node-version').value,
     agent: {
       ...(advancedDirty.has('f-agent-id') ? { id: $('f-agent-id').value.trim() } : {}),
       ...(advancedDirty.has('f-agent-name') ? { name: $('f-agent-name').value.trim() } : {}),
@@ -365,8 +393,20 @@ const load = async () => {
     // 债务 F6:统一 Result 层。
     const [nodesResult, runsResult] = await Promise.all([apiJson('/api/nodes'), apiJson('/api/runs')])
     if (!nodesResult.ok) return
-    const { nodes, dockerMode: isDocker } = nodesResult.data
+    const { nodes, dockerMode: isDocker, supportedDsh } = nodesResult.data
     dockerMode = isDocker === true
+    // 能力二：版本下拉 = 矩阵数据源（首次填充后不再重复）
+    if (Array.isArray(supportedDsh)) {
+      const sel = $('f-node-version')
+      if (sel.options.length <= 1) {
+        for (const v of supportedDsh) {
+          const opt = document.createElement('option')
+          opt.value = v.dsh
+          opt.textContent = `${v.dsh}${v.status === 'pending' ? '（未验证）' : '（已验证）'}`
+          sel.appendChild(opt)
+        }
+      }
+    }
     // 能力三 v1：access 真相缓存（编辑器预填用）
     accessById = Object.fromEntries(nodes.map((n) => [n.id, n.access ?? null]))
     const live = nodes.filter((n) => n.state === 'live').length

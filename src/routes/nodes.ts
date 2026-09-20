@@ -10,7 +10,7 @@ import type { AuditKind } from '../audit.js'
 import { mutateYamlFile, withConfigLock } from '../config-store.js'
 import { captureGuiToken, guiDirectUrl, guiOpenUrl } from '../gui-token.js'
 import { dshBinInProfile, profileDrift, reseedProfile } from '../host-node/profile.js'
-import { COMPAT_DSH_VERSION, GATEWAY_REF, resolvePair } from '../dsh-matrix.js'
+import { COMPAT_DSH_VERSION, GATEWAY_REF, resolvePair, SUPPORTED_DSH } from '../dsh-matrix.js'
 import { installNodeDepsAsync } from './provision.js'
 import { probeEndpoint } from './status.js'
 
@@ -136,7 +136,9 @@ export const registerNodesRoutes = (
     )
     // 蜂群2计划 P6：向导需要知道部署形态（docker runner 节点默认工作区路径不同）
     const dockerMode = Object.values(config.endpoints).some((e) => e.spawn?.runner === 'docker')
-    return { nodes, dockerMode }
+    // 能力二：向导版本下拉的数据源（矩阵是唯一真相源，前端不硬编码版本清单）
+    const supportedDsh = SUPPORTED_DSH.map((p) => ({ dsh: p.dsh, status: p.status }))
+    return { nodes, dockerMode, supportedDsh }
   })
 
   /**

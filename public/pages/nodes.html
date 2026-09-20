@@ -31,6 +31,13 @@
               <option value="process">宿主机进程（可操作整台机器 ⚠️）</option>
             </select>
           </label>
+          <label class="field">
+            <span class="field-label">DSH 版本（留空 = 跟随默认）</span>
+            <select id="f-node-version" class="text-input pill-select">
+              <option value="">默认（矩阵首行）</option>
+            </select>
+            <span class="field-hint muted small">选项来自版本矩阵；未知版本会被后端显性拒绝。</span>
+          </label>
         </div>
 
         <details class="node-advanced">

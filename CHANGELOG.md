@@ -36,7 +36,10 @@
   追加 `--legacy-peer-deps`（0.1.5 ERESOLVE 修复，dsh-facts §12）；升级脚本泛化
   `scripts/upgrade-node-version.mjs`（目标版本参数化、幂等、`--dry-run`、备份
   `.pre-<version>.bak`、`.env` 镜像 tag 同升），旧 `upgrade-012-win.mjs` 留兼容壳，
-  check-docs 守卫升级为「脚本 SUPPORTED 表与矩阵逐行对齐」断言
+  check-docs 守卫升级为「脚本 SUPPORTED 表与矩阵逐行对齐」断言。UI 面补全
+  （验收反馈）：节点行「版本漂移」黄标 + 「对齐版本」按钮（确认→202 受理）；
+  向导「DSH 版本」下拉（数据源 = GET /api/nodes 的 supportedDsh，不前端硬编码），
+  显式钉版在节点行展示「钉 x.y.z」
 
 ## 1.0.4 — 安全修复 + 四批技术债清偿（2026-09-12）
 

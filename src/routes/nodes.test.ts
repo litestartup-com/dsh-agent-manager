@@ -286,9 +286,11 @@ test('债务 P1 回归: GET /api/nodes 挂 access + guiUrl（token 从日志即�
 
   const res = await app.inject({ method: 'GET', url: '/api/nodes' })
   assert.equal(res.statusCode, 200)
-  const node = (res.json() as { nodes: Array<{ access: unknown; guiUrl: string | null }> }).nodes[0]
+  const payload = res.json() as { nodes: Array<{ access: unknown; guiUrl: string | null }>; supportedDsh: Array<{ dsh: string; status: string }> }
+  const node = payload.nodes[0]
   assert.deepEqual(node?.access, { sshUser: 'ubuntu', sshHost: '10.0.0.5', sshPort: 22, guiPort: 3080, localPort: 3088, sshKey: null })
   assert.equal(node?.guiUrl, 'http://127.0.0.1:3088/?token=tok-abc')
+  assert.deepEqual(payload.supportedDsh.map((p) => p.dsh), ['0.1.2-rc.1', '0.1.5-rc.2'], '向导版本下拉的数据源 = 矩阵')
 
   // 重启轮换：日志里出现新 token 行 → guiUrl 自动跟随
   supervisor.logs = () => 'dsh web: http://127.0.0.1:3080/?token=tok-old\nrestarted\ndsh web: http://127.0.0.1:3080/?token=tok-new\n'
