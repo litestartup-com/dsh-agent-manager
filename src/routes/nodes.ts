@@ -2,12 +2,13 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { z } from 'zod'
 import type { FastifyInstance, preHandlerHookHandler } from 'fastify'
-import type { AppConfig } from '../config.js'
+import type { AppConfig, ResolvedEndpoint } from '../config.js'
 import type { GatewayClient } from '../gateway/client.js'
 import type { SessionDriver } from '../session-driver/port.js'
 import type { NodeSupervisor } from '../nodes/supervisor.js'
 import type { AuditKind } from '../audit.js'
 import { mutateYamlFile, withConfigLock } from '../config-store.js'
+import { captureGuiToken, guiOpenUrl } from '../gui-token.js'
 import { probeEndpoint } from './status.js'
 
 /**
@@ -28,13 +29,36 @@ export const registerNodesRoutes = (
   audit?: (actor: string, kind: AuditKind, detail: string) => void,
 ): void => {
   app.get('/api/nodes', { preHandler: requireUser }, async () => {
+    // 能力三 v1：按节点从日志即时捕获 GUI token 并拼装打开 URL——每次请求
+    // 重新读日志,节点重启轮换 token 后自动跟随,无需任何缓存/失效机制。
+    const guiUrlOf = async (ep: ResolvedEndpoint, supervisor: NodeSupervisor | undefined): Promise<string | null> => {
+      if (ep.access === null) return null
+      let logs = ''
+      if (ep.spawn?.logFile !== undefined && ep.spawn.logFile !== null) {
+        try {
+          logs = readFileSync(ep.spawn.logFile, 'utf8')
+        } catch {
+          // 日志文件读失败 = 视为尚未捕获
+        }
+      } else if (supervisor !== undefined) {
+        if (ep.spawn?.runner === 'docker') {
+          const dockerLogs = await supervisor.dockerLogs()
+          if (dockerLogs !== null) logs = dockerLogs
+        } else {
+          logs = supervisor.logs()
+        }
+      }
+      return guiOpenUrl(ep.access.localPort, captureGuiToken(logs))
+    }
     const nodes = await Promise.all(
       Object.keys(config.endpoints).map(async (id) => {
         const agentIds = Object.values(config.agents)
           .filter((a) => a.endpoint === id)
           .map((a) => a.id)
+        const ep = config.endpoints[id]
         const supervisor = supervisors.get(id)
         const probe = await probeEndpoint(config, clients, upstreamClients, id)
+        const guiUrl = ep === undefined ? null : await guiUrlOf(ep, supervisor)
         if (supervisor !== undefined) {
           const s = supervisor.current
           // 容器形态：镜像标签就是节点 DSH 版本的真相（镜像 tag 即 DSH 版本）。
@@ -50,6 +74,9 @@ export const registerNodesRoutes = (
             dshVersion: probe.dshVersion,
             dshCompatible: probe.dshCompatible,
             ...(image === null ? {} : { image }),
+            // 能力三 v1：隧道元数据 + 拼好的打开 URL（未配置/未捕获 = null）
+            access: ep?.access ?? null,
+            guiUrl,
           }
         }
         return {
@@ -63,6 +90,8 @@ export const registerNodesRoutes = (
           agents: agentIds,
           dshVersion: probe.dshVersion,
           dshCompatible: probe.dshCompatible,
+          access: ep?.access ?? null,
+          guiUrl,
         }
       }),
     )

@@ -125,6 +125,8 @@ const stubSupervisor = (calls: { start: number; stop: number; restart: number })
       calls.restart += 1
     },
     logs: () => 'hello\nworld',
+    containerImage: async () => null,
+    dockerLogs: async () => null,
     current: { state: 'cold' },
   }) as unknown as NodeSupervisor
 
@@ -227,4 +229,34 @@ test('债务 P1 回归: POST /api/nodes/:id/access 写真相源并热加载;clea
 
   const missing = await app.inject({ method: 'POST', url: '/api/nodes/nope/access', payload: { ssh_user: 'u', ssh_host: 'h', local_port: 1 } })
   assert.equal(missing.statusCode, 404)
+})
+
+test('债务 P1 回归: GET /api/nodes 挂 access + guiUrl（token 从日志即时捕获，重启轮换自动跟随）', async () => {
+  const gw = await startFakeGateway({ frames: [] }, API_KEY)
+  gateways.push(gw)
+  const config = configFor(gw)
+  config.endpoints['A']!.access = { sshUser: 'ubuntu', sshHost: '10.0.0.5', sshPort: 22, guiPort: 3080, localPort: 3088 }
+  config.endpoints['A']!.spawn = managedSpawn as never
+  const app = Fastify()
+  const supervisor = stubSupervisor({ start: 0, stop: 0, restart: 0 }) as unknown as NodeSupervisor & { logs: () => string }
+  supervisor.logs = () => 'dsh web: http://127.0.0.1:3080/?token=tok-abc\n'
+  registerNodesRoutes(app, config, new Map([['A', supervisor]]), new Map(), new Map(), async () => {})
+
+  const res = await app.inject({ method: 'GET', url: '/api/nodes' })
+  assert.equal(res.statusCode, 200)
+  const node = (res.json() as { nodes: Array<{ access: unknown; guiUrl: string | null }> }).nodes[0]
+  assert.deepEqual(node?.access, { sshUser: 'ubuntu', sshHost: '10.0.0.5', sshPort: 22, guiPort: 3080, localPort: 3088 })
+  assert.equal(node?.guiUrl, 'http://127.0.0.1:3088/?token=tok-abc')
+
+  // 重启轮换：日志里出现新 token 行 → guiUrl 自动跟随
+  supervisor.logs = () => 'dsh web: http://127.0.0.1:3080/?token=tok-old\nrestarted\ndsh web: http://127.0.0.1:3080/?token=tok-new\n'
+  const after = await app.inject({ method: 'GET', url: '/api/nodes' })
+  assert.equal((after.json() as { nodes: Array<{ guiUrl: string | null }> }).nodes[0]?.guiUrl, 'http://127.0.0.1:3088/?token=tok-new')
+
+  // 未配置 access 的节点：access=null 且 guiUrl=null
+  config.endpoints['A']!.access = null
+  const bare = await app.inject({ method: 'GET', url: '/api/nodes' })
+  const bareNode = (bare.json() as { nodes: Array<{ access: unknown; guiUrl: string | null }> }).nodes[0]
+  assert.equal(bareNode?.access, null)
+  assert.equal(bareNode?.guiUrl, null)
 })
