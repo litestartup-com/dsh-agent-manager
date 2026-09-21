@@ -1,6 +1,6 @@
 # Oh! dsh 用户手册
 
-> 对应版本 v1.1.0。面向使用者；变更记录见仓库根 `CHANGELOG.md`。
+> 对应版本 v1.1.1。面向使用者；变更记录见仓库根 `CHANGELOG.md`。
 > 路线图与内部设计文档不在本仓库（内部设计库，不公开发布）。
 
 ## 0. 一句话
@@ -20,7 +20,7 @@ Oh! dsh 在 DeepSeek Harness 之上提供控制面：认证、聊天中继、主
 
 ```bash
 mkdir -p /app && cd /app          # 装进你想要的目录：当前目录 = 安装目录
-curl -fsSL https://raw.githubusercontent.com/litestartup-com/dsh-agent-manager/v1.1.0/install.sh -o install.sh
+curl -fsSL https://raw.githubusercontent.com/litestartup-com/dsh-agent-manager/v1.1.1/install.sh -o install.sh
 bash install.sh                    # 交互式：API key → 密码 → 域名 → TLS 模式
 ```
 
@@ -34,7 +34,7 @@ bash install.sh                    # 交互式：API key → 密码 → 域名 �
 ### Windows（本机直跑）
 
 ```powershell
-irm https://raw.githubusercontent.com/litestartup-com/dsh-agent-manager/v1.1.0/install.ps1 -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File .\install.ps1
+irm https://raw.githubusercontent.com/litestartup-com/dsh-agent-manager/v1.1.1/install.ps1 -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
 - 脚本会**跳过已装好的组件**（Docker / Node / git / DSH），重跑不覆盖任何配置与数据；
