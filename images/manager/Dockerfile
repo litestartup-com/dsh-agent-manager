@@ -23,7 +23,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git ca-certificates curl tzdata \
     && rm -rf /var/lib/apt/lists/*
 
-ENV NODE_ENV=production TZ=Asia/Shanghai
+# 部署形态标记：容器形态 manager 无法拉起宿主机进程节点（provision 据此
+# 显性拒绝 runner=process，向导同步禁用该选项；裸机部署无此变量 = 不受限）。
+ENV NODE_ENV=production TZ=Asia/Shanghai OHDSH_DEPLOY_FORM=container
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist

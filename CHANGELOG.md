@@ -9,6 +9,11 @@
   重钉到当前安装目录（评审 B2 的泛化——旧实现只在首次创建时钉一次，搬家后
   会指向旧目录）。现在**任意目录安装 + 搬家后 `cd` 进去重跑 `bash install.sh`
   即收敛**；check-docs 加搬家重钉守卫
+- **容器形态拒绝宿主机进程节点**（线上实测教训）：manager 镜像内置
+  `OHDSH_DEPLOY_FORM=container` 标记——provision 对显式 `runner: process`
+  返回 400 `host_process_unavailable`（原来得到的是「找不到 bin.js」的误导性
+  报错），向导同步禁用「宿主机进程」选项；裸机部署（含混合 docker.sock
+  部署）无标记不受限
 
 ## 1.1.0 — 节点三能力 · 隧道直开 / 宿主机节点 / 多版本（2026-09-20）
 

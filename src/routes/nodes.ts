@@ -138,7 +138,9 @@ export const registerNodesRoutes = (
     const dockerMode = Object.values(config.endpoints).some((e) => e.spawn?.runner === 'docker')
     // 能力二：向导版本下拉的数据源（矩阵是唯一真相源，前端不硬编码版本清单）
     const supportedDsh = SUPPORTED_DSH.map((p) => ({ dsh: p.dsh, status: p.status }))
-    return { nodes, dockerMode, supportedDsh }
+    // 部署形态标记（镜像 ENV OHDSH_DEPLOY_FORM）：容器形态前端禁用「宿主机进程」
+    const containerForm = process.env.OHDSH_DEPLOY_FORM === 'container'
+    return { nodes, dockerMode, supportedDsh, containerForm }
   })
 
   /**

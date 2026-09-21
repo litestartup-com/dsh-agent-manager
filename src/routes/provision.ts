@@ -298,6 +298,14 @@ export const registerProvisionRoutes = (
     if (body.runner === 'docker' && deps.docker === undefined) {
       return reply.code(400).send({ error: 'docker_unavailable', detail: '本部署没有 docker runner（manager 未挂 docker.sock）——请选宿主机进程形态' })
     }
+    // 容器形态部署不支持宿主机进程节点（线上实测：manager 在容器内，拉不起
+    // 宿主进程、容器镜像里也没有全局 DSH bin——用户选 process 得到的是
+    // 「找不到 bin.js」的误导性报错）。判据 = 镜像内置的部署形态标记
+    // （images/manager/Dockerfile ENV OHDSH_DEPLOY_FORM=container）；裸机
+    // 部署（含挂 docker.sock 的混合部署）无此标记，显式 process 照常放行。
+    if (body.runner === 'process' && process.env.OHDSH_DEPLOY_FORM === 'container') {
+      return reply.code(400).send({ error: 'host_process_unavailable', detail: '容器形态部署不支持宿主机进程节点（manager 在容器内，无法拉起宿主进程）——请选「容器工蜂」形态' })
+    }
     // 能力二：按节点钉 DSH 版本——矩阵内解析 + pending 黄字；未知版本显性拒绝。
     const pinnedDsh = body.dsh_version
     const pair = pinnedDsh === undefined ? null : resolvePair(pinnedDsh)

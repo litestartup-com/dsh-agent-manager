@@ -226,6 +226,24 @@ test('能力一回归: 显式 runner=process 在 docker 部署上建宿主机进
   stopped.push(supervisor)
 })
 
+test('线上教训回归: 容器形态部署显式 process = 400 host_process_unavailable；无标记的裸机部署照常放行', async () => {
+  const prev = process.env.OHDSH_DEPLOY_FORM
+  process.env.OHDSH_DEPLOY_FORM = 'container'
+  try {
+    const { app } = await boot()
+    const bad = await app.inject({
+      method: 'POST',
+      url: '/api/nodes',
+      payload: { name: 'h1', install: false, runner: 'process' },
+    })
+    assert.equal(bad.statusCode, 400, JSON.stringify(bad.body))
+    assert.equal((bad.json() as { error: string }).error, 'host_process_unavailable', '容器形态必须显性拒绝')
+  } finally {
+    if (prev === undefined) delete process.env.OHDSH_DEPLOY_FORM
+    else process.env.OHDSH_DEPLOY_FORM = prev
+  }
+})
+
 test('蜂群2计划 P6: 容器模式新节点 = docker runner（不找 DSH bin，命名卷 + 内网别名 + 宿主路径推导）', async () => {
   const { app, config, supervisors } = await boot()
   // 模拟脊柱部署已存在 personal 工蜂（docker runner），向导据此进入容器模式

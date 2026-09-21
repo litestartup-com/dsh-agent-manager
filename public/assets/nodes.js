@@ -393,8 +393,15 @@ const load = async () => {
     // 债务 F6:统一 Result 层。
     const [nodesResult, runsResult] = await Promise.all([apiJson('/api/nodes'), apiJson('/api/runs')])
     if (!nodesResult.ok) return
-    const { nodes, dockerMode: isDocker, supportedDsh } = nodesResult.data
+    const { nodes, dockerMode: isDocker, supportedDsh, containerForm } = nodesResult.data
     dockerMode = isDocker === true
+    // 容器形态部署（manager 在容器内）不支持宿主机进程节点——向导里禁用该
+    // 选项并改写文案；裸机部署（含混合 docker.sock 部署）不受限。
+    const processOpt = $('f-node-runner').querySelector('option[value="process"]')
+    if (processOpt !== null) {
+      processOpt.disabled = containerForm === true
+      processOpt.textContent = containerForm === true ? '宿主机进程（容器部署不可用）' : '宿主机进程（可操作整台机器 ⚠️）'
+    }
     // 能力二：版本下拉 = 矩阵数据源（首次填充后不再重复）
     if (Array.isArray(supportedDsh)) {
       const sel = $('f-node-version')
