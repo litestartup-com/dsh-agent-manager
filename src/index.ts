@@ -278,6 +278,8 @@ const main = async (): Promise<void> => {
 
   // 蜂群 P6：15 分钟级数据库快照（RPO），保留策略在 backup.ts。备份失败只
   // 打日志不退出——manager 的价值高于备份，但失败必须看得见。
+  // 线上磁盘教训（2026-09-20）：小盘线上被快照+家目录打包吃满——默认关闭，
+  // backup.auto: true 显式开启；手动 npm run backup 与更新前备份不受影响。
   const backupDir = join(dirname(config.databasePath), 'backups')
   const autoBackup = async (): Promise<void> => {
     try {
@@ -306,7 +308,12 @@ const main = async (): Promise<void> => {
       app.log.error(`backup failed: ${(error as Error).message}`)
     }
   }
-  setInterval(() => void autoBackup(), 15 * 60_000)
+  if (config.backupAuto === true) {
+    setInterval(() => void autoBackup(), 15 * 60_000)
+    app.log.info('自动备份：已开启（15 分钟周期）')
+  } else {
+    app.log.info('自动备份：关闭（backup.auto=false）——手动备份 npm run backup；开启见 manager.config.yaml 的 backup.auto')
+  }
 }
 
 main().catch((error: unknown) => {

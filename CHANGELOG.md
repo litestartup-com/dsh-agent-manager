@@ -1,5 +1,11 @@
 # Changelog
 
+## 未发布（1.1.1 候选 · 自动备份默认关闭，2026-09-20）
+
+- **线上磁盘教训**：15 分钟自动快照 + 节点家目录打包在小盘线上吃满磁盘——
+  `backup.auto` 默认**关闭**（`manager.config.yaml` 显式 `auto: true` 才开）；
+  手动 `npm run backup` 与更新前备份不受影响
+
 ## 1.1.0 — 节点三能力 · 隧道直开 / 宿主机节点 / 多版本（2026-09-20）
 
 > 设计/计划：`hive/nodes-install-version-tunnel.md`、`hive/plan-node-capabilities.md`；

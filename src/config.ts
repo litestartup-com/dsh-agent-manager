@@ -191,11 +191,15 @@ export const fileSchema = z.object({
   pricing: pricingSchema.optional(),
   // 蜂群2计划 P4：备份扩展——额外纳入备份的 docker 命名卷（compose 脊柱的
   // 主脑卷等无 spawn 段的节点 home）。
+  // 线上磁盘教训（2026-09-20）：15 分钟快照 + 节点家目录打包在小盘线上会
+  // 吃满磁盘——自动备份默认**关闭**，需要时显式 backup.auto: true 开启；
+  // 手动备份 npm run backup 不受影响（更新前备份也照常）。
   backup: z
     .object({
       docker_volumes: z.array(z.string()).default([]),
+      auto: z.boolean().default(false),
     })
-    .default({ docker_volumes: [] }),
+    .default({ docker_volumes: [], auto: false }),
 })
 
 export interface ResolvedSpawnSpec {
@@ -331,6 +335,12 @@ export interface AppConfig {
   pricing: PricingTable
   /** 蜂群2计划 P4：额外纳入备份的 docker 命名卷（无 spawn 段的节点 home，如脊柱主脑卷）。 */
   backupDockerVolumes?: string[]
+  /**
+   * 自动备份开关（backup.auto，默认 false——线上小盘教训）。true = 15 分钟
+   * 周期快照；false 只保留手动 npm run backup 与更新前备份。测试字面量可
+   * 省略（读取方 ?? false）。
+   */
+  backupAuto?: boolean
   sessionSecret: string
   initialUser: { username: string; password: string | null }
   /**
@@ -597,6 +607,7 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
       file.brain.daily_budget_usd === undefined ? null : Math.round(file.brain.daily_budget_usd * USD_TO_MICRO),
     pricing,
     backupDockerVolumes: file.backup.docker_volumes,
+    backupAuto: file.backup.auto,
     sessionSecret,
     initialUser: {
       username: process.env.MANAGER_USERNAME ?? 'admin',
