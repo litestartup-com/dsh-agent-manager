@@ -4,6 +4,11 @@ set -euo pipefail
 
 mkdir -p "$DSH_HOME"
 
+# 0) 陈旧原子写锁清理：崩溃残留的 .credentials.yaml.lock 会让每次 boot 在
+#    withFileLock 上超时（线上脊柱与 Windows 生产双实踩，事实卡 dsh-facts §13）——
+#    容器单进程模型下入口处绝无并发写者，残留锁必为死进程遗留，直接清。
+rm -f "$DSH_HOME/.credentials.yaml.lock"
+
 # 1) 播种/升级 profile：卷里没有，或播种版本与镜像不一致 → 重新复制（本地，零网络）
 SEED_CUR=""
 SEED_NEW="$(cat /opt/ohdsh-profile/.seed-version 2>/dev/null || echo unknown)"
