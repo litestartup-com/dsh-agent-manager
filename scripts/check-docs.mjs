@@ -152,6 +152,13 @@ try {
       if (!matrixLegacy.includes(v)) failures.push(`images/node/gen-node-profile.mjs: LEGACY_PEER_DEPS_VERSIONS 的 ${v} 在矩阵里不是 needsLegacyPeerDeps`)
     }
   }
+  // 搬家重钉守卫（2026-09-20）：install.sh 每次运行都要把 host_volumes 的
+  // 宿主侧工作区路径重钉到安装目录真实绝对路径（评审 B2 扩展）——目录搬家后
+  // cd 进去重跑 install.sh 即收敛的前提；sed 被删/改坏 = CI 红。
+  const installSh = readFileSync(join(root, 'install.sh'), 'utf8')
+  if (!installSh.includes('APP_DIR_ABS}/workspaces')) {
+    failures.push('install.sh: 缺 host_volumes 宿主侧路径重钉 sed（搬家重钉守卫）')
+  }
 } catch (error) {
   failures.push(`钉版同步守卫失败: ${error instanceof Error ? error.message : String(error)}`)
 }

@@ -124,17 +124,20 @@ fi
 cd "$APP_DIR"
 APP_DIR_ABS="$(pwd)"
 if [ "$DRY_RUN" = "1" ]; then
-  log "DRY: scripts/gen-env.sh .env + copy manager.config.container.example.yaml"
+  log "DRY: scripts/gen-env.sh .env + host_volumes 宿主侧路径重钉到 ${APP_DIR_ABS}/workspaces"
 else
   DEEPSEEK_API_KEY="$DEEPSEEK_API_KEY" MANAGER_PASSWORD="$MANAGER_PASSWORD" bash scripts/gen-env.sh .env
+  # 评审 B2 + 搬家重钉（2026-09-20）：host_volumes 里行首的宿主侧工作区路径
+  # （左=宿主机、右=节点容器内路径）每次运行都重钉到当前安装目录的真实绝对路径——
+  # 目录移动后 cd 进去重跑 install.sh 即收敛（幂等，不匹配时无变化）。
+  # 注意只匹配「行首绝对路径 + /workspaces 结尾」：冒号右侧的容器内路径与
+  # agents.workspace 行不受影响（它们保持容器视角，不随宿主目录变）。
   if [ -f manager.config.yaml ]; then
-    log "skip (exists): manager.config.yaml"
+    sed -i -E "s|^([[:space:]]*)/[^ :]+/workspaces|\1${APP_DIR_ABS}/workspaces|g" manager.config.yaml
+    log "config exists: host workspace path re-pinned to ${APP_DIR_ABS}/workspaces"
   else
     cp manager.config.container.example.yaml manager.config.yaml
-    # 评审 B2：docker.sock 由宿主机 dockerd 解析 bind 路径——host_volumes 里
-    # 行首的 /opt/ohdsh/workspaces（= 宿主机路径）必须换成宿主机真实绝对路径；
-    # 冒号右侧（= 节点容器内路径）与 agents.workspace 保持 /opt/ohdsh/... 不变。
-    sed -i -e "s|^\( *\)/opt/ohdsh/workspaces|\1${APP_DIR_ABS}/workspaces|g" manager.config.yaml
+    sed -i -E "s|^([[:space:]]*)/[^ :]+/workspaces|\1${APP_DIR_ABS}/workspaces|g" manager.config.yaml
     log "created: manager.config.yaml (host workspace path pinned to ${APP_DIR_ABS}/workspaces)"
   fi
   # 节点容器与宿主机部署用户同 uid（工作区写权限两边一致；root 服务器 = 0）

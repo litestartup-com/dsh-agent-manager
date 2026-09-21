@@ -27,6 +27,8 @@ bash install.sh                    # 交互式：API key → 密码 → 域名 �
 - 直接 `bash install.sh` 交互式逐个问（API key / 初始密码 / 域名留空 = 纯 HTTP / TLS 模式）；
   全自动部署时用环境变量预置：`DEEPSEEK_API_KEY=... APP_DOMAIN=... TLS_MODE=origin-ca bash install.sh`；
 - 脚本会**跳过已装好的组件**（Docker / git / unzip），重跑不覆盖任何配置与数据；
+- **目录搬家**：整个安装目录移动到新位置后，`cd` 进去重跑一次 `bash install.sh`
+  （幂等，自动把工作区宿主路径重钉到新位置），再 `docker compose up -d`；
 - 家目录本身会被拒绝安装（提示先建专用目录）；想看脚本要做什么：`DRY_RUN=1` 预演。
 
 ### Windows（本机直跑）
