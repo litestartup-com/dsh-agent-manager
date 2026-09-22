@@ -63,6 +63,13 @@ const nodeRow = (n) => {
         <button type="button" class="btn-quiet btn-sm" data-node-rm="${esc(n.id)}" title="解除托管（磁盘目录保留）">删除</button>
       </div>`
     : '<span class="muted small">外管 · 手动维护</span>'
+  // 能力三 v1：原生 GUI 卡（隧道 / 本机直连 / 配置入口 三形态）。
+  const guiBits =
+    n.access !== null && n.access !== undefined
+      ? `<div class="node-side">${guiCardHtml(n.id, n.access, n.guiUrl)}</div>`
+      : n.guiUrl !== null && n.guiUrl !== undefined
+        ? `<div class="node-side">${guiDirectCardHtml(n.id, n.guiUrl)}</div>`
+        : `<div class="node-side">${guiSetupButton(n.id)}</div>`
   return `<div class="node-row" data-node-row="${esc(n.id)}">
     <div class="node-main">
       <div class="node-title"><span class="dot ${dot}"></span>${esc(n.id)} <span class="muted">· ${esc(label)}</span> ${versionWarn} ${driftWarn}</div>
