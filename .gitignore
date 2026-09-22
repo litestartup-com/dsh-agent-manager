@@ -44,3 +44,5 @@ deploy/nginx/default.conf
 
 # upgrade-012 回滚备份（含 .env，绝不入库）
 *.pre-012.bak
+
+*.pre-mig.bak

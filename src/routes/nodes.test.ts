@@ -1,6 +1,6 @@
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import Fastify from 'fastify'
@@ -283,6 +283,45 @@ test('P1 回归: POST /api/nodes/:id/version 进程分支——钉版落盘 + �
   const bad = await app.inject({ method: 'POST', url: '/api/nodes/A/version', payload: { dsh_version: '0.9.9' } })
   assert.equal(bad.statusCode, 400)
   assert.equal((bad.json() as { error: string }).error, 'unknown_dsh_version')
+})
+
+test('P1 回归: profile 目录按 spawn.args 的 --profile 解析（端点 id ≠ profile 名，线上实踩）', async () => {
+  const gw = await startFakeGateway({ frames: [] }, API_KEY)
+  gateways.push(gw)
+  const config = configFor(gw)
+  const dir = mkdtempSync(join(tmpdir(), 'nodes-vprofile-'))
+  const configPath = join(dir, 'manager.config.yaml')
+  writeFileSync(configPath, 'endpoints:\n  A:\n    url: http://x\n', 'utf8')
+  config.configPath = configPath
+  const dshHome = mkdtempSync(join(tmpdir(), 'nodes-vhome-'))
+  const spawn = {
+    ...managedSpawn,
+    runner: 'process' as const,
+    args: ['bin.js', '--profile', 'real-prof'],
+    env: { DSH_HOME: dshHome },
+    docker: null,
+  }
+  config.endpoints['A']!.spawn = spawn as never
+  const realDir = join(dshHome, 'profiles', 'real-prof')
+  mkdirSync(realDir, { recursive: true })
+  writeFileSync(join(realDir, '.seed-version'), 'stale\n', 'utf8')
+  writeFileSync(join(realDir, 'package.json'), '{"dependencies":{}}', 'utf8')
+  const calls = { start: 0, stop: 0, restart: 0 }
+  const app = Fastify()
+  registerNodesRoutes(
+    app, config, new Map([['A', stubSupervisor(calls)]]), new Map(), new Map(), async () => {},
+    undefined,
+    async () => undefined, // 假安装器：不触网
+  )
+
+  const res = await app.inject({ method: 'POST', url: '/api/nodes/A/version', payload: { dsh_version: '0.1.5-rc.2' } })
+  assert.equal(res.statusCode, 202, JSON.stringify(res.body))
+  await new Promise((resolve) => setTimeout(resolve, 20))
+
+  assert.equal(existsSync(join(dshHome, 'profiles', 'A')), false, '不得按端点 id 造幽灵 profile 目录')
+  const realPkg = JSON.parse(readFileSync(join(realDir, 'package.json'), 'utf8'))
+  assert.equal(realPkg.dependencies?.['@deepseek-ai/dsh'], '0.1.5-rc.2', '真实 profile（--profile 指定名）被重播种')
+  assert.equal(readFileSync(join(realDir, '.seed-version'), 'utf8').trim().length, 40, '真实目录种子重写')
 })
 
 test('P1 回归: POST /api/nodes/:id/version 容器分支——镜像 tag 落盘 + 立即重建 + 审计', async () => {

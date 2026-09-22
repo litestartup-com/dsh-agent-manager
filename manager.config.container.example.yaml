@@ -6,6 +6,10 @@
 #   这样 manager 发给 dockerd 的 bind mount 路径在宿主机上真实存在；
 # - 主脑无 spawn：compose 声明（脊柱，非托管——只读管控）；
 # - personal 是第一个工蜂：docker runner，由 manager 经 docker.sock 拉起。
+# - config_version：配置结构版本（P0，hive/plan-config-version-switch）——
+#   新装生成即当前版本，升级由 boot 自动迁移。
+
+config_version: 1
 
 listen:
   host: 0.0.0.0

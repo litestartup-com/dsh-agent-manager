@@ -41,7 +41,14 @@ export const registerNodesRoutes = (
     const version = ep.spawn?.dshVersion ?? COMPAT_DSH_VERSION
     const gatewayRef = ep.spawn?.gatewayRef ?? (resolvePair(version)?.gateway ?? GATEWAY_REF)
     const dshHome = ep.spawn?.env['DSH_HOME']
-    const profileDir = dshHome === undefined || dshHome === '' ? null : join(dshHome, 'profiles', ep.id)
+    // profile 目录名 = spawn.args 里 --profile 指定的名字（端点 id 只是配置键，
+    // 线上实踩：端点 id 'personal' 而 profile 名 'ohdsh-personal'，按 id 拼目录
+    // 会重播种进幽灵目录、真节点纹丝不动）；无 --profile 才回退端点 id。
+    const args = ep.spawn?.args ?? []
+    const profileIdx = args.indexOf('--profile')
+    const rawProfile = profileIdx >= 0 ? args[profileIdx + 1] : undefined
+    const profileName = typeof rawProfile === 'string' ? rawProfile : ep.id
+    const profileDir = dshHome === undefined || dshHome === '' ? null : join(dshHome, 'profiles', profileName)
     return { version, gatewayRef, profileDir }
   }
   const driftOf = (ep: ResolvedEndpoint): boolean => {
