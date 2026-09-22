@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { nodeCreatePayload, hostRunnerConfirmText } from './node-form.js'
+import { nodeCreatePayload, hostRunnerConfirmText, versionOptionsHtml } from './node-form.js'
 
 test('能力一回归: runner=auto 时省略字段（后端按部署自动判定），显式选择才下发', () => {
   const base = { name: 'worker', port: '3083', dshVersion: '', agent: { preset: 'standard', sandboxMode: 'workspace-write' } }
@@ -33,4 +33,21 @@ test('能力一回归: 宿主机进程形态的确认文案含整机风险警告
   assert.match(text, /宿主机进程/)
   assert.match(text, /整台机器/)
   assert.match(text, /ops-agent/)
+})
+
+test('P2 回归: versionOptionsHtml——跟随默认/当前钉版选中态/pending 标注', () => {
+  const list = [
+    { dsh: '0.1.2-rc.1', status: 'verified' },
+    { dsh: '0.1.5-rc.2', status: 'pending' },
+  ]
+  const dflt = versionOptionsHtml(list, null)
+  assert.ok(dflt.includes('<option value="" selected>跟随默认</option>'), '未钉版 = 跟随默认选中')
+  assert.ok(dflt.includes('0.1.2-rc.1') && dflt.includes('0.1.5-rc.2'), '矩阵行全列出')
+  assert.ok(dflt.includes('（未验证）'), 'pending 配对带标注')
+
+  const pinned = versionOptionsHtml(list, '0.1.5-rc.2')
+  assert.ok(pinned.includes('value="0.1.5-rc.2" selected'), '当前钉版选中')
+  assert.ok(!pinned.includes('<option value="" selected>'), '钉版后不选跟随默认')
+
+  assert.equal(versionOptionsHtml(undefined, null), '<option value="" selected>跟随默认</option>', '数据源缺失不炸')
 })

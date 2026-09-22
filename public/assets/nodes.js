@@ -45,6 +45,11 @@ const nodeRow = (n) => {
     n.dshDrift === true
       ? `<button type="button" class="btn-quiet btn-sm" data-node-align="${esc(n.id)}" title="重建 profile → 重装依赖 → 重启（幂等）">对齐版本</button>`
       : ''
+  // 能力二/P1：版本切换下拉（矩阵数据源；跟随默认 = 未显式钉版）
+  const versionSel =
+    n.managed
+      ? `<select class="node-version-select" data-node-version="${esc(n.id)}" title="切换 DSH 版本（重建/重装 + 重启）">${versionOptionsHtml(versionList, n.configuredDshVersion)}</select>`
+      : ''
   const controls = n.managed
     ? `<div class="node-actions">
         ${
@@ -58,18 +63,11 @@ const nodeRow = (n) => {
         <button type="button" class="btn-quiet btn-sm" data-node-rm="${esc(n.id)}" title="解除托管（磁盘目录保留）">删除</button>
       </div>`
     : '<span class="muted small">外管 · 手动维护</span>'
-  // 能力三 v1：原生 GUI 卡（隧道 / 本机直连 / 配置入口 三形态）。
-  const guiBits =
-    n.access !== null && n.access !== undefined
-      ? `<div class="node-side">${guiCardHtml(n.id, n.access, n.guiUrl)}</div>`
-      : n.guiUrl !== null && n.guiUrl !== undefined
-        ? `<div class="node-side">${guiDirectCardHtml(n.id, n.guiUrl)}</div>`
-        : `<div class="node-side">${guiSetupButton(n.id)}</div>`
   return `<div class="node-row" data-node-row="${esc(n.id)}">
     <div class="node-main">
       <div class="node-title"><span class="dot ${dot}"></span>${esc(n.id)} <span class="muted">· ${esc(label)}</span> ${versionWarn} ${driftWarn}</div>
       <div class="node-meta">${esc(meta)}${esc(err)}</div>
-      <div class="node-detail">${detail}</div>
+      <div class="node-detail">${detail}${versionSel}</div>
     </div>
     ${controls}
     ${guiBits}
@@ -190,6 +188,38 @@ $('nodes-list').addEventListener('click', (event) => {
   if (access !== null) return void openAccessEditor(access.dataset.nodeAccess)
 })
 
+// 能力二/P1：版本切换下拉——确认后 POST /api/nodes/:id/version（202 = 受理，异步重建/重装）
+$('nodes-list').addEventListener('change', (event) => {
+  const sel = event.target.closest('[data-node-version]')
+  if (sel === null) return
+  const id = sel.dataset.nodeVersion
+  const followDefault = sel.value === ''
+  const target = followDefault ? (versionList[0]?.dsh ?? '') : sel.value
+  if (target === '') return
+  const note = followDefault ? '（当前未显式钉版——将写为显式钉到矩阵首行）\n' : ''
+  if (!window.confirm(`把节点「${id}」切换到 DSH ${target}？\n\n${note}容器 = 换镜像重建；进程 = 重播种→重装→重启。约 1-2 分钟。`)) {
+    void load() // 取消选择 → 还原下拉
+    return
+  }
+  void (async () => {
+    try {
+      const r = await apiJson(`/api/nodes/${encodeURIComponent(id)}/version`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ dsh_version: target }),
+      })
+      if (!r.ok) alert(r.detail)
+      else {
+        const rData = r.data ?? {}
+        alert(`已提交切换（${typeof rData.image === 'string' ? `镜像 ${rData.image}` : `DSH ${rData.version}`}）。约 1-2 分钟后自动刷新查看。`)
+      }
+    } catch (error) {
+      alert(`操作失败：${error.message}`)
+    }
+    await load()
+  })()
+})
+
 $('node-logs-refresh').addEventListener('click', () => void refreshLogs())
 $('node-logs-close').addEventListener('click', closeLogs)
 
@@ -226,6 +256,8 @@ const advancedFields = ['f-agent-id', 'f-agent-name', 'f-agent-workspace']
 const advancedDirty = new Set()
 // 蜂群2计划 P6：容器模式（docker runner）下默认工作区 = manager 挂载视角路径
 let dockerMode = false
+/** 能力二/P1：矩阵数据源缓存（节点行版本下拉用）。 */
+let versionList = []
 
 for (const id of advancedFields) {
   const el = $(id)
@@ -395,6 +427,7 @@ const load = async () => {
     if (!nodesResult.ok) return
     const { nodes, dockerMode: isDocker, supportedDsh, containerForm } = nodesResult.data
     dockerMode = isDocker === true
+    if (Array.isArray(supportedDsh)) versionList = supportedDsh
     // 容器形态部署（manager 在容器内）不支持宿主机进程节点——向导里禁用该
     // 选项并改写文案；裸机部署（含混合 docker.sock 部署）不受限。
     const processOpt = $('f-node-runner').querySelector('option[value="process"]')
