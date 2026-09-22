@@ -159,6 +159,25 @@ try {
   if (!installSh.includes('APP_DIR_ABS}/workspaces')) {
     failures.push('install.sh: 缺 host_volumes 宿主侧路径重钉 sed（搬家重钉守卫）')
   }
+  // P0 配置迁移链守卫（hive/plan-config-version-switch）：CONFIG_MIGRATIONS
+  // 必须覆盖 0..CURRENT_CONFIG_VERSION 连续 +1 升链——升级自动迁移的前提；
+  // 删/断链 = CI 红。
+  const migrationsSrc = readFileSync(join(root, 'src/config/migrations.ts'), 'utf8')
+  const currentMatch = /CURRENT_CONFIG_VERSION = (\d+)/.exec(migrationsSrc)
+  if (currentMatch === null) {
+    failures.push('src/config/migrations.ts: 缺 CURRENT_CONFIG_VERSION 声明（配置迁移链守卫）')
+  } else {
+    const current = Number(currentMatch[1])
+    const steps = [...migrationsSrc.matchAll(/\{ from: (\d+), to: (\d+),/g)]
+    const covered = new Set(steps.map((m) => m[1]))
+    for (let v = 0; v < current; v += 1) {
+      if (!covered.has(String(v))) failures.push(`src/config/migrations.ts: 迁移链缺 ${v} → ${v + 1}（CURRENT_CONFIG_VERSION=${current}）`)
+    }
+    for (const m of steps) {
+      if (Number(m[2]) !== Number(m[1]) + 1) failures.push(`src/config/migrations.ts: 迁移 {from:${m[1]},to:${m[2]}} 必须是 +1 升链`)
+      if (Number(m[1]) >= current) failures.push(`src/config/migrations.ts: 迁移 {from:${m[1]},to:${m[2]}} 起点不在 0..${current - 1} 范围`)
+    }
+  }
 } catch (error) {
   failures.push(`钉版同步守卫失败: ${error instanceof Error ? error.message : String(error)}`)
 }

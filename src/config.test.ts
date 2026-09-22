@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -384,4 +384,22 @@ test('线上磁盘教训回归: backup.auto 默认关闭，显式 true 才开自
 
   const off = loadFrom(baseConfig({ backup: { docker_volumes: ['x'] } }))
   assert.equal(off.backupAuto, false, '只配 docker_volumes 不改变默认关闭')
+})
+
+test('P0 回归: loadConfig 自动迁移旧配置——迁移警告可见、文件写回版本戳、原文件备份', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mig-load-'))
+  try {
+    const file = join(dir, 'config.yaml')
+    writeFileSync(file, stringify(baseConfig()), 'utf8')
+    const cfg = loadConfig(file)
+    assert.ok(cfg.warnings.some((w) => w.includes('迁移到 1')), '迁移说明进 config.warnings（boot 日志可见）')
+    assert.match(readFileSync(file, 'utf8'), /config_version: 1/, '写回版本戳')
+    assert.ok(existsSync(`${file}.pre-mig.bak`), '原文件备份')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('P0 回归: 未来版本配置 fail-loud（配置来自更新版 manager，拒绝猜测）', () => {
+  assert.throws(() => loadFrom(baseConfig({ config_version: 99 })), /高于当前支持的/)
 })

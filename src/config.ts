@@ -8,6 +8,7 @@ import { USD_TO_MICRO } from './usage/store.js'
 import type { ValidateRules } from './workspace/validate.js'
 import { envSchema } from './env.js'
 import { resolvePair } from './dsh-matrix.js'
+import { migrateConfigIfNeeded } from './config/migrations.js'
 
 dotenv.config()
 
@@ -189,6 +190,10 @@ export const fileSchema = z.object({
     .object({ daily_budget_usd: z.number().positive().optional() })
     .default({}),
   pricing: pricingSchema.optional(),
+  // P0（hive/plan-config-version-switch）：配置结构版本——升级自动迁移的锚点
+  // （缺省 = 0 = 老配置）。改结构时必须 bump CURRENT_CONFIG_VERSION
+  // （src/config/migrations.ts）并配迁移，纪律见 release.md「配置变更清单」。
+  config_version: z.number().int().min(0).optional(),
   // 蜂群2计划 P4：备份扩展——额外纳入备份的 docker 命名卷（compose 脊柱的
   // 主脑卷等无 spawn 段的节点 home）。
   // 线上磁盘教训（2026-09-20）：15 分钟快照 + 节点家目录打包在小盘线上会
@@ -360,8 +365,11 @@ export interface AppConfig {
  * refuses to start.
  */
 export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
-  const raw = parseYaml(readFileSync(resolve(configPath), 'utf8')) as unknown
-  const parsed = fileSchema.safeParse(raw)
+  const absPath = resolve(configPath)
+  const raw = parseYaml(readFileSync(absPath, 'utf8')) as unknown
+  // P0：配置版本化迁移（旧配置 → 新结构；版本超前/链断裂 = fail-loud）
+  const migration = migrateConfigIfNeeded(absPath, raw)
+  const parsed = fileSchema.safeParse(migration.doc)
   if (!parsed.success) {
     const detail = parsed.error.issues.map((i) => `  ${i.path.join('.') || '(root)'}: ${i.message}`).join('\n')
     throw new Error(`invalid ${configPath}:\n${detail}`)
@@ -534,6 +542,9 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
   }
 
   const warnings: string[] = []
+  // P0（hive/plan-config-version-switch）：升级自动迁移——旧配置在这里被
+  // 翻译成新结构并写回（原文件备份 .pre-mig.bak），迁移说明进 warnings。
+  warnings.push(...migration.warnings)
   for (const [endpointId, list] of byEndpoint) {
     if (list.length < 2) continue
     // A DSH session's write boundary is not its cwd. The gateway only passes cwd

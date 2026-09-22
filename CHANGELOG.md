@@ -1,5 +1,13 @@
 # Changelog
 
+## 未发布（1.1.2 候选 · 升级零手改配置，2026-09-22）
+
+- **配置版本化迁移（P0）**：`manager.config.yaml` 增 `config_version` 字段 +
+  `src/config/migrations.ts` 迁移链（0 → CURRENT 逐级 +1）；loadConfig 在解析
+  前自动迁移旧配置——写回前原文件备份 `.pre-mig.bak`、迁移说明进 warnings
+  （boot 日志可见）、版本超前/链断裂 fail-loud；check-docs 常驻断言迁移链
+  覆盖完整（改结构忘配迁移 = CI 红）
+
 ## 1.1.1 — 线上验收修复三连（2026-09-20）
 
 - **线上磁盘教训**：15 分钟自动快照 + 节点家目录打包在小盘线上吃满磁盘——
