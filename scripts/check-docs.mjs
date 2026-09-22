@@ -159,6 +159,13 @@ try {
   if (!installSh.includes('APP_DIR_ABS}/workspaces')) {
     failures.push('install.sh: 缺 host_volumes 宿主侧路径重钉 sed（搬家重钉守卫）')
   }
+  // 前端 import 完整性 canary（2026-09-22 事故）：nodes.js 用到
+  // versionOptionsHtml 但漏导入 → 页面卡「加载中」且无测试可拦（DOM 文件
+  // 不可单测导入）。至少守住这一个已知回归点。
+  const nodesJs = readFileSync(join(root, 'public/assets/nodes.js'), 'utf8')
+  if (nodesJs.includes('versionOptionsHtml(') && !nodesJs.includes('versionOptionsHtml }')) {
+    failures.push('public/assets/nodes.js: 使用了 versionOptionsHtml 但未导入（前端 ReferenceError 回归点）')
+  }
   // P0 配置迁移链守卫（hive/plan-config-version-switch）：CONFIG_MIGRATIONS
   // 必须覆盖 0..CURRENT_CONFIG_VERSION 连续 +1 升链——升级自动迁移的前提；
   // 删/断链 = CI 红。
