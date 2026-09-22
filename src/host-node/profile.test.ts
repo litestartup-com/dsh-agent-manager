@@ -14,6 +14,13 @@ test('能力一回归: profile 依赖含 @deepseek-ai/dsh 自身（隔离安装�
   assert.equal(deps[GATEWAY_PACKAGE], GATEWAY_REF)
 })
 
+test('舰队 M1-6 回归: bundles 钉目标版本而非矩阵首行——0.1.5 节点不许拿 0.1.2 bundles', () => {
+  const deps = profileDependencies('0.1.5-rc.2')
+  assert.equal(deps['@deepseek-ai/dsh'], '0.1.5-rc.2')
+  assert.equal(deps['@deepseek-ai/dsh-base'], '0.1.5-rc.2', 'dsh-base 必须跟目标版本')
+  assert.equal(deps['@deepseek-ai/dsh-web-app'], '0.1.5-rc.2', 'dsh-web-app 必须跟目标版本')
+})
+
 test('能力一回归: profileFiles 的 package.json 携带 dsh 依赖与 bundles 清单', () => {
   const files = profileFiles({ name: 'worker', port: 3083 }, GATEWAY_REF)
   const pkg = JSON.parse(files['package.json'] ?? '{}')

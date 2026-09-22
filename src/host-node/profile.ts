@@ -27,13 +27,17 @@ export const PROFILE_BUNDLES: Record<string, string> = {
   '@deepseek-ai/dsh-web-app': COMPAT_DSH_VERSION,
 }
 
-/** 能力一：隔离安装的 profile 依赖 = dsh 自身 + bundles + gateway（全部钉版）。 */
+/** 能力一：隔离安装的 profile 依赖 = dsh 自身 + bundles + gateway（全部钉版）。
+ * 能力二修正（2026-09-22 舰队 M1-6 揪出）：bundles 必须钉**目标** dshVersion——
+ * 旧实现展开 PROFILE_BUNDLES（恒 COMPAT_DSH_VERSION）把传入版本盖掉，0.1.5
+ * 节点会拿到 0.1.2 bundles（Windows 崩溃事故的配对形态，事实卡 §13）。 */
 export const profileDependencies = (
   dshVersion: string = COMPAT_DSH_VERSION,
   gatewayDep: string = GATEWAY_REF,
 ): Record<string, string> => ({
   '@deepseek-ai/dsh': dshVersion,
-  ...PROFILE_BUNDLES,
+  '@deepseek-ai/dsh-base': dshVersion,
+  '@deepseek-ai/dsh-web-app': dshVersion,
   [GATEWAY_PACKAGE]: gatewayDep,
 })
 

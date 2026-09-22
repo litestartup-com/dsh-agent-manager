@@ -23,7 +23,7 @@ import { makeCsrfHook } from './routes/auth.js'
 import { registerAuditRoutes } from './routes/audit.js'
 import { collectNodeHomes, packNodeHomes } from './nodebackup.js'
 import { seedEmptyWorkspaces } from './workspace/seed.js'
-import { provisionBrainToken } from './workspace/fleet-doc.js'
+import { provisionBrainToken, renderFleetDoc } from './workspace/fleet-doc.js'
 import { registerAuthRoutes } from './routes/auth.js'
 import { registerStatusRoutes } from './routes/status.js'
 import { registerWorkspaceRoutes } from './routes/workspace.js'
@@ -116,6 +116,8 @@ const main = async (): Promise<void> => {
       if (cid === commandId) cb(ok)
     }),
     agentLog: (agentId, nodeId) => readAgentLog(agentId, nodeId),
+    // 能力四（M1-6）：fleet.md 派生下发（与裸机路径同源生成器）
+    fleetDoc: () => renderFleetDoc(config),
   })
   // 蜂群2计划 P6：容器路径没有 setup 步骤——空工作区启动即播种模板
   // （主脑的 AGENTS.md/技能手册、个人的模板页），任何已有文件的工作区绝不触碰。

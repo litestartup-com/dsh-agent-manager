@@ -27,6 +27,8 @@ import { spawn, spawnSync, type ChildProcess, type StdioOptions } from 'node:chi
 import { openSync, rmSync, writeFileSync } from 'node:fs'
 import type { ResolvedSpawnSpec } from '../config.js'
 import type { DockerRunner } from './docker-runner.js'
+import { profileFiles, profileSeed } from '../host-node/profile.js'
+import { GATEWAY_REF, defaultDshVersion } from '../dsh-matrix.js'
 
 export type NodeState = 'cold' | 'starting' | 'live' | 'restarting' | 'offline'
 
@@ -73,6 +75,10 @@ export interface SupervisorDeps {
   agentResult?: (commandId: number, cb: (ok: boolean) => void) => () => void
   /** 能力四：agent 节点的回传日志（manager 侧环形缓冲）。 */
   agentLog?: (agentId: string, nodeId: string) => string
+  /** 能力四（M1-6）：spawn 载荷的附加环境（GW_KEY 等，wiring 按 endpoint 提供）。 */
+  agentEnv?: () => Record<string, string>
+  /** 能力四（M1-6）：fleet.md 内容（派生下发，wiring 供 renderFleetDoc）。 */
+  fleetDoc?: () => string
 }
 
 /** Exponential backoff, capped: attempt 1 → base, 2 → 2×base, … never above max. */
@@ -465,14 +471,29 @@ export class NodeSupervisor {
     }
     this.status = { ...this.status, state: 'starting', lastError: null, stateSince: Date.now() }
     const gen = ++this.launchGen // 蜂群2计划 P6 评审 B3：过期链弃用
+    // M1-6：派生下发载荷——profile 文件 + 种子 + fleet.md 随 spawn 一次送达
+    const argAfter = (flag: string): string | null => {
+      const i = spec.args.indexOf(flag)
+      const raw = i >= 0 ? spec.args[i + 1] : undefined
+      return typeof raw === 'string' ? raw : null
+    }
+    const profileName = argAfter('--profile') ?? this.id
+    const port = Number(argAfter('--port') ?? 3080)
+    const dshVersion = spec.dshVersion ?? defaultDshVersion()
+    const gatewayRef = spec.gatewayRef ?? GATEWAY_REF
+    const profileFilesPayload = profileFiles({ name: profileName, port }, gatewayRef, dshVersion)
+    profileFilesPayload['.seed-version'] = profileSeed(dshVersion, gatewayRef) + '\n'
+    const fleetMd = this.deps.fleetDoc?.() ?? null
     const commandId = enqueue(spec.host, 'node.spawn', {
       nodeId: this.id,
       args: spec.args,
-      env: spec.env,
-      dshVersion: spec.dshVersion ?? null,
-      gatewayRef: spec.gatewayRef ?? null,
+      env: { ...(this.deps.agentEnv?.() ?? {}), ...spec.env },
+      dshVersion,
+      gatewayRef,
+      profile: { dir: `profiles/${profileName}`, files: profileFilesPayload },
+      ...(fleetMd === null ? {} : { fleetMd }),
     })
-    this.deps.log?.(`node ${this.id}: agent ${spec.host} spawn 指令 #${commandId} 已入队`)
+    this.deps.log?.(`node ${this.id}: agent ${spec.host} spawn 指令 #${commandId} 已入队（profile + keys 随载荷下发）`)
     this.deps.agentResult?.(commandId, (ok: boolean) => {
       if (gen !== this.launchGen || this.status.state !== 'starting') return
       if (ok) return // 就绪与否交给探活判定（host.describe）

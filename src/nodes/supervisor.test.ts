@@ -414,19 +414,34 @@ const supervisorWith = (deps: AgentDeps, probe: () => Promise<{ ok: boolean; det
       }
     },
     ...(agentLog === undefined ? {} : { agentLog }),
+    agentEnv: () => ({ GW_KEY: 'apigw-super' }),
+    fleetDoc: () => 'fleet-content',
   })
 
-test('能力四 M1-4: agent start——入队 node.spawn（载荷含 nodeId/args/env/钉版），探活 ok 即 live', async () => {
+test('能力四 M1-4: agent start——入队 node.spawn（载荷含 nodeId/args/env/钉版/派生件），探活 ok 即 live', async () => {
   const deps = agentDeps()
   const s = supervisorWith(deps, okProbe)
   s.start(agentSpec())
   assert.equal(s.current.state, 'starting')
   assert.equal(deps.enqueued.length, 1)
   assert.equal(deps.enqueued[0]?.type, 'node.spawn')
-  const payload = deps.enqueued[0]?.payload as { nodeId: string; args: string[]; dshVersion: string | null }
+  const payload = deps.enqueued[0]?.payload as {
+    nodeId: string
+    args: string[]
+    dshVersion: string | null
+    env: Record<string, string>
+    fleetMd?: string
+    profile: { dir: string; files: Record<string, string> }
+  }
   assert.equal(payload.nodeId, 'ops01')
   assert.deepEqual(payload.args, ['--profile', 'ops01', '--port', '3081', '--no-open'])
   assert.equal(payload.dshVersion, '0.1.5-rc.2')
+  assert.equal(payload.env.GW_KEY, 'apigw-super', 'agentEnv 注入 GW_KEY')
+  assert.equal(payload.fleetMd, 'fleet-content', 'fleet.md 随载荷下发')
+  assert.equal(payload.profile.dir, 'profiles/ops01', 'profile 目录 = --profile 名')
+  assert.match(payload.profile.files['package.json'] ?? '', /"@deepseek-ai\/dsh-base": "0.1.5-rc.2"/, 'profile 钉版与载荷一致')
+  assert.match(payload.profile.files['package.json'] ?? '', /#b592b4f/, 'facade ref 进 profile')
+  assert.equal((payload.profile.files['.seed-version'] ?? '').trim().length, 40, '种子标记随载荷')
   await waitFor(() => s.current.state === 'live', 3_000, 'agent node live')
 })
 

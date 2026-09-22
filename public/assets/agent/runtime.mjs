@@ -63,6 +63,13 @@ const defaultProc = {
     execFileSync('npm', args, { stdio: 'inherit' })
     return `${prefix}/node_modules/${DSH_PACKAGE}/lib/bin.js`
   },
+  /** 派生下发（M1-6）：profile 依赖安装（cwd = profile 目录，钉版全在文件里）。 */
+  installProfile: async (profileDir, legacyPeerDeps) => {
+    const { execFileSync } = await import('node:child_process')
+    const args = ['install', '--no-audit', '--no-fund']
+    if (legacyPeerDeps) args.push('--legacy-peer-deps')
+    execFileSync('npm', args, { cwd: profileDir, stdio: 'inherit' })
+  },
   /** 拉起节点进程（detached + 文件流），返回 pid。 */
   spawn: async (bin, args, env, outPath) => {
     const { spawn } = await import('node:child_process')
@@ -197,6 +204,26 @@ export class AgentRuntime {
       this.fs.writeFile(`${dshHome}/settings.yaml`, `ohdsh-api-facade:\n  apiKeys: ['${payload.env.GW_KEY}']\n`)
     }
     try {
+      const version = typeof payload.dshVersion === 'string' && payload.dshVersion !== '' ? payload.dshVersion : '0.1.2-rc.1'
+      const legacy = LEGACY_PEER_DEPS_VERSIONS.includes(version)
+      // 派生下发（M1-6）：profile 文件落盘（幂等，内容不变不重写）+ 依赖安装
+      if (payload.profile !== null && payload.profile !== undefined) {
+        const profileDir = `${dshHome}/${payload.profile.dir}`
+        this.fs.mkdir(profileDir)
+        const files = payload.profile.files ?? {}
+        for (const [name, content] of Object.entries(files)) {
+          if (this.fs.readFile(`${profileDir}/${name}`) !== String(content)) {
+            this.fs.writeFile(`${profileDir}/${name}`, String(content))
+          }
+        }
+        await this.proc.installProfile?.(profileDir, legacy)
+      }
+      // fleet.md 派生下发（A 清单：节点只读 manager 下发的 fleet.md）
+      if (typeof payload.fleetMd === 'string' && payload.fleetMd !== '') {
+        if (this.fs.readFile(`${dshHome}/fleet.md`) !== payload.fleetMd) {
+          this.fs.writeFile(`${dshHome}/fleet.md`, payload.fleetMd)
+        }
+      }
       const bin = await this.ensureDsh(payload.dshVersion)
       const env = { ...(payload.env ?? {}), DSH_HOME: dshHome }
       const { pid } = await this.proc.spawn(bin, payload.args ?? [], env, `${home}/node.log`)

@@ -37,9 +37,13 @@ const makeRuntime = (over = {}) => {
     installed: [],
     spawned: [],
     killed: [],
+    profileInstalls: [],
     install: async (_dir, version, legacy) => {
       proc.installed.push({ version, legacy })
       return `/agent/dsh/${version}/node_modules/@deepseek-ai/dsh/lib/bin.js`
+    },
+    installProfile: async (dir, legacy) => {
+      proc.profileInstalls.push({ dir, legacy })
     },
     spawn: async (bin, args, env) => {
       proc.spawned.push({ bin, args, env })
@@ -81,6 +85,39 @@ test('能力四 M1-5: 注册——首次换发身份并落盘 0600 状态文件�
   const b = makeRuntime({ fs: a.fs })
   await b.runtime.registerOnce()
   assert.equal(b.transport.registerCalls.length, 0, '已有身份不重注册')
+})
+
+test('能力四 M1-6: spawn 指令——profile 派生下发（文件落盘幂等 + 依赖安装带 legacy）+ fleet.md', async () => {
+  const a = makeRuntime()
+  await a.runtime.registerOnce()
+  a.transport.commandBatches.push([
+    {
+      id: 7,
+      type: 'node.spawn',
+      payload: {
+        nodeId: 'ops01',
+        args: ['--profile', 'ops01', '--port', '3081', '--no-open'],
+        env: { DSH_HOME: '/srv/nodes/ops01', GW_KEY: 'apigw-k' },
+        dshVersion: '0.1.5-rc.2',
+        profile: { dir: 'profiles/ops01', files: { 'package.json': '{"dsh":1}', 'cordis.yml': '[]', '.seed-version': 'abc\n' } },
+        fleetMd: '# fleet\n内容',
+      },
+    },
+  ])
+  await a.runtime.loopOnce()
+  const profileRoot = '/srv/nodes/ops01/profiles/ops01'
+  assert.equal(a.fs.store.get(`${profileRoot}/package.json`), '{"dsh":1}', 'profile 文件落盘')
+  assert.equal(a.fs.store.get(`${profileRoot}/.seed-version`), 'abc\n')
+  assert.equal(a.fs.store.get('/srv/nodes/ops01/fleet.md'), '# fleet\n内容', 'fleet.md 落 DSH_HOME')
+  assert.deepEqual(a.proc.profileInstalls[0], { dir: profileRoot, legacy: true }, '0.1.5 profile 安装带 legacy')
+  assert.equal(a.proc.spawned.length, 1, '安装完成后才 spawn')
+
+  // 幂等：重复 spawn 内容不变不重写（install 仍幂等重跑）
+  const writes = a.fs.store.size
+  a.transport.commandBatches.push([{ id: 8, type: 'node.spawn', payload: { nodeId: 'ops01', args: [], env: { DSH_HOME: '/srv/nodes/ops01' }, dshVersion: '0.1.5-rc.2', profile: { dir: 'profiles/ops01', files: { 'package.json': '{"dsh":1}' } } } }])
+  await a.runtime.loopOnce()
+  assert.equal(a.fs.store.get(`${profileRoot}/package.json`), '{"dsh":1}')
+  assert.ok(a.fs.store.size <= writes + 3, '内容未变不追加写入（只新增 pid 等）')
 })
 
 test('能力四 M1-5: spawn 指令——prefix 安装钉版（0.1.5 带 legacy）、spawn 载荷、pidfile、结果回报', async () => {
