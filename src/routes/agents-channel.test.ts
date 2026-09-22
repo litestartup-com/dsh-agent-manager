@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { eq } from 'drizzle-orm'
 import Fastify, { type preHandlerHookHandler } from 'fastify'
 import { openDb, schema, type Db } from '../db/index.js'
-import { registerAgentsRoutes, enqueueAgentCommand, AGENT_OFFLINE_MS } from './agents.js'
+import { registerAgentsRoutes, enqueueAgentCommand, AGENT_OFFLINE_MS, subscribeAgentCommandResults } from './agents.js'
 
 const buildApp = (db: Db, requireUser: preHandlerHookHandler = async () => {}): Fastify.FastifyInstance => {
   const app = Fastify()
@@ -123,4 +123,34 @@ test('能力四 M1-3: 鉴权——坏 token 401；token 与 :id 不匹配 404；
   await app.inject({ method: 'POST', url: `/api/agents/${b.agentId}/revoke` })
   const revoked = await app.inject({ method: 'GET', url: `/api/internal/agents/${b.agentId}/commands?wait=100`, headers: bearer(b.agentToken) })
   assert.equal(revoked.statusCode, 401, '吊销后 token 失效')
+})
+
+test('能力四 M1-4: 指令结果订阅——events 回报触发订阅者，退订后不再收到', async () => {
+  const { db } = openDb(':memory:')
+  const app = buildApp(db)
+  const { agentId, agentToken } = await register(app)
+
+  const id = await enqueueAgentCommand(db, agentId, 'node.spawn', { nodeId: 'x' })
+  await app.inject({ method: 'GET', url: `/api/internal/agents/${agentId}/commands?wait=100`, headers: bearer(agentToken) })
+
+  const seen: Array<{ id: number; ok: boolean }> = []
+  const unsub = subscribeAgentCommandResults((commandId, ok) => seen.push({ id: commandId, ok }))
+  await app.inject({
+    method: 'POST',
+    url: `/api/internal/agents/${agentId}/events`,
+    headers: { ...bearer(agentToken), 'content-type': 'application/json' },
+    payload: { events: [{ type: 'command_result', commandId: id, ok: true }] },
+  })
+  assert.deepEqual(seen, [{ id, ok: true }], '回报即通知订阅者')
+
+  unsub()
+  const id2 = await enqueueAgentCommand(db, agentId, 'node.stop', { nodeId: 'x' })
+  await app.inject({ method: 'GET', url: `/api/internal/agents/${agentId}/commands?wait=100`, headers: bearer(agentToken) })
+  await app.inject({
+    method: 'POST',
+    url: `/api/internal/agents/${agentId}/events`,
+    headers: { ...bearer(agentToken), 'content-type': 'application/json' },
+    payload: { events: [{ type: 'command_result', commandId: id2, ok: false }] },
+  })
+  assert.equal(seen.length, 1, '退订后不再收到')
 })

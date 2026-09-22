@@ -115,6 +115,17 @@ const appendLog = (agentId: string, nodeId: string, chunk: string): void => {
 /** 供 UI/日志抽屉读取（M1-7）。 */
 export const readAgentLog = (agentId: string, nodeId: string): string => logRing.get(`${agentId}:${nodeId}`) ?? ''
 
+// ---- 指令结果订阅（supervisor 的 agent 分支用：spawn 失败快速失败，不等就绪超时）----
+const resultSubs = new Set<(commandId: number, ok: boolean) => void>()
+
+/** 订阅指令结果；返回退订函数。 */
+export const subscribeAgentCommandResults = (cb: (commandId: number, ok: boolean) => void): (() => void) => {
+  resultSubs.add(cb)
+  return () => {
+    resultSubs.delete(cb)
+  }
+}
+
 /** Bearer token → agent id；仅当 token 有效且与路由 :id 一致才返回（不泄露存在性）。 */
 const channelAgent = (db: Db, request: FastifyRequest, id: string): string | null => {
   const header = request.headers.authorization
@@ -250,7 +261,7 @@ export const registerAgentsRoutes = (
       for (const event of parsed.data.events) {
         if (event.type === 'command_result') {
           // 只认领自己 agent 的 delivered 指令；幂等（重复回报被条件更新忽略）
-          db.update(schema.agentCommand)
+          const updated = db.update(schema.agentCommand)
             .set({ state: event.ok ? 'done' : 'failed', result: JSON.stringify(event.result ?? null), doneAt: Date.now() })
             .where(and(
               eq(schema.agentCommand.id, event.commandId),
@@ -258,6 +269,9 @@ export const registerAgentsRoutes = (
               eq(schema.agentCommand.state, 'delivered'),
             ))
             .run()
+          if (updated.changes > 0) {
+            for (const cb of resultSubs) cb(event.commandId, event.ok)
+          }
         } else if (event.type === 'log_chunk') {
           appendLog(agentId, event.nodeId, event.chunk)
         }

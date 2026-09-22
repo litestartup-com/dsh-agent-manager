@@ -378,3 +378,101 @@ test('P6 评审 B3: docker 就绪超时——停容器并走失败决策链（�
   assert.equal(node.current.attempts, 2)
   assert.ok(calls.stop >= 2, '每次就绪超时都停容器')
 })
+
+// ---- 能力四（M1-4）：agent runner 分支 ----
+
+const agentSpec = (): ResolvedSpawnSpec =>
+  spec({
+    command: '',
+    args: ['--profile', 'ops01', '--port', '3081', '--no-open'],
+    runner: 'agent',
+    host: 'agent-abc123',
+    readyTimeoutMs: 500,
+    restart: { maxAttempts: 2, baseDelayMs: 10, maxDelayMs: 20 },
+    dshVersion: '0.1.5-rc.2',
+    gatewayRef: 'github:litestartup-com/dsh-api-gateway#b592b4f',
+  })
+
+interface AgentDeps {
+  enqueued: Array<{ type: string; payload: unknown }>
+  resultCallbacks: Map<number, (ok: boolean) => void>
+}
+
+const agentDeps = (): AgentDeps => ({ enqueued: [], resultCallbacks: new Map() })
+
+const supervisorWith = (deps: AgentDeps, probe: () => Promise<{ ok: boolean; detail: string }>, agentLog?: (agentId: string, nodeId: string) => string): NodeSupervisor =>
+  new NodeSupervisor('ops01', {
+    probe,
+    agentCommand: (_agentId, type, payload) => {
+      deps.enqueued.push({ type, payload })
+      return deps.enqueued.length
+    },
+    agentResult: (commandId, cb) => {
+      deps.resultCallbacks.set(commandId, cb)
+      return () => {
+        deps.resultCallbacks.delete(commandId)
+      }
+    },
+    ...(agentLog === undefined ? {} : { agentLog }),
+  })
+
+test('能力四 M1-4: agent start——入队 node.spawn（载荷含 nodeId/args/env/钉版），探活 ok 即 live', async () => {
+  const deps = agentDeps()
+  const s = supervisorWith(deps, okProbe)
+  s.start(agentSpec())
+  assert.equal(s.current.state, 'starting')
+  assert.equal(deps.enqueued.length, 1)
+  assert.equal(deps.enqueued[0]?.type, 'node.spawn')
+  const payload = deps.enqueued[0]?.payload as { nodeId: string; args: string[]; dshVersion: string | null }
+  assert.equal(payload.nodeId, 'ops01')
+  assert.deepEqual(payload.args, ['--profile', 'ops01', '--port', '3081', '--no-open'])
+  assert.equal(payload.dshVersion, '0.1.5-rc.2')
+  await waitFor(() => s.current.state === 'live', 3_000, 'agent node live')
+})
+
+test('能力四 M1-4: agent spawn 失败回报 → 快速失败重试链（不等待就绪超时）', async () => {
+  const deps = agentDeps()
+  const s = supervisorWith(deps, badProbe)
+  s.start(agentSpec())
+  deps.resultCallbacks.get(1)?.(false)
+  await waitFor(() => deps.enqueued.length >= 2, 2_000, 'retry enqueued after failure report')
+  assert.equal(deps.enqueued[1]?.type, 'node.spawn', '重试 = 再次入队 spawn')
+  assert.equal(s.current.attempts >= 1, true, '失败计attempts')
+})
+
+test('能力四 M1-4: 就绪超时入队 node.stop + 失败链；stop → node.stop + 冷态；restart → stop+spawn 链', async () => {
+  const deps = agentDeps()
+  const s = supervisorWith(deps, badProbe)
+  s.start(agentSpec())
+  await waitFor(() => s.current.state === 'offline', 5_000, 'agent offline after retries')
+  assert.ok(deps.enqueued.filter((e) => e.type === 'node.stop').length >= 2, '每次超时入队 stop')
+
+  s.stop()
+  assert.equal(s.current.state, 'cold', 'stop 后落冷')
+
+  const deps2 = agentDeps()
+  const s2 = supervisorWith(deps2, okProbe)
+  s2.start(agentSpec())
+  await waitFor(() => s2.current.state === 'live', 2_000, 'live before restart')
+  s2.restart(agentSpec())
+  await waitFor(
+    () => deps2.enqueued.some((e) => e.type === 'node.stop') && deps2.enqueued.filter((e) => e.type === 'node.spawn').length >= 2,
+    2_000,
+    'restart enqueues stop+spawn',
+  )
+})
+
+test('能力四 M1-4: 未接线 agentCommand → fail-loud offline；agentLogs 走注入源', () => {
+  const s = new NodeSupervisor('ops01', { probe: badProbe })
+  s.start(agentSpec())
+  assert.equal(s.current.state, 'offline', '缺 agentCommand = offline')
+  assert.equal(s.agentLogs(), '', '无 spec 回空')
+
+  const withLog = new NodeSupervisor('ops01', {
+    probe: badProbe,
+    agentCommand: () => 1,
+    agentLog: (agentId, nodeId) => `${agentId}/${nodeId}/log`,
+  })
+  withLog.start(agentSpec())
+  assert.equal(withLog.agentLogs(), 'agent-abc123/ops01/log')
+})

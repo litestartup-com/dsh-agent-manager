@@ -64,6 +64,15 @@ export interface SupervisorDeps {
    * 测试注入此函数直接 emit exit 走 onExit 落 cold。缺省 = 平台原生 killTree。
    */
   killTree?: (child: ChildProcess) => void
+  /**
+   * 能力四（舰队 M1-4）：agent runner 的指令入队（返回指令 id）；
+   * 缺 = agent 模式不可用（fail-loud offline）。
+   */
+  agentCommand?: (agentId: string, type: string, payload: unknown) => number
+  /** 能力四：订阅指令结果（ok 布尔）；返回退订函数。 */
+  agentResult?: (commandId: number, cb: (ok: boolean) => void) => () => void
+  /** 能力四：agent 节点的回传日志（manager 侧环形缓冲）。 */
+  agentLog?: (agentId: string, nodeId: string) => string
 }
 
 /** Exponential backoff, capped: attempt 1 → base, 2 → 2×base, … never above max. */
@@ -132,6 +141,12 @@ export class NodeSupervisor {
       this.startDocker(spec)
       return
     }
+    if (spec.runner === 'agent') {
+      if (this.restartTimer !== null || this.status.state === 'starting') return
+      this.manualStop = false
+      this.startAgent(spec)
+      return
+    }
     if (this.child !== null || this.restartTimer !== null || this.status.state === 'starting') return
     this.manualStop = false
     this.spawnOnce(spec)
@@ -151,6 +166,22 @@ export class NodeSupervisor {
     }
     // 蜂群2计划 P2b：docker 模式 —— 停容器即停节点（状态都在卷里）
     const spec = this.lastSpec
+    if (spec !== null && spec.runner === 'agent') {
+      // 能力四：远端进程无本地 exit 事件——停 = 入队 node.stop（best-effort），
+      // 状态即刻落冷（探活自会反映远端真相）。
+      this.enqueueAgent('node.stop')
+      if (this.restartRequested) {
+        this.restartRequested = false
+        this.manualStop = false
+        this.status = { ...this.status, state: 'cold', pid: null, attempts: 0, stateSince: Date.now() }
+        this.deps.log?.(`node ${this.id}: restarting (agent)`)
+        this.startAgent(spec)
+        return
+      }
+      this.status = { ...this.status, state: 'cold', pid: null, stateSince: Date.now() }
+      this.deps.log?.(`node ${this.id}: stopped (agent)`)
+      return
+    }
     if (spec !== null && spec.runner === 'docker') {
       const cid = this.containerId
       this.containerId = null
@@ -189,6 +220,13 @@ export class NodeSupervisor {
   /** 蜂群 P5.1：主动重启。stop 之后进程消失时自动重新拉起，清零重试计数。 */
   restart(spec: ResolvedSpawnSpec): void {
     this.lastSpec = spec
+    // 能力四：agent 节点无本地进程可观察——重启恒走 stop→start 链（入队
+    // node.stop + node.spawn），否则 live 态会被「无 child」短路成直接 start。
+    if (spec.runner === 'agent') {
+      this.restartRequested = true
+      this.stop()
+      return
+    }
     // 没有进程在跑 = 直接启动；否则等进程消失后再拉起，避免残留标记。
     if (this.child === null && this.containerId === null && this.restartTimer === null) {
       this.start(spec)
@@ -321,7 +359,11 @@ export class NodeSupervisor {
         if (Date.now() >= deadline) {
           this.lastError = `not ready within ${spec.readyTimeoutMs}ms: ${result.detail}`
           this.deps.log?.(`node ${this.id}: ${this.lastError}`)
-          if (spec.runner === 'docker') {
+          if (spec.runner === 'agent') {
+            // 能力四：远端进程无本地句柄——入队 node.stop 后走失败决策链
+            this.enqueueAgent('node.stop')
+            this.afterAgentFailure(spec)
+          } else if (spec.runner === 'docker') {
             // 评审 B3：docker 模式没有子进程可杀——停容器后走失败决策链
             const cid = this.containerId
             this.containerId = null
@@ -375,6 +417,15 @@ export class NodeSupervisor {
 
   /** docker 启动失败后的重试/停用决策（复用 process 模式的同一策略函数）。 */
   private afterDockerFailure(spec: ResolvedSpawnSpec): void {
+    this.failAndRetry(spec, 'docker 启动失败', () => this.startDocker(spec))
+  }
+
+  /** 能力四：agent 启动失败后的重试/停用决策（与 docker 同策略，重试走 startAgent）。 */
+  private afterAgentFailure(spec: ResolvedSpawnSpec): void {
+    this.failAndRetry(spec, 'agent 启动失败', () => this.startAgent(spec))
+  }
+
+  private failAndRetry(spec: ResolvedSpawnSpec, defaultError: string, retry: () => void): void {
     if (this.manualStop) {
       this.status = { ...this.status, state: 'cold', pid: null, stateSince: Date.now() }
       return
@@ -385,7 +436,7 @@ export class NodeSupervisor {
       ...this.status,
       pid: null,
       attempts,
-      lastError: this.lastError ?? 'docker 启动失败',
+      lastError: this.lastError ?? defaultError,
       startedAt: null,
       stateSince: Date.now(),
     }
@@ -399,8 +450,52 @@ export class NodeSupervisor {
     this.deps.log?.(`node ${this.id}: restart in ${delay}ms (attempt ${attempts})`)
     this.restartTimer = setTimeout(() => {
       this.restartTimer = null
-      this.startDocker(spec)
+      retry()
     }, delay)
+  }
+
+  /** 能力四：agent 节点的启动链——入队 node.spawn，结果与就绪双信号。 */
+  private startAgent(spec: ResolvedSpawnSpec): void {
+    const enqueue = this.deps.agentCommand
+    if (enqueue === undefined || spec.host === null) {
+      this.lastError = 'agent runner 未接线（缺 agentCommand 注入或 spawn.host 为空）'
+      this.deps.log?.(`node ${this.id}: ${this.lastError}`)
+      this.status = { ...this.status, state: 'offline', lastError: this.lastError, stateSince: Date.now() }
+      return
+    }
+    this.status = { ...this.status, state: 'starting', lastError: null, stateSince: Date.now() }
+    const gen = ++this.launchGen // 蜂群2计划 P6 评审 B3：过期链弃用
+    const commandId = enqueue(spec.host, 'node.spawn', {
+      nodeId: this.id,
+      args: spec.args,
+      env: spec.env,
+      dshVersion: spec.dshVersion ?? null,
+      gatewayRef: spec.gatewayRef ?? null,
+    })
+    this.deps.log?.(`node ${this.id}: agent ${spec.host} spawn 指令 #${commandId} 已入队`)
+    this.deps.agentResult?.(commandId, (ok: boolean) => {
+      if (gen !== this.launchGen || this.status.state !== 'starting') return
+      if (ok) return // 就绪与否交给探活判定（host.describe）
+      this.lastError = `agent 报告 spawn 失败（指令 #${commandId}）`
+      this.deps.log?.(`node ${this.id}: ${this.lastError}`)
+      this.afterAgentFailure(spec)
+    })
+    this.armReadyProbe(spec)
+  }
+
+  /** 能力四：入队一条 agent 指令（stop 语义的共用入口；未接线 = 静默留痕）。 */
+  private enqueueAgent(type: 'node.stop'): void {
+    const spec = this.lastSpec
+    const enqueue = this.deps.agentCommand
+    if (spec === null || spec.host === null || enqueue === undefined) return
+    enqueue(spec.host, type, { nodeId: this.id })
+  }
+
+  /** 能力四：agent 节点的回传日志（事件通道 → manager 侧环形缓冲）。 */
+  agentLogs(): string {
+    const spec = this.lastSpec
+    if (spec === null || spec.runner !== 'agent' || spec.host === null) return ''
+    return this.deps.agentLog?.(spec.host, this.id) ?? ''
   }
 
   private onExit(spec: ResolvedSpawnSpec, code: number | null, signal: NodeJS.Signals | null): void {

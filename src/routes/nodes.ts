@@ -79,6 +79,9 @@ export const registerNodesRoutes = (
         if (ep.spawn?.runner === 'docker') {
           const dockerLogs = await supervisor.dockerLogs()
           if (dockerLogs !== null) logs = dockerLogs
+        } else if (ep.spawn?.runner === 'agent') {
+          // 能力四：agent 节点日志经事件通道回传（manager 侧环形缓冲）
+          logs = supervisor.agentLogs()
         } else {
           logs = supervisor.logs()
         }
@@ -236,6 +239,10 @@ export const registerNodesRoutes = (
       if (ep.spawn?.runner === 'docker') {
         const dockerLogs = await supervisor.dockerLogs()
         if (dockerLogs !== null) return reply.send({ logs: tail(dockerLogs), source: 'docker' })
+      }
+      // 能力四：agent runner 的日志走事件通道回传缓冲
+      if (ep.spawn?.runner === 'agent') {
+        return reply.send({ logs: tail(supervisor.agentLogs()), source: 'agent' })
       }
       return reply.send({ logs: tail(supervisor.logs()), source: 'buffer' })
     },

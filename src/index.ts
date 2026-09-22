@@ -33,7 +33,7 @@ import { closeChatRelays, registerChatRoutes } from './routes/chat.js'
 import { registerUsageRoutes } from './routes/usage.js'
 import { registerCronRoutes } from './routes/cron.js'
 import { registerInternalRoutes } from './routes/internal.js'
-import { registerAgentsRoutes } from './routes/agents.js'
+import { registerAgentsRoutes, enqueueAgentCommand, subscribeAgentCommandResults, readAgentLog } from './routes/agents.js'
 import { registerNodesRoutes } from './routes/nodes.js'
 import { registerSkillsRoutes } from './routes/skills.js'
 import { registerNotificationRoutes } from './routes/notifications.js'
@@ -110,6 +110,12 @@ const main = async (): Promise<void> => {
     upstream: (id) => upstreamClients.get(id),
     log: (line) => app.log.info(line),
     ...(dockerRunner === null ? {} : { docker: dockerRunner }),
+    // 能力四（M1-4）：agent runner 三件套——指令入队/结果订阅/回传日志
+    agentCommand: (agentId, type, payload) => enqueueAgentCommand(db, agentId, type as import('./routes/agents.js').AgentCommandType, payload),
+    agentResult: (commandId, cb) => subscribeAgentCommandResults((cid, ok) => {
+      if (cid === commandId) cb(ok)
+    }),
+    agentLog: (agentId, nodeId) => readAgentLog(agentId, nodeId),
   })
   // 蜂群2计划 P6：容器路径没有 setup 步骤——空工作区启动即播种模板
   // （主脑的 AGENTS.md/技能手册、个人的模板页），任何已有文件的工作区绝不触碰。

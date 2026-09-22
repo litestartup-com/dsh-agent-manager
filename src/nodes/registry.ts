@@ -19,6 +19,10 @@ export interface NodeRegistryDeps {
   log?: (line: string) => void
   /** 蜂群2计划 P2b：docker runner（有 runner=docker 的 endpoint 才需要）。 */
   docker?: DockerRunner
+  /** 能力四（M1-4）：agent runner 三件套（runner=agent 的 endpoint 才需要）。 */
+  agentCommand?: (agentId: string, type: string, payload: unknown) => number
+  agentResult?: (commandId: number, cb: (ok: boolean) => void) => () => void
+  agentLog?: (agentId: string, nodeId: string) => string
 }
 
 /** 蜂群 P5.5：单节点监督器构造（boot 全量构建与运行时热加载共用）。 */
@@ -42,6 +46,9 @@ export const makeSupervisor = (endpoint: ResolvedEndpoint, deps: NodeRegistryDep
     },
     ...(deps.log === undefined ? {} : { log: deps.log }),
     ...(deps.docker === undefined ? {} : { docker: deps.docker }),
+    ...(deps.agentCommand === undefined ? {} : { agentCommand: deps.agentCommand }),
+    ...(deps.agentResult === undefined ? {} : { agentResult: deps.agentResult }),
+    ...(deps.agentLog === undefined ? {} : { agentLog: deps.agentLog }),
     // 蜂群2计划 P2b：节点容器的环境 —— GW_KEY 走 gateway 沙箱密钥（与 settings
     // 注入一致），模型 key 走继承环境（DSH 凭据分层里优先级最高）。
     // MANAGER_URL：主脑技能手册调内部 API 用（容器里 127.0.0.1 是节点自己，不是 manager）。
