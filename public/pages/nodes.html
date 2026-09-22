@@ -38,6 +38,18 @@
             </select>
             <span class="field-hint muted small">选项来自版本矩阵；未知版本会被后端显性拒绝。</span>
           </label>
+          <label class="field">
+            <span class="field-label">主机（留空 = 本机；舰队模式）</span>
+            <select id="f-node-host" class="text-input pill-select">
+              <option value="">本机</option>
+            </select>
+            <span class="field-hint muted small">选了主机 = 远端宿主机进程节点（经该机的 node-agent 拉起）。</span>
+          </label>
+          <label class="field">
+            <span class="field-label">节点地址（选了主机必填）</span>
+            <input id="f-node-url" class="text-input mono" maxlength="128" placeholder="http://10.0.0.7:3081" />
+            <span class="field-hint muted small">manager 可达的节点 facade 地址（服务器内网 IP:端口）。</span>
+          </label>
         </div>
 
         <details class="node-advanced">
@@ -127,6 +139,25 @@
           <button type="submit" id="f-acc-save" class="btn btn-sm">保存</button>
         </div>
       </form>
+    </div>
+  </section>
+
+  <!-- 能力四（舰队 M1-7）：机器目录 + join 流程 -->
+  <section class="section">
+    <div class="section-head">
+      <h2>机器（舰队）</h2>
+      <button id="add-machine" class="btn btn-sm" type="button">添加机器</button>
+    </div>
+    <div class="card">
+      <div id="machines-list" class="nodes-list"><p class="muted small">加载中…</p></div>
+      <div id="join-box" class="node-logs-wrap" hidden>
+        <div class="node-logs-head">
+          <span class="grow">在目标机器上执行（token 15 分钟有效，一次性）</span>
+          <button type="button" class="btn-quiet btn-sm" id="join-copy">复制命令</button>
+          <button type="button" class="btn-quiet btn-sm" id="join-close">关闭</button>
+        </div>
+        <code id="join-command" class="node-gui-cmd"></code>
+      </div>
     </div>
   </section>
 

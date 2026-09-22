@@ -254,7 +254,20 @@ const main = async (): Promise<void> => {
   registerNodesRoutes(app, config, nodeSupervisors, clients, upstreamClients, requireUser, (actor, kind, detail) =>
     recordAudit(db, { actor, kind, detail }),
   )
-  registerProvisionRoutes(app, config, requireUser, { db, supervisors: nodeSupervisors, clients, upstreamClients, ...(dockerRunner === null ? {} : { docker: dockerRunner }) })
+  registerProvisionRoutes(app, config, requireUser, {
+    db,
+    supervisors: nodeSupervisors,
+    clients,
+    upstreamClients,
+    ...(dockerRunner === null ? {} : { docker: dockerRunner }),
+    // 能力四（M1-7）：agent 节点创建需要（makeSupervisor agent 三件套 + fleet）
+    agentCommand: (agentId, type, payload) => enqueueAgentCommand(db, agentId, type as import('./routes/agents.js').AgentCommandType, payload),
+    agentResult: (commandId, cb) => subscribeAgentCommandResults((cid, ok) => {
+      if (cid === commandId) cb(ok)
+    }),
+    agentLog: (agentId, nodeId) => readAgentLog(agentId, nodeId),
+    fleetDoc: () => renderFleetDoc(config),
+  })
   // 能力四（舰队 M1-2）：node-agent 注册链（join 签发 / register 换发 / 吊销）。
   registerAgentsRoutes(app, db, requireUser, (actor, kind, detail) => recordAudit(db, { actor, kind, detail }))
   registerSkillsRoutes(app, config, requireUser)

@@ -45,6 +45,9 @@ export const profileFiles = (
   spec: ProfileSpec,
   gatewayDep: string,
   dshVersion: string = COMPAT_DSH_VERSION,
+  /** webserver 绑定地址：裸机默认 127.0.0.1（GUI 红线）；agent 远端节点用
+   * 0.0.0.0（manager 从远端探活；安全靠 Q5 防火墙白名单 + 0.1.5 token）。 */
+  bindHost: string = '127.0.0.1',
 ): Record<string, string> => {
   const pkg = {
     name: `dsh-profile-${spec.name}`,
@@ -57,7 +60,7 @@ export const profileFiles = (
       id: 'webserver',
       config: {
         // 整行 config 替换（无深度合并，README 原话）：节点永远只绑回环。
-        host: '127.0.0.1',
+        host: bindHost,
         port: spec.port,
       },
     },

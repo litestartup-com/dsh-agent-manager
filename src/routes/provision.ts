@@ -168,6 +168,14 @@ const provisionBody = z.object({
    * 宿主机整机能力节点（黄字风险 + 审计 node_create_host）。
    */
   runner: z.enum(['docker', 'process']).optional(),
+  /**
+   * 能力四（舰队 M1-7）：把该节点建到指定 agent（远端宿主机进程形态）。
+   * 与 runner=docker 互斥；提供后走 agent 分支（profile/依赖在 agent 侧
+   * 完成，manager 不做本地 profile/安装）。
+   */
+  host: z.string().min(1).optional(),
+  /** agent 节点的远程 facade 地址（manager 探活用，如 http://10.0.0.7:3081）。 */
+  url: z.string().url().optional(),
   /** 能力二：按节点钉 DSH 版本（必须在 SUPPORTED_DSH 矩阵内；pending 配对黄字警告）。 */
   dsh_version: z.string().min(1).optional(),
   /**
@@ -234,6 +242,11 @@ interface ProvisionDeps {
   upstreamClients: Map<string, SessionDriver>
   /** 蜂群2计划 P6：容器模式新增节点需要（docker runner 接线）。 */
   docker?: DockerRunner
+  /** 能力四（M1-7）：agent 节点创建需要（makeSupervisor agent 三件套 + fleet）。 */
+  agentCommand?: (agentId: string, type: string, payload: unknown) => number
+  agentResult?: (commandId: number, cb: (ok: boolean) => void) => () => void
+  agentLog?: (agentId: string, nodeId: string) => string
+  fleetDoc?: () => string
 }
 
 /**
@@ -306,6 +319,15 @@ export const registerProvisionRoutes = (
     // 部署（含挂 docker.sock 的混合部署）无此标记，显式 process 照常放行。
     if (body.runner === 'process' && process.env.OHDSH_DEPLOY_FORM === 'container') {
       return reply.code(400).send({ error: 'host_process_unavailable', detail: '容器形态部署不支持宿主机进程节点（manager 在容器内，无法拉起宿主进程）——请选「容器工蜂」形态' })
+    }
+    // 能力四（舰队 M1-7）：选了主机 = agent 远端宿主机进程形态；与 docker 互斥，
+    // 必须给出 manager 可达的 facade 地址（探活真相源）。
+    const wantAgent = body.host !== undefined
+    if (wantAgent && body.runner === 'docker') {
+      return reply.code(400).send({ error: 'host_conflict', detail: '选了主机就不能用容器形态——agent 节点 = 远端宿主机进程' })
+    }
+    if (wantAgent && body.url === undefined) {
+      return reply.code(400).send({ error: 'agent_url_required', detail: 'agent 节点需要 url（manager 可达的节点 facade 地址，如 http://10.0.0.7:3081）' })
     }
     // 能力二：按节点钉 DSH 版本——矩阵内解析 + pending 黄字；未知版本显性拒绝。
     const pinnedDsh = body.dsh_version
@@ -461,6 +483,95 @@ export const registerProvisionRoutes = (
         await reconcile(new Set([body.name]))
         return reply.code(201).send({
           node: { id: body.name, port, home: `ohdsh-${body.name}` },
+          workspace: agentSpec === null ? null : { id: agentSpec.id, path: agentSpec.workspace },
+          workspaceWarning,
+          ...(versionWarning ? { versionWarning: true } : {}),
+        })
+      }
+
+      // 能力四（M1-7）：agent 远端宿主机进程分支——不找本地 bin、不做本地
+      // profile/安装（agent 侧随 spawn 载荷完成），真相源写 runner=agent + host。
+      if (wantAgent) {
+        const key = 'apigw-' + randomBytes(24).toString('hex')
+        const agentUrl = (body.url as string).replace(/\/+$/, '')
+        // 工作区在远端（节点自己的机器）——本地不 prepareWorkspace，路径由用户
+        // 提供（向导明示「远端机器上的路径」），agent 侧按会话 cwd 使用。
+        const workspaceWarning = null
+
+        dbRowInserted = markDbFirst(db, agentSpec)
+        recordAudit(db, {
+          actor: request.currentUser?.username ?? 'unknown',
+          kind: 'node_create_host',
+          detail: `节点 ${body.name}（agent 远端宿主机进程，host=${body.host}，端口 ${port}，工作区 ${agentSpec?.workspace ?? '—'}）`,
+        })
+
+        const snaps = await writeNodeTruth(
+          { envPath, configPath },
+          {
+            keyRef,
+            key,
+            name: body.name,
+            url: agentUrl,
+            sandboxBase: `${agentUrl}/api-gw/v1`,
+            agentSpec,
+            spawnYaml: {
+              managed: true,
+              runner: 'agent',
+              host: body.host,
+              args: ['--profile', body.name, '--port', String(port), '--no-open'],
+              ready_timeout_ms: 30_000,
+              ...(pinnedDsh === undefined ? {} : { dsh_version: dshVersion, gateway_ref: gatewayRef }),
+            },
+          },
+        )
+        envSnap = snaps.envSnap
+        yamlSnap = snaps.yamlSnap
+
+        const endpoint: ResolvedEndpoint = {
+          id: body.name,
+          url: agentUrl,
+          driver: 'apiproxy',
+          prefix: '/api-gw/v1/proxy',
+          key,
+          sandboxBase: `${agentUrl}/api-gw/v1`,
+          sandboxKey: key,
+          spawn: {
+            managed: true,
+            command: '',
+            args: ['--profile', body.name, '--port', String(port), '--no-open'],
+            cwd: null,
+            readyTimeoutMs: 30_000,
+            detached: false,
+            logFile: null,
+            env: {},
+            restart: { maxAttempts: 3, baseDelayMs: 1_000, maxDelayMs: 30_000 },
+            runner: 'agent',
+            host: body.host ?? null,
+            docker: null,
+            ...(pinnedDsh === undefined ? {} : { dshVersion, gatewayRef }),
+          },
+          access: null,
+        }
+        config.endpoints[body.name] = endpoint
+        const fresh = buildUpstreamClients({ [body.name]: endpoint })
+        const upstream = fresh.get(body.name)
+        if (upstream !== undefined) upstreamClients.set(body.name, upstream)
+        const supervisor = makeSupervisor(endpoint, {
+          upstream: (id) => upstreamClients.get(id),
+          gateway: () => deps.clients.get(body.name),
+          log: (line) => app.log.info(line),
+          ...(deps.docker === undefined ? {} : { docker: deps.docker }),
+          ...(deps.agentCommand === undefined ? {} : { agentCommand: deps.agentCommand }),
+          ...(deps.agentResult === undefined ? {} : { agentResult: deps.agentResult }),
+          ...(deps.agentLog === undefined ? {} : { agentLog: deps.agentLog }),
+          ...(deps.fleetDoc === undefined ? {} : { fleetDoc: deps.fleetDoc }),
+        })
+        supervisors.set(body.name, supervisor)
+        supervisorStarted = supervisor
+        hotLoadAgent(config, body.name, agentSpec)
+        await reconcile(new Set([body.name]))
+        return reply.code(201).send({
+          node: { id: body.name, port, home: `<agentDir>/nodes/${body.name}` },
           workspace: agentSpec === null ? null : { id: agentSpec.id, path: agentSpec.workspace },
           workspaceWarning,
           ...(versionWarning ? { versionWarning: true } : {}),

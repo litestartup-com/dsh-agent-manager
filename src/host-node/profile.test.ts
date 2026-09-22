@@ -21,6 +21,13 @@ test('舰队 M1-6 回归: bundles 钉目标版本而非矩阵首行——0.1.5 �
   assert.equal(deps['@deepseek-ai/dsh-web-app'], '0.1.5-rc.2', 'dsh-web-app 必须跟目标版本')
 })
 
+test('舰队 M1-7 回归: profileFiles 绑地址可参数化——缺省 127.0.0.1，agent 远端 0.0.0.0', () => {
+  const dflt = profileFiles({ name: 'worker', port: 3083 }, GATEWAY_REF)
+  assert.match(dflt['cordis.patch.yml'] ?? '', /host: 127\.0\.0\.1/, '裸机默认只绑回环（GUI 红线）')
+  const remote = profileFiles({ name: 'worker', port: 3083 }, GATEWAY_REF, COMPAT_DSH_VERSION, '0.0.0.0')
+  assert.match(remote['cordis.patch.yml'] ?? '', /host: 0\.0\.0\.0/, 'agent 远端节点绑 0.0.0.0（防火墙白名单兜底）')
+})
+
 test('能力一回归: profileFiles 的 package.json 携带 dsh 依赖与 bundles 清单', () => {
   const files = profileFiles({ name: 'worker', port: 3083 }, GATEWAY_REF)
   const pkg = JSON.parse(files['package.json'] ?? '{}')

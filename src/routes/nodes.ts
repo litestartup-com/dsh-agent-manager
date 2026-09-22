@@ -120,6 +120,8 @@ export const registerNodesRoutes = (
             // 能力二：配置钉版（null = 跟随全局默认）；漂移 = profile 种子与钉版不符
             configuredDshVersion: ep?.spawn?.dshVersion ?? null,
             dshDrift: ep === undefined ? false : driftOf(ep),
+            // 能力四（M1-7）：该节点的执行 agent（null = 本机/容器）
+            host: ep?.spawn?.host ?? null,
             ...(image === null ? {} : { image }),
             // 能力三 v1：隧道元数据 + 拼好的打开 URL（未配置/未捕获 = null）
             access: ep?.access ?? null,
@@ -139,6 +141,7 @@ export const registerNodesRoutes = (
           dshCompatible: probe.dshCompatible,
           configuredDshVersion: ep?.spawn?.dshVersion ?? null,
           dshDrift: ep === undefined ? false : driftOf(ep),
+          host: ep?.spawn?.host ?? null,
           access: ep?.access ?? null,
           guiUrl,
         }

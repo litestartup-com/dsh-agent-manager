@@ -227,6 +227,40 @@ test('能力一回归: 显式 runner=process 在 docker 部署上建宿主机进
   stopped.push(supervisor)
 })
 
+test('能力四 M1-7: 向导建 agent 节点——runner=agent+host 落真相源、无本地 profile、url 必填、与 docker 互斥', async () => {
+  const { app, config, db, supervisors } = await boot()
+  const created = await app.inject({
+    method: 'POST',
+    url: '/api/nodes',
+    payload: { name: 'ops01', install: false, host: 'agent-abc123', url: 'http://10.0.0.7:3081' },
+  })
+  assert.equal(created.statusCode, 201, JSON.stringify(created.body))
+  const spawn = config.endpoints['ops01']?.spawn
+  assert.equal(spawn?.runner, 'agent')
+  assert.equal(spawn?.host, 'agent-abc123')
+  assert.equal(config.endpoints['ops01']?.url, 'http://10.0.0.7:3081', '远程 facade 地址进真相源')
+  const yaml = readFileSync(join(dir, 'manager.config.yaml'), 'utf8')
+  const section = yaml.slice(yaml.indexOf('ops01:'))
+  assert.match(section, /runner: agent/, 'yaml 落 agent 形态')
+  assert.match(section, /host: agent-abc123/, 'yaml 落 host')
+  assert.doesNotMatch(section, /command: node/, '无本地 command（agent 侧用自己 prefix 的 bin）')
+  assert.match(readFileSync(join(dir, '.env'), 'utf8'), /GW_KEY_OPS01=/, '钥匙进 .env')
+  assert.ok(!existsSync(join(nodesRoot, 'ops01', 'profiles', 'ops01', 'package.json')), '本地不做 profile（agent 侧随载荷完成）')
+  const auditKinds = db.select().from(schema.auditLog).all().map((r) => r.kind)
+  assert.ok(auditKinds.includes('node_create_host'), '整机能力审计')
+  const supervisor = supervisors.get('ops01')!
+  stopped.push(supervisor)
+
+  const noUrl = await app.inject({ method: 'POST', url: '/api/nodes', payload: { name: 'ops02', install: false, host: 'agent-abc123' } })
+  assert.equal(noUrl.statusCode, 400, 'agent 节点必须给 url')
+  const conflict = await app.inject({
+    method: 'POST',
+    url: '/api/nodes',
+    payload: { name: 'ops03', install: false, host: 'agent-abc123', url: 'http://10.0.0.7:3083', runner: 'docker' },
+  })
+  assert.equal(conflict.statusCode, 400, 'host 与 docker 互斥')
+})
+
 test('线上教训回归: 容器形态部署显式 process = 400 host_process_unavailable；无标记的裸机部署照常放行', async () => {
   const prev = process.env.OHDSH_DEPLOY_FORM
   process.env.OHDSH_DEPLOY_FORM = 'container'

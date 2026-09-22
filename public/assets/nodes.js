@@ -7,6 +7,7 @@
 import { $, ago, esc, setHtml, apiJson, poll } from './ui.js'
 import { guiCardHtml, guiDirectCardHtml, guiSetupButton } from './gui-access.js'
 import { nodeCreatePayload, hostRunnerConfirmText, versionOptionsHtml } from './node-form.js'
+import { machineRowHtml, joinCommand } from './machines.js'
 
 const NODE_STATE_DOT = { live: 'ok', cold: 'muted', starting: 'warn', restarting: 'warn', offline: 'bad' }
 const NODE_STATE_LABEL = { live: 'live', cold: '未启动', starting: '启动中', restarting: '重启中', offline: 'offline' }
@@ -39,6 +40,8 @@ const nodeRow = (n) => {
   if (typeof n.dshVersion === 'string' && n.dshVersion !== '') versionBits.push(`DSH ${esc(n.dshVersion)}`)
   // 显式钉版值得展示；跟随默认（null）不显示
   if (typeof n.configuredDshVersion === 'string' && n.configuredDshVersion !== '') versionBits.push(`钉 ${esc(n.configuredDshVersion)}`)
+  // 能力四（M1-7）：舰队节点显示执行主机（hostname 映射，未知回退 id）
+  if (typeof n.host === 'string' && n.host !== '') versionBits.push(`主机 ${esc(agentHostnames.get(n.host) ?? n.host)}`)
   const detail = `agent：${esc(agents)}${versionBits.length > 0 ? ` · ${versionBits.join(' · ')}` : ''}`
   const starting = n.state === 'starting'
   const alignBtn =
@@ -265,6 +268,8 @@ const advancedDirty = new Set()
 let dockerMode = false
 /** 能力二/P1：矩阵数据源缓存（节点行版本下拉用）。 */
 let versionList = []
+/** 能力四（M1-7）：agent id → hostname 展示映射（load 时刷新）。 */
+let agentHostnames = new Map()
 
 for (const id of advancedFields) {
   const el = $(id)
@@ -292,7 +297,18 @@ $('node-form').addEventListener('submit', async (event) => {
 
   // 能力一：宿主机进程形态 = 整机能力，黄字确认（与审计 node_create_host 同源）。
   const runner = $('f-node-runner').value
-  if (runner === 'process' && !window.confirm(hostRunnerConfirmText(name))) return
+  // 能力四（M1-7）：选了主机 = agent 远端节点——强制 process 语义 + 地址必填
+  const hostId = $('f-node-host').value.trim()
+  const hostUrl = $('f-node-url').value.trim()
+  if (hostId !== '' && hostUrl === '') {
+    $('f-warn').textContent = '选了主机就必须填「节点地址」（manager 可达的 http://IP:端口）'
+    return
+  }
+  if (hostId !== '' && runner === 'docker') {
+    $('f-warn').textContent = '选了主机就不能用容器形态（agent 节点 = 远端宿主机进程）'
+    return
+  }
+  if ((hostId !== '' || runner === 'process') && !window.confirm(hostRunnerConfirmText(name))) return
 
   // 工作区总是创建；clean 的字段省略（后端按节点名生成同款默认）。
   const payload = nodeCreatePayload({
@@ -300,6 +316,8 @@ $('node-form').addEventListener('submit', async (event) => {
     port: portRaw,
     runner,
     dshVersion: $('f-node-version').value,
+    host: hostId,
+    url: hostUrl,
     agent: {
       ...(advancedDirty.has('f-agent-id') ? { id: $('f-agent-id').value.trim() } : {}),
       ...(advancedDirty.has('f-agent-name') ? { name: $('f-agent-name').value.trim() } : {}),
@@ -427,14 +445,71 @@ $('node-access-form').addEventListener('submit', async (event) => {
   }
 })
 
+// ---- 能力四（M1-7）：机器目录 ----
+$('add-machine').addEventListener('click', async () => {
+  try {
+    const r = await apiJson('/api/agents/join', { method: 'POST' })
+    if (!r.ok) {
+      alert(r.detail)
+      return
+    }
+    const { token, expiresAt } = r.data
+    const origin = window.location.origin
+    $('join-command').textContent = joinCommand(origin, token)
+    $('join-box').hidden = false
+    $('join-command').title = `有效期至 ${new Date(expiresAt).toLocaleTimeString('zh-CN', { hour12: false })}（一次性）`
+  } catch (error) {
+    alert(`签发失败：${error.message}`)
+  }
+})
+
+$('join-copy').addEventListener('click', () => {
+  void navigator.clipboard?.writeText($('join-command').textContent ?? '')
+  alert('已复制 join 命令——到目标机器上执行（token 15 分钟有效，一次性）')
+})
+
+$('join-close').addEventListener('click', () => {
+  $('join-box').hidden = true
+})
+
+$('machines-list').addEventListener('click', (event) => {
+  const revoke = event.target.closest('[data-agent-revoke]')
+  if (revoke === null) return
+  const id = revoke.dataset.agentRevoke
+  if (!window.confirm(`吊销机器「${agentHostnames.get(id) ?? id}」？其 agent token 立即失效，该机节点将标 unreachable。`)) return
+  void apiJson(`/api/agents/${encodeURIComponent(id)}/revoke`, { method: 'POST' })
+    .then((r) => {
+      if (!r.ok) alert(r.detail)
+      return load()
+    })
+    .catch((error) => alert(`吊销失败：${error.message}`))
+})
+
 const load = async () => {
   try {
     // 债务 F6:统一 Result 层。
-    const [nodesResult, runsResult] = await Promise.all([apiJson('/api/nodes'), apiJson('/api/runs')])
+    const [nodesResult, runsResult, agentsResult] = await Promise.all([apiJson('/api/nodes'), apiJson('/api/runs'), apiJson('/api/agents')])
     if (!nodesResult.ok) return
     const { nodes, dockerMode: isDocker, supportedDsh, containerForm } = nodesResult.data
     dockerMode = isDocker === true
     if (Array.isArray(supportedDsh)) versionList = supportedDsh
+    // 能力四（M1-7）：机器目录 + 主机下拉 + 节点行主机名映射
+    if (agentsResult.ok && Array.isArray(agentsResult.data.agents)) {
+      const machines = agentsResult.data.agents
+      agentHostnames = new Map(machines.map((m) => [m.id, m.hostname]))
+      setHtml('machines-list', machines.length === 0
+        ? '<p class="muted small">还没有接入的机器——点「添加机器」拿到 join 命令。</p>'
+        : machines.map(machineRowHtml).join(''))
+      const hostSel = $('f-node-host')
+      const online = machines.filter((m) => !m.revoked && m.online)
+      while (hostSel.options.length > 1) hostSel.remove(1)
+      for (const m of online) {
+        const opt = document.createElement('option')
+        opt.value = m.id
+        opt.textContent = `${m.hostname}（${m.os}/${m.arch}）`
+        hostSel.appendChild(opt)
+      }
+    }
     // 容器形态部署（manager 在容器内）不支持宿主机进程节点——向导里禁用该
     // 选项并改写文案；裸机部署（含混合 docker.sock 部署）不受限。
     const processOpt = $('f-node-runner').querySelector('option[value="process"]')

@@ -15,6 +15,16 @@ test('能力一回归: runner=auto 时省略字段（后端按部署自动判定
   }, '显式 docker 下发')
 })
 
+test('能力四 M1-7 回归: 选了主机 = host+url 一起下发；未选则缺省不出现', () => {
+  const base = { name: 'ops01', port: '', runner: 'auto', dshVersion: '', agent: { preset: 'standard', sandboxMode: 'workspace-write' } }
+  assert.deepEqual(nodeCreatePayload({ ...base, host: 'agent-abc123', url: 'http://10.0.0.7:3081' }), {
+    name: 'ops01', host: 'agent-abc123', url: 'http://10.0.0.7:3081', agent: { preset: 'standard', sandboxMode: 'workspace-write' },
+  }, 'agent 远端节点 = host + url 下发')
+  assert.deepEqual(nodeCreatePayload({ ...base, host: '', url: '' }), {
+    name: 'ops01', agent: { preset: 'standard', sandboxMode: 'workspace-write' },
+  }, '未选主机不下发')
+})
+
 test('能力二回归: 向导选版本 → dsh_version 进载荷；缺省字段不出现', () => {
   const base = { name: 'v15', port: '', runner: 'auto', agent: { preset: 'standard', sandboxMode: 'workspace-write' } }
   assert.deepEqual(nodeCreatePayload({ ...base, dshVersion: '0.1.5-rc.2' }), {

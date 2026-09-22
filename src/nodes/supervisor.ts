@@ -481,7 +481,9 @@ export class NodeSupervisor {
     const port = Number(argAfter('--port') ?? 3080)
     const dshVersion = spec.dshVersion ?? defaultDshVersion()
     const gatewayRef = spec.gatewayRef ?? GATEWAY_REF
-    const profileFilesPayload = profileFiles({ name: profileName, port }, gatewayRef, dshVersion)
+    // agent 节点在远端服务器：webserver 绑 0.0.0.0 供 manager 跨机探活
+    // （安全面 = Q5 防火墙白名单 + 0.1.5 token；GUI 走用户侧隧道不变）。
+    const profileFilesPayload = profileFiles({ name: profileName, port }, gatewayRef, dshVersion, '0.0.0.0')
     profileFilesPayload['.seed-version'] = profileSeed(dshVersion, gatewayRef) + '\n'
     const fleetMd = this.deps.fleetDoc?.() ?? null
     const commandId = enqueue(spec.host, 'node.spawn', {

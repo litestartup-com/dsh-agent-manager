@@ -5,7 +5,8 @@
 /**
  * 组装 POST /api/nodes 的载荷。runner=auto = 省略字段（后端按部署自动判定
  * 容器/进程形态）；显式选择才下发。dsh_version 空串 = 跟随矩阵首行（省略）。
- * @param {{ name: string, port: string, runner: string, dshVersion: string, agent: Record<string, unknown> }} input
+ * 能力四（M1-7）：host 选了 = agent 远端节点（host + url 一起下发）。
+ * @param {{ name: string, port: string, runner: string, dshVersion: string, host: string, url: string, agent: Record<string, unknown> }} input
  * @returns {Record<string, unknown>}
  */
 export const nodeCreatePayload = (input) => {
@@ -15,6 +16,8 @@ export const nodeCreatePayload = (input) => {
     ...(Number.isInteger(port) && port > 0 ? { port } : {}),
     ...(input.runner === 'auto' ? {} : { runner: input.runner }),
     ...(typeof input.dshVersion === 'string' && input.dshVersion !== '' ? { dsh_version: input.dshVersion } : {}),
+    ...(typeof input.host === 'string' && input.host !== '' ? { host: input.host } : {}),
+    ...(typeof input.url === 'string' && input.url !== '' ? { url: input.url } : {}),
     agent: input.agent,
   }
 }
