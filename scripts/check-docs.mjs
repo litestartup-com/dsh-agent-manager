@@ -191,6 +191,9 @@ try {
   if (!/execDeliver/.test(agentRuntime)) {
     failures.push('public/assets/agent/runtime.mjs: 缺 config.deliver 身份轮换处理（M4-1 轮换指令落地端）')
   }
+  if (!/NODE_LOG_MAX_BYTES/.test(agentRuntime)) {
+    failures.push('public/assets/agent/runtime.mjs: 缺 NODE_LOG_MAX_BYTES 轮转上限（M4-2 日志限额）')
+  }
   if (!/\/api\/agents\/:id\/rotate/.test(readFileSync(join(root, 'src/routes/agents.ts'), 'utf8'))) {
     failures.push('src/routes/agents.ts: 缺 /api/agents/:id/rotate 轮换端点（M4-1）')
   }

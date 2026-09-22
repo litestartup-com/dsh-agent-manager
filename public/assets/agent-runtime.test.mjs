@@ -12,6 +12,15 @@ const fakeFs = () => {
     mkdir: () => {},
     exists: (p) => store.has(p),
     stat: (p) => (store.has(p) ? store.get(p).length : null),
+    rename: (from, to) => {
+      const v = store.get(from)
+      if (v === undefined) return
+      store.set(to, v)
+      store.delete(from)
+    },
+    remove: (p) => {
+      store.delete(p)
+    },
   }
 }
 
@@ -161,6 +170,47 @@ test('能力四 M1 试点回归: spawn 优先 profile-local bin（prefix 独立�
   const spawned = a.proc.spawned[0]
   assert.equal(spawned.bin.endsWith('/agent/nodes/ops01/profiles/ops01/node_modules/@deepseek-ai/dsh/lib/bin.js'), true, '有 profile-local bin 就绝不用 prefix 树')
   assert.equal(a.proc.installed.length, 0, 'prefix 独立安装跳过（其树缺 legacy peer 会崩）')
+})
+
+test('能力四 M4-2: 超大 node.log 在 spawn 前轮转（保留一代，新日志从零开始）', async () => {
+  const { NODE_LOG_MAX_BYTES } = await import('./agent/runtime.mjs')
+  const big = NODE_LOG_MAX_BYTES + 1024
+  const a = makeRuntime()
+  await a.runtime.registerOnce()
+  // 预置 profile-local bin + 一个超限的旧日志
+  a.fs.store.set('/agent/nodes/ops01/profiles/ops01/node_modules/@deepseek-ai/dsh/lib/bin.js', '')
+  a.fs.store.set('/agent/nodes/ops01/node.log', 'x'.repeat(big))
+  a.runtime.nodes.set('ops01', { pid: null, startedAt: null, logOffset: 999 })
+  a.transport.commandBatches.push([
+    {
+      id: 31,
+      type: 'node.spawn',
+      payload: {
+        nodeId: 'ops01',
+        args: ['--profile', 'ops01', '--port', '3081'],
+        env: { DSH_HOME: '/agent/nodes/ops01', GW_KEY: 'apigw-k' },
+        dshVersion: '0.1.5-rc.2',
+        profile: { dir: 'profiles/ops01', files: { 'package.json': '{"dsh":1}' } },
+      },
+    },
+  ])
+  await a.runtime.loopOnce()
+  assert.equal(a.fs.store.get('/agent/nodes/ops01/node.log.1')?.length, big, '旧日志轮转到 .1（保留一代，崩溃排障不丢）')
+  assert.equal(a.fs.store.get('/agent/nodes/ops01/node.log') ?? null, null, '旧 node.log 已让位（真实 spawn 会开新文件）')
+  const node = a.runtime.nodes.get('ops01')
+  assert.equal(node?.logOffset, 0, '新日志世代偏移归零')
+
+  // 小日志不轮转
+  const b = makeRuntime()
+  await b.runtime.registerOnce()
+  b.fs.store.set('/agent/nodes/ops01/profiles/ops01/node_modules/@deepseek-ai/dsh/lib/bin.js', '')
+  b.fs.store.set('/agent/nodes/ops01/node.log', 'small-boot\n')
+  b.transport.commandBatches.push([
+    { id: 32, type: 'node.spawn', payload: { nodeId: 'ops01', args: [], env: { DSH_HOME: '/agent/nodes/ops01' }, dshVersion: '0.1.5-rc.2', profile: { dir: 'profiles/ops01', files: { 'package.json': '{}' } } } },
+  ])
+  await b.runtime.loopOnce()
+  assert.equal(b.fs.store.get('/agent/nodes/ops01/node.log'), 'small-boot\n', '小日志原样保留')
+  assert.equal(b.fs.store.get('/agent/nodes/ops01/node.log.1'), undefined, '不产生 .1')
 })
 
 test('能力四 M4-1: config.deliver 身份轮换——新 token 落盘立即生效；未知 kind 诚实失败', async () => {

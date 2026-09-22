@@ -13,7 +13,7 @@
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { hostname } from 'node:os'
 
@@ -75,6 +75,9 @@ export const spawnInvocation = (platform, bin, args) =>
   platform === 'win32'
     ? { cmd: process.execPath, args: [bin, ...args] }
     : { cmd: bin, args }
+
+/** 能力四（M4-2）：node.log 单代上限——spawn 前超限即轮转（保留一代）。 */
+export const NODE_LOG_MAX_BYTES = 50 * 1024 * 1024
 
 const defaultProc = {
   /** 安装 DSH 到 agent 自有 prefix（不碰用户全局 npm）。 */
@@ -256,8 +259,19 @@ export class AgentRuntime {
       // peer，启动即崩（ERR_MODULE_NOT_FOUND）。有 profile-local bin 绝不用 prefix。
       const profileBin = profileDir === null ? null : `${profileDir}/node_modules/${DSH_PACKAGE}/lib/bin.js`
       const bin = profileBin !== null && this.fs.exists(profileBin) ? profileBin : await this.ensureDsh(payload.dshVersion)
+      // M4-2：旧日志超限在 spawn 前轮转（此刻旧 fd 已关闭，Windows 也能 rename）；
+      // 保留一代 .1 供崩溃排障，新日志从零开始。
+      const logPath = `${home}/node.log`
+      const logSize = this.fs.stat(logPath)
+      if (logSize !== null && logSize > NODE_LOG_MAX_BYTES) {
+        try {
+          this.fs.remove(`${logPath}.1`)
+        } catch { /* .1 不存在或不可删——不阻断 */ }
+        this.fs.rename(logPath, `${logPath}.1`)
+        this.log(`node ${nodeId}: node.log 超限（${logSize} 字节）已轮转到 .1`)
+      }
       const env = { ...(payload.env ?? {}), DSH_HOME: dshHome }
-      const { pid } = await this.proc.spawn(bin, payload.args ?? [], env, `${home}/node.log`)
+      const { pid } = await this.proc.spawn(bin, payload.args ?? [], env, logPath)
       this.fs.writeFile(`${home}/node.pid`, String(pid))
       this.nodes.set(nodeId, { pid, startedAt: Date.now(), logOffset: 0 })
       this.log(`node ${nodeId} spawned (pid ${pid})`)
@@ -421,5 +435,7 @@ function defaultFs() {
         return null
       }
     },
+    rename: (from, to) => renameSync(from, to),
+    remove: (p) => rmSync(p, { force: true }),
   }
 }

@@ -132,6 +132,20 @@ risk)**:
 - The node must unlock full access on its side (facade `host.describe`
   allowFullAccess); until unlocked, the "full access" tier in chat shows locked.
 
+### Scale & backpressure boundaries (M4-2)
+
+- **Channel rate limits**: join issue 20/min, agent register 10/min, command
+  long-poll 240/min, event report 240/min, revoke/rotate 20/min; long-poll wait
+  ≤25s per cycle, event batches ≤100, log chunks ≤32KB — all limits are counted
+  per agent / per user independently.
+- **Log limits**: the manager keeps a 64KB in-memory ring per agent node; the
+  agent caps `node.log` at 50MB and rotates it before spawn (keeping one `.1`
+  generation for crash forensics).
+- **Single manager comfortable up to ~50 machines**: each machine holds one
+  long-poll connection (heartbeat ~30s), so N machines ≈ N/30s poll requests
+  plus event posts; SQLite single-writer and the per-agent command queue stay
+  comfortable within that. Larger fleets → multiple managers (planned).
+
 ### Facade firewall whitelist (required before going cross-network)
 
 A node's facade port (e.g. 3081) is exposed on its server and **must only allow

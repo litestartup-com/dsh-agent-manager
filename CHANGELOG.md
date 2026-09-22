@@ -50,6 +50,11 @@
   成功才清宽限、报失败自动回滚；迁移 18（prev_token_hash/prev_set_at）+
   审计 `agent_token_rotated`。本地 E2E：轮换 → agent 身份落盘换新 → ack
   收敛 → 新 token 心跳续命。
+- **能力四 · 舰队 M4-2 日志限额与背压边界（2026-09-23）**：agent 侧
+  `node.log` 上限 50MB——spawn 前超限自动轮转（保留一代 `.1` 供崩溃排障，
+  Windows 上旧 fd 已关闭时 rename 安全）；README 双语新增「规模与背压边界」
+  一节（通道限流矩阵 / 日志限额 / 单 manager ≤50 台建议与依据）；
+  check-docs 守卫 `NODE_LOG_MAX_BYTES`。
 - **能力四 · 舰队 M3-1 ops 节点（2026-09-23）**：向导/API 放行第三档沙箱
   `danger-full-access`（整机全量，Q2 拍板口径）——provision schema 档位 +
   向导下拉（高危标注）+ 独立黄字确认（审批卡片/审计/凭据口径）；check-docs
