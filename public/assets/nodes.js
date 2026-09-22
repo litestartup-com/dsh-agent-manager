@@ -6,7 +6,7 @@
 // gui-access.js。
 import { $, ago, esc, setHtml, apiJson, poll } from './ui.js'
 import { guiCardHtml, guiDirectCardHtml, guiSetupButton } from './gui-access.js'
-import { nodeCreatePayload, hostRunnerConfirmText } from './node-form.js'
+import { nodeCreatePayload, hostRunnerConfirmText, versionOptionsHtml } from './node-form.js'
 
 const NODE_STATE_DOT = { live: 'ok', cold: 'muted', starting: 'warn', restarting: 'warn', offline: 'bad' }
 const NODE_STATE_LABEL = { live: 'live', cold: '未启动', starting: '启动中', restarting: '重启中', offline: 'offline' }
