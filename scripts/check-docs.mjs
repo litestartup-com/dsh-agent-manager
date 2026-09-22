@@ -194,6 +194,11 @@ try {
   if (!/NODE_LOG_MAX_BYTES/.test(agentRuntime)) {
     failures.push('public/assets/agent/runtime.mjs: 缺 NODE_LOG_MAX_BYTES 轮转上限（M4-2 日志限额）')
   }
+  // M4-3：入口依赖 update.mjs——两个 join 安装脚本必须随包下载，缺 = 装完即崩
+  const joinPs1 = readFileSync(join(root, 'scripts/join.ps1'), 'utf8')
+  const joinSh = readFileSync(join(root, 'public/assets/agent/join.sh'), 'utf8')
+  if (!joinPs1.includes('update.mjs')) failures.push('scripts/join.ps1: 未下载 update.mjs（agent 入口依赖，缺 = 装完即崩）')
+  if (!joinSh.includes('update.mjs')) failures.push('public/assets/agent/join.sh: 未下载 update.mjs（agent 入口依赖，缺 = 装完即崩）')
   if (!/\/api\/agents\/:id\/rotate/.test(readFileSync(join(root, 'src/routes/agents.ts'), 'utf8'))) {
     failures.push('src/routes/agents.ts: 缺 /api/agents/:id/rotate 轮换端点（M4-1）')
   }

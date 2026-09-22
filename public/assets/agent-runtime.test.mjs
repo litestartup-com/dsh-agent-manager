@@ -172,6 +172,47 @@ test('能力四 M1 试点回归: spawn 优先 profile-local bin（prefix 独立�
   assert.equal(a.proc.installed.length, 0, 'prefix 独立安装跳过（其树缺 legacy peer 会崩）')
 })
 
+test('能力四 M4-3: agent.update——sha256 校验通过 staging 到 .next + 待退出；坏校验拒绝', async () => {
+  const { createHash } = await import('node:crypto')
+  const a = makeRuntime()
+  await a.runtime.registerOnce()
+  const runtimeContent = 'runtime-v2'
+  const entryContent = 'entry-v2'
+  const files = { 'runtime.mjs': runtimeContent, 'agent.mjs': entryContent }
+  const sha = createHash('sha256').update(Object.keys(files).sort().map((name) => `${name}:${files[name]}`).join('\n')).digest('hex')
+  a.transport.commandBatches.push([
+    { id: 41, type: 'agent.update', payload: { files, sha256: sha, managerVersion: '9.9.9' } },
+  ])
+  await a.runtime.loopOnce()
+  assert.equal(a.fs.store.get('/agent/.next/runtime.mjs'), runtimeContent, '.next staging')
+  assert.equal(a.fs.store.get('/agent/.next/.version'), '9.9.9', '目标版本随包')
+  assert.equal(a.runtime.pendingExit, true, '回报后退出交给服务管理器')
+  const posted = a.transport.eventsPosted.flat().find((e) => e.type === 'command_result')
+  assert.equal(posted?.ok, true)
+
+  const b = makeRuntime()
+  await b.runtime.registerOnce()
+  b.transport.commandBatches.push([
+    { id: 42, type: 'agent.update', payload: { files: { 'runtime.mjs': 'x', 'agent.mjs': 'y' }, sha256: 'deadbeef', managerVersion: '9.9.9' } },
+  ])
+  await b.runtime.loopOnce()
+  const second = b.transport.eventsPosted.flat().find((e) => e.type === 'command_result')
+  assert.equal(second?.ok, false, '校验失败拒绝换装')
+  assert.equal(b.fs.store.get('/agent/.next/runtime.mjs') ?? null, null, '不 staging')
+  assert.equal(b.runtime.pendingExit, false, '不退出')
+})
+
+test('能力四 M4-3: 版本协商——启动后首轮心跳携带 agentVersion（.update-version 为准）', async () => {
+  const a = makeRuntime()
+  await a.runtime.registerOnce()
+  a.fs.store.set('/agent/.update-version', '1.1.2')
+  a.runtime.agentVersion = '1.1.2'
+  a.transport.commandBatches.push([])
+  await a.runtime.loopOnce()
+  const heartbeat = a.transport.eventsPosted.flat().find((e) => e.type === 'heartbeat')
+  assert.deepEqual(heartbeat?.detail, { agentVersion: '1.1.2' }, '心跳携带版本')
+})
+
 test('能力四 M4-2: 超大 node.log 在 spawn 前轮转（保留一代，新日志从零开始）', async () => {
   const { NODE_LOG_MAX_BYTES } = await import('./agent/runtime.mjs')
   const big = NODE_LOG_MAX_BYTES + 1024

@@ -13,6 +13,7 @@ if (-not $nodeBin) { Write-Error '需要 Node ≥20（node 不在 PATH）'; exit
 New-Item -ItemType Directory -Force -Path $agentDir | Out-Null
 Invoke-WebRequest -Uri "$managerUrl/assets/agent/runtime.mjs" -OutFile (Join-Path $agentDir 'runtime.mjs') -UseBasicParsing
 Invoke-WebRequest -Uri "$managerUrl/assets/agent/agent.mjs"     -OutFile (Join-Path $agentDir 'agent.mjs')     -UseBasicParsing
+Invoke-WebRequest -Uri "$managerUrl/assets/agent/update.mjs"    -OutFile (Join-Path $agentDir 'update.mjs')    -UseBasicParsing
 
 $action = New-ScheduledTaskAction -Execute $nodeBin -Argument 'agent.mjs' -WorkingDirectory $agentDir
 $trigger = New-ScheduledTaskTrigger -AtStartup
@@ -20,14 +21,19 @@ $settings = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
 Register-ScheduledTask -TaskName 'OhdshAgent' -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null
 
-# 环境变量塞进任务：用 Register 的 -Action 不支持 env，改 schtasks /xml 麻烦——直接写一个启动批处理
+# 环境变量塞进任务：用 Register 的 -Action 不支持 env，改 schtasks /xml 麻烦——直接写一个启动批处理。
+# M4-3：批处理带重启循环——agent 自更新以非零码退出换装，5s 后循环拉起新代码；
+# 计划任务的 RestartOnFailure 对 demand-start 实例不可靠（实测），循环兜底。
 $launcher = Join-Path $agentDir 'agent-start.cmd'
 @"
 @echo off
 set MANAGER_URL=$managerUrl
 set AGENT_JOIN_TOKEN=$joinToken
 set AGENT_DIR=$agentDir
+:loop
 "$nodeBin" "$agentDir\agent.mjs"
+timeout /t 5 /nobreak >nul
+goto loop
 "@ | Set-Content -Path $launcher -Encoding ASCII
 $action2 = New-ScheduledTaskAction -Execute $launcher -WorkingDirectory $agentDir
 Register-ScheduledTask -TaskName 'OhdshAgent' -Action $action2 -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null

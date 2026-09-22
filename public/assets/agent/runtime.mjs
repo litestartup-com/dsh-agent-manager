@@ -16,6 +16,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { hostname } from 'node:os'
+import { currentAgentVersion } from './update.mjs'
 
 /** 与 src/dsh-matrix.ts 的 needsLegacyPeerDeps 保持一致（check-docs.mjs 常驻断言）。 */
 export const LEGACY_PEER_DEPS_VERSIONS = ['0.1.5-rc.2']
@@ -167,6 +168,10 @@ export class AgentRuntime {
     /** @type {Map<string, { pid:number|null, startedAt:number|null, logOffset:number }>} */
     this.nodes = new Map()
     this.retryAttempt = 0
+    // M4-3：自更新版本协商 + 换装后退出交给服务管理器重启
+    this.agentVersion = currentAgentVersion(this.agentDir)
+    this.pendingExit = false
+    this.versionReportedAt = null
   }
 
   /** 读/恢复身份（agent.json 0600）。 */
@@ -196,6 +201,7 @@ export class AgentRuntime {
       os: process.platform,
       arch: process.arch,
       nodeVersion: process.version,
+      ...(this.agentVersion === null ? {} : { agentVersion: this.agentVersion }),
     }
     const res = await this.transport.register(this.managerUrl, body)
     this.agentId = res.agentId
@@ -336,6 +342,36 @@ export class AgentRuntime {
     return { ok: true, result: { rotated: true } }
   }
 
+  /** M4-3：agent.update——校验 → staging 到 .next → 回报后退出交给服务管理器重启。 */
+  async execUpdate(command) {
+    const payload = command.payload ?? {}
+    const files = payload.files ?? {}
+    const runtimeContent = files['runtime.mjs']
+    const entryContent = files['agent.mjs']
+    if (typeof runtimeContent !== 'string' || typeof entryContent !== 'string' || runtimeContent === '' || entryContent === '') {
+      return { ok: false, result: { message: 'agent.update payload missing files (agent.mjs/runtime.mjs)' } }
+    }
+    const { createHash } = await import('node:crypto')
+    // 摘要 = 按文件名排序的「文件名 + 内容」拼接（与 manager 侧同构）
+    const digest = createHash('sha256')
+      .update(Object.keys(files).sort().map((name) => `${name}:${files[name]}`).join('\n'))
+      .digest('hex')
+    if (payload.sha256 !== digest) {
+      return { ok: false, result: { message: 'sha256 mismatch — 更新包校验失败，拒绝换装' } }
+    }
+    const nextDir = `${this.agentDir}/.next`
+    this.fs.mkdir(nextDir)
+    for (const [name, content] of Object.entries(files)) {
+      if (typeof content === 'string') this.fs.writeFile(`${nextDir}/${name}`, content)
+    }
+    if (typeof payload.managerVersion === 'string' && payload.managerVersion !== '') {
+      this.fs.writeFile(`${nextDir}/.version`, payload.managerVersion)
+    }
+    this.pendingExit = true
+    this.log(`agent.update 校验通过（→ ${String(payload.managerVersion ?? '?')}），回报后将退出交给服务管理器重启`)
+    return { ok: true, result: { staged: true } }
+  }
+
   async execute(command) {
     if (command.type === 'node.spawn') return this.execSpawn(command)
     if (command.type === 'node.stop') return this.execStop(command)
@@ -343,6 +379,7 @@ export class AgentRuntime {
     if (command.type === 'node.logs') return this.execLogs(command)
     if (command.type === 'node.status') return this.execStatus(command)
     if (command.type === 'config.deliver') return this.execDeliver(command)
+    if (command.type === 'agent.update') return this.execUpdate(command)
     return { ok: false, result: { message: `command type ${command.type} not implemented in this agent version` } }
   }
 
@@ -369,6 +406,12 @@ export class AgentRuntime {
       events.push({ type: 'command_result', commandId: command.id, ok: outcome.ok, result: outcome.result })
     }
     events.push(...this.collectLogChunks())
+    // M4-3：版本协商——启动后首个循环与每 10 分钟心跳携带 agentVersion
+    const now = Date.now()
+    if (this.versionReportedAt === null || now - this.versionReportedAt > 10 * 60_000) {
+      events.push({ type: 'heartbeat', detail: { agentVersion: this.agentVersion } })
+      this.versionReportedAt = now
+    }
     if (events.length > 0) {
       await this.transport.events(this.managerUrl, this.agentId, this.agentToken, events)
     }
@@ -380,6 +423,9 @@ export class AgentRuntime {
    * 可传 AbortSignal 干净退出（测试/停机用）。
    * 每轮迭代后 `sleep(0)` 让出事件循环——瞬时 resolve 的传输在测试/故障
    * 场景下会微任务饥饿，定时器（信号/心跳）永远得不到执行。
+   * M4-3：换装 staging 完成后本轮回报即退出（服务管理器重启加载新代码）。
+   * 注意：以非零码退出——Windows 计划任务按失败重启（RestartOnFailure），
+   * systemd Restart=always 不受影响；换装后的重启是设计内行为。
    */
   async run(opts = {}) {
     await this.registerOnce()
@@ -388,6 +434,10 @@ export class AgentRuntime {
       try {
         await this.loopOnce()
         this.retryAttempt = 0
+        if (this.pendingExit === true) {
+          this.log('agent.update 已回报——以非零码退出，交给服务管理器重启加载新代码')
+          process.exit(1)
+        }
       } catch (error) {
         if (error instanceof Error && error.message === 'unauthorized') {
           this.log('身份被拒（吊销/失效）——清身份后重新注册')

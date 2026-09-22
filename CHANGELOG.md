@@ -50,6 +50,16 @@
   成功才清宽限、报失败自动回滚；迁移 18（prev_token_hash/prev_set_at）+
   审计 `agent_token_rotated`。本地 E2E：轮换 → agent 身份落盘换新 → ack
   收敛 → 新 token 心跳续命。
+- **能力四 · 舰队 M4-3 agent 自更新原子性（2026-09-23）**：
+  `POST /api/agents/:id/update`（在线门禁）把 manager 静态面的
+  agent.mjs/runtime.mjs/update.mjs + 排序拼接 sha256 打成 `agent.update`
+  指令；agent 校验后 staging 到 `.next` → 以非零码退出（Windows 批处理
+  5s 重启循环兜底，systemd Restart=always 天然支持）→ 启动期原子换装
+  （当前 → `.prev` 保留一代）→ 新代码加载；**秒崩自动回滚**：90s 内重启 +
+  换装 10 分钟内 + 上一代存在 = 新代码崩溃循环 → 恢复 `.prev`；版本协商 =
+  注册/心跳上报 agentVersion（迁移 19），机器页「待更新」徽标对比
+  managerVersion。本地 E2E：自动更新 → v1.1.1 生效；注入坏 runtime → 秒崩
+  → 自动回滚 → 机器恢复在线。
 - **能力四 · 舰队 M4-2 日志限额与背压边界（2026-09-23）**：agent 侧
   `node.log` 上限 50MB——spawn 前超限自动轮转（保留一代 `.1` 供崩溃排障，
   Windows 上旧 fd 已关闭时 rename 安全）；README 双语新增「规模与背压边界」

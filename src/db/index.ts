@@ -288,6 +288,11 @@ const MIGRATIONS: readonly string[][] = [
     `ALTER TABLE agent_machine ADD COLUMN prev_token_hash TEXT`,
     `ALTER TABLE agent_machine ADD COLUMN prev_set_at INTEGER`,
   ],
+  // 19 -- 能力四（舰队 M4-3）：agent 运行时版本（自更新协商告警用）。
+  // 注册/心跳上报 agentVersion；机器页据此显示「待更新」徽标。
+  [
+    `ALTER TABLE agent_machine ADD COLUMN agent_version TEXT`,
+  ],
 ]
 
 export interface OpenDbResult {

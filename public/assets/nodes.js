@@ -507,13 +507,14 @@ const load = async () => {
     const { nodes, dockerMode: isDocker, supportedDsh, containerForm } = nodesResult.data
     dockerMode = isDocker === true
     if (Array.isArray(supportedDsh)) versionList = supportedDsh
-    // 能力四（M1-7）：机器目录 + 主机下拉 + 节点行主机名映射
+    // 能力四（M1-7/M4-3）：机器目录 + 主机下拉 + 节点行主机名映射 + 待更新徽标
     if (agentsResult.ok && Array.isArray(agentsResult.data.agents)) {
       const machines = agentsResult.data.agents
+      const managerVersion = agentsResult.data.managerVersion
       agentHostnames = new Map(machines.map((m) => [m.id, m.hostname]))
       setHtml('machines-list', machines.length === 0
         ? '<p class="muted small">还没有接入的机器——点「添加机器」拿到 join 命令。</p>'
-        : machines.map(machineRowHtml).join(''))
+        : machines.map((m) => machineRowHtml({ ...m, managerVersion })).join(''))
       const hostSel = $('f-node-host')
       const online = machines.filter((m) => !m.revoked && m.online)
       while (hostSel.options.length > 1) hostSel.remove(1)

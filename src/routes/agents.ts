@@ -1,9 +1,13 @@
 import { createHash, randomBytes } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { FastifyInstance, FastifyRequest, preHandlerHookHandler } from 'fastify'
 import { and, asc, count, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { schema, type Db } from '../db/index.js'
 import type { AuditKind } from '../audit.js'
+import { MANAGER_VERSION } from '../version.js'
 
 /**
  * 能力四（舰队，M1-2/M1-3）：node-agent 注册链 + 指令/事件通道。
@@ -38,6 +42,8 @@ const registerBody = z.object({
   os: z.string().min(1).max(64),
   arch: z.string().min(1).max(32),
   nodeVersion: z.string().min(1).max(32),
+  /** M4-3：agent 运行时版本（自更新协商；旧 agent 不上报 = 缺省 null）。 */
+  agentVersion: z.string().min(1).max(32).optional(),
 })
 
 const eventsBody = z.object({
@@ -175,7 +181,7 @@ export const registerAgentsRoutes = (
     async (request, reply) => {
       const parsed = registerBody.safeParse(request.body)
       if (!parsed.success) return reply.code(400).send({ error: 'invalid_body', detail: 'joinToken/hostname/os/arch/nodeVersion 必填' })
-      const { joinToken, hostname, os, arch, nodeVersion } = parsed.data
+      const { joinToken, hostname, os, arch, nodeVersion, agentVersion } = parsed.data
 
       const joinRow = db.select().from(schema.agentJoinToken).where(eq(schema.agentJoinToken.tokenHash, hashToken(joinToken))).all()[0]
       if (joinRow === undefined || joinRow.usedAt !== null || joinRow.expiresAt <= Date.now()) {
@@ -195,6 +201,9 @@ export const registerAgentsRoutes = (
         joinedAt: Date.now(),
         lastSeenAt: Date.now(),
         revokedAt: null,
+        prevTokenHash: null,
+        prevSetAt: null,
+        agentVersion: agentVersion ?? null,
       }).run()
       audit?.(agentId, 'agent_registered', `${hostname} ${os}/${arch} node ${nodeVersion}`)
       return reply.send({ agentId, agentToken })
@@ -294,8 +303,14 @@ export const registerAgentsRoutes = (
           }
         } else if (event.type === 'log_chunk') {
           appendLog(agentId, event.nodeId, event.chunk)
+        } else if (event.type === 'heartbeat') {
+          // M4-3：心跳携带 agent 运行时版本（自更新协商徽标数据源）
+          const version = event.detail?.agentVersion
+          if (typeof version === 'string' && version !== '' && version.length <= 32) {
+            db.update(schema.agentMachine).set({ agentVersion: version }).where(eq(schema.agentMachine.id, agentId)).run()
+          }
         }
-        // heartbeat：lastSeenAt 已刷新，载荷暂不落库（M4 指标采集用）
+        // lastSeenAt 已由入口统一刷新
       }
       return reply.send({ ok: true })
     },
@@ -321,9 +336,11 @@ export const registerAgentsRoutes = (
         revoked: r.revokedAt !== null,
         online: r.revokedAt === null && r.lastSeenAt !== null && now - r.lastSeenAt <= AGENT_OFFLINE_MS,
         pendingCommands: pending,
+        // M4-3：运行时版本（null = 旧 agent 未上报）；前端与 managerVersion 比对出徽标
+        agentVersion: r.agentVersion,
       }
     })
-    return { agents }
+    return { agents, managerVersion: MANAGER_VERSION }
   })
 
   // ---- 用户面：吊销 agent ----
@@ -361,6 +378,38 @@ export const registerAgentsRoutes = (
       const commandId = enqueueAgentCommand(db, row.id, 'config.deliver', { kind: 'identity', agentToken })
       audit?.(request.currentUser?.username ?? 'unknown', 'agent_token_rotated', `agent ${row.id}（${row.hostname}）密钥轮换，deliver 指令 #${commandId}`)
       return reply.send({ ok: true, commandId })
+    },
+  )
+
+  // ---- 用户面：下发 agent 自更新（M4-3）----
+  // 载荷 = manager 当前静态面的 agent.mjs + runtime.mjs + 双文件拼接摘要；
+  // agent 侧校验后原子换装并退出，由服务管理器重启加载新代码。
+  app.post<{ Params: { id: string } }>(
+    '/api/agents/:id/update',
+    { preHandler: requireUser, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      const row = db.select().from(schema.agentMachine).where(eq(schema.agentMachine.id, request.params.id)).all()[0]
+      if (row === undefined) return reply.code(404).send({ error: 'unknown_agent' })
+      if (row.revokedAt !== null) return reply.code(409).send({ error: 'agent_revoked' })
+      const online = row.lastSeenAt !== null && Date.now() - row.lastSeenAt <= AGENT_OFFLINE_MS
+      if (!online) {
+        return reply.code(409).send({ error: 'agent_offline', detail: '机器离线——指令投递不到，先让 agent 上线再更新' })
+      }
+      const agentDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'public', 'assets', 'agent')
+      const files = Object.fromEntries(
+        ['agent.mjs', 'runtime.mjs', 'update.mjs'].map((name) => [name, readFileSync(join(agentDir, name), 'utf8')]),
+      )
+      // 摘要 = 按文件名排序的「文件名 + 内容」拼接（agent 侧同构）
+      const sha256 = createHash('sha256')
+        .update(Object.keys(files).sort().map((name) => `${name}:${files[name]}`).join('\n'))
+        .digest('hex')
+      const commandId = enqueueAgentCommand(db, row.id, 'agent.update', {
+        files,
+        sha256,
+        managerVersion: MANAGER_VERSION,
+      })
+      audit?.(request.currentUser?.username ?? 'unknown', 'agent_update_requested', `agent ${row.id}（${row.hostname}）自更新下发 → ${MANAGER_VERSION}（指令 #${commandId}）`)
+      return reply.send({ ok: true, commandId, managerVersion: MANAGER_VERSION })
     },
   )
 }

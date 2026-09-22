@@ -22,6 +22,7 @@ export type AuditKind =
   | 'agent_registered'
   | 'agent_revoked'
   | 'agent_token_rotated'
+  | 'agent_update_requested'
   | 'sandbox_mode'
   | 'backup'
 

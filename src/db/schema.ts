@@ -198,6 +198,8 @@ export const agentMachine = sqliteTable('agent_machine', {
   /** M4-1 轮换宽限位：上一代 token 哈希（ack 后清除）。 */
   prevTokenHash: text('prev_token_hash'),
   prevSetAt: integer('prev_set_at'),
+  /** M4-3：agent 运行时版本（自更新后经心跳上报；机器页「待更新」徽标数据源）。 */
+  agentVersion: text('agent_version'),
 })
 
 /** 能力四（舰队）：一次性注册 token（manager 签发，15 分钟过期，一次即焚）。 */

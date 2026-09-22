@@ -14,6 +14,10 @@ test('能力四 M1-7: 机器行——在线/离线/吊销/待执行指令各态�
   assert.ok(machineRowHtml(base).includes('data-agent-revoke="agent-abc123"'))
   assert.ok(machineRowHtml(base).includes('data-agent-rotate="agent-abc123"'), 'M4-1: 未吊销机器显示轮换密钥按钮')
   assert.ok(!machineRowHtml({ ...base, revoked: true }).includes('data-agent-rotate'), '已吊销不显示轮换按钮')
+  // M4-3：版本协商徽标
+  assert.ok(machineRowHtml({ ...base, agentVersion: '1.0.0', managerVersion: '1.1.2' }).includes('待更新'), '旧版本显示待更新徽标')
+  assert.ok(!machineRowHtml({ ...base, agentVersion: '1.1.2', managerVersion: '1.1.2' }).includes('待更新'), '同版本无徽标')
+  assert.ok(!machineRowHtml({ ...base, agentVersion: null, managerVersion: '1.1.2' }).includes('待更新'), '旧 agent 未上报版本不误报')
 })
 
 test('能力四 M1-7: join 命令——origin 与 token 注入，静态面分发 join.sh', () => {
