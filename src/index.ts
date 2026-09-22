@@ -33,6 +33,7 @@ import { closeChatRelays, registerChatRoutes } from './routes/chat.js'
 import { registerUsageRoutes } from './routes/usage.js'
 import { registerCronRoutes } from './routes/cron.js'
 import { registerInternalRoutes } from './routes/internal.js'
+import { registerAgentsRoutes } from './routes/agents.js'
 import { registerNodesRoutes } from './routes/nodes.js'
 import { registerSkillsRoutes } from './routes/skills.js'
 import { registerNotificationRoutes } from './routes/notifications.js'
@@ -246,6 +247,8 @@ const main = async (): Promise<void> => {
     recordAudit(db, { actor, kind, detail }),
   )
   registerProvisionRoutes(app, config, requireUser, { db, supervisors: nodeSupervisors, clients, upstreamClients, ...(dockerRunner === null ? {} : { docker: dockerRunner }) })
+  // 能力四（舰队 M1-2）：node-agent 注册链（join 签发 / register 换发 / 吊销）。
+  registerAgentsRoutes(app, db, requireUser, (actor, kind, detail) => recordAudit(db, { actor, kind, detail }))
   registerSkillsRoutes(app, config, requireUser)
   registerNotificationRoutes(app, db, requireUser)
   // 债务 B6:/metrics 快照端点(受保护)

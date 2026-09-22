@@ -241,6 +241,29 @@ const MIGRATIONS: readonly string[][] = [
   [
     `ALTER TABLE chat ADD COLUMN access_mode TEXT`,
   ],
+  // 16 -- 能力四（舰队）：node-agent 目录与一次性 join token（M1-2）。
+  // agent_machine = 每台服务器的 agent 身份；token 只存哈希；revoked_at 吊销。
+  // agent_join_token = 一次性注册 token（15 分钟过期，manager UI 签发）。
+  [
+    `CREATE TABLE IF NOT EXISTS agent_machine (
+       id TEXT PRIMARY KEY,
+       hostname TEXT NOT NULL,
+       os TEXT NOT NULL,
+       arch TEXT NOT NULL,
+       node_version TEXT NOT NULL,
+       token_hash TEXT NOT NULL,
+       joined_at INTEGER NOT NULL,
+       last_seen_at INTEGER,
+       revoked_at INTEGER
+     )`,
+    `CREATE INDEX IF NOT EXISTS agent_machine_seen ON agent_machine(last_seen_at)`,
+    `CREATE TABLE IF NOT EXISTS agent_join_token (
+       token_hash TEXT PRIMARY KEY,
+       expires_at INTEGER NOT NULL,
+       used_at INTEGER,
+       created_at INTEGER NOT NULL
+     )`,
+  ],
 ]
 
 export interface OpenDbResult {

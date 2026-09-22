@@ -18,6 +18,9 @@ export type AuditKind =
   | 'node_access_update'
   | 'node_align_version'
   | 'node_version_change'
+  | 'agent_join_issued'
+  | 'agent_registered'
+  | 'agent_revoked'
   | 'sandbox_mode'
   | 'backup'
 

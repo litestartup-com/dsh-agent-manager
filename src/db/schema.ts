@@ -183,3 +183,24 @@ export const usageRecord = sqliteTable('usage_record', {
   peakCost: integer('peak_cost'),
   at: integer('at').notNull(),
 })
+
+/** 能力四（舰队）：每台服务器的 node-agent 身份目录。token 只存哈希。 */
+export const agentMachine = sqliteTable('agent_machine', {
+  id: text('id').primaryKey(),
+  hostname: text('hostname').notNull(),
+  os: text('os').notNull(),
+  arch: text('arch').notNull(),
+  nodeVersion: text('node_version').notNull(),
+  tokenHash: text('token_hash').notNull(),
+  joinedAt: integer('joined_at').notNull(),
+  lastSeenAt: integer('last_seen_at'),
+  revokedAt: integer('revoked_at'),
+})
+
+/** 能力四（舰队）：一次性注册 token（manager 签发，15 分钟过期，一次即焚）。 */
+export const agentJoinToken = sqliteTable('agent_join_token', {
+  tokenHash: text('token_hash').primaryKey(),
+  expiresAt: integer('expires_at').notNull(),
+  usedAt: integer('used_at'),
+  createdAt: integer('created_at').notNull(),
+})
