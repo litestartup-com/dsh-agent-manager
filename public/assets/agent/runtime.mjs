@@ -310,12 +310,25 @@ export class AgentRuntime {
     return { ok: true, result: { nodes: status } }
   }
 
+  /** M4-1：config.deliver——身份轮换（新 token 落盘并立即生效）。 */
+  async execDeliver(command) {
+    const payload = command.payload ?? {}
+    if (payload.kind !== 'identity' || typeof payload.agentToken !== 'string' || payload.agentToken === '') {
+      return { ok: false, result: { message: `unsupported config.deliver kind: ${String(payload.kind)}` } }
+    }
+    this.agentToken = payload.agentToken
+    this.saveIdentity()
+    this.log('身份已轮换（新 agentToken 已落盘）')
+    return { ok: true, result: { rotated: true } }
+  }
+
   async execute(command) {
     if (command.type === 'node.spawn') return this.execSpawn(command)
     if (command.type === 'node.stop') return this.execStop(command)
     if (command.type === 'node.restart') return this.execRestart(command)
     if (command.type === 'node.logs') return this.execLogs(command)
     if (command.type === 'node.status') return this.execStatus(command)
+    if (command.type === 'config.deliver') return this.execDeliver(command)
     return { ok: false, result: { message: `command type ${command.type} not implemented in this agent version` } }
   }
 

@@ -110,3 +110,87 @@ test('能力四 M1-2: revoke 吊销 agent（requireUser 门内；未知 id 404�
   const missing = await app.inject({ method: 'POST', url: '/api/agents/agent-nope/revoke' })
   assert.equal(missing.statusCode, 404)
 })
+
+test('能力四 M4-1: 轮换 agent token——在线才可轮换、旧 token 宽限期可用、ack 后旧 token 失效', async () => {
+  const { db } = openDb(':memory:')
+  const audits: string[] = []
+  const app = buildApp(db, async () => {}, audits)
+  const join = ((await app.inject({ method: 'POST', url: '/api/agents/join' })).json() as { token: string }).token
+  const registered = await app.inject({
+    method: 'POST',
+    url: '/api/internal/agents/register',
+    payload: { joinToken: join, hostname: 'srv-d', os: 'linux', arch: 'amd64', nodeVersion: '22.23.2' },
+  })
+  const { agentId, agentToken: oldToken } = registered.json() as { agentId: string; agentToken: string }
+
+  const rot = await app.inject({ method: 'POST', url: `/api/agents/${agentId}/rotate` })
+  assert.equal(rot.statusCode, 200, JSON.stringify(rot.body))
+  assert.ok((rot.json() as { ok: boolean }).ok)
+  // 新 token 不回传浏览器——只经 config.deliver 指令投递给 agent（测试从指令载荷取）
+  const cmd0 = db.select().from(schema.agentCommand).all().find((c) => c.type === 'config.deliver')
+  const newToken = (JSON.parse(cmd0?.payload ?? '{}') as { agentToken?: string }).agentToken
+  assert.ok(typeof newToken === 'string' && newToken.length >= 32, '新 token 在指令载荷里')
+  const row = db.select().from(schema.agentMachine).where(eq(schema.agentMachine.id, agentId)).all()[0]
+  assert.equal(row?.tokenHash, sha256(newToken!), '主 token 换新（只存哈希）')
+  assert.equal(row?.prevTokenHash, sha256(oldToken), '旧 token 进宽限位')
+  assert.ok(audits.includes('agent_token_rotated'), '轮换留痕')
+
+  const auth = (token: string): Promise<number> =>
+    app.inject({ method: 'GET', url: `/api/internal/agents/${agentId}/commands`, headers: { authorization: `Bearer ${token}` } }).then((r) => r.statusCode)
+  assert.equal(await auth(newToken!), 200, '新 token 立即可用')
+  assert.equal(await auth(oldToken), 200, '旧 token 宽限期内仍可用（防 ack 丢失把机器打砖）')
+
+  // 投递 ack：agent 报 config.deliver 成功 → 宽限位清除 → 旧 token 失效
+  const cmd = cmd0
+  assert.ok(cmd !== undefined, '轮换 = 入队一条 config.deliver 指令')
+  const ack = await app.inject({
+    method: 'POST',
+    url: `/api/internal/agents/${agentId}/events`,
+    headers: { authorization: `Bearer ${newToken}` },
+    payload: { events: [{ type: 'command_result', commandId: cmd.id, ok: true, result: {} }] },
+  })
+  assert.equal(ack.statusCode, 200)
+  const after = db.select().from(schema.agentMachine).where(eq(schema.agentMachine.id, agentId)).all()[0]
+  assert.equal(after?.prevTokenHash, null, 'ack 后宽限位清除')
+  assert.equal(await auth(oldToken), 401, '旧 token 此后失效')
+})
+
+test('能力四 M4-1: 离线机器轮换 409 agent_offline；apply 失败回滚回旧 token', async () => {
+  const { db } = openDb(':memory:')
+  const app = buildApp(db)
+  const join = ((await app.inject({ method: 'POST', url: '/api/agents/join' })).json() as { token: string }).token
+  const registered = await app.inject({
+    method: 'POST',
+    url: '/api/internal/agents/register',
+    payload: { joinToken: join, hostname: 'srv-e', os: 'linux', arch: 'amd64', nodeVersion: '22.23.2' },
+  })
+  const { agentId, agentToken: oldToken } = registered.json() as { agentId: string; agentToken: string }
+  // 标记离线（lastSeenAt 超出 90s）
+  db.update(schema.agentMachine).set({ lastSeenAt: Date.now() - 120_000 }).where(eq(schema.agentMachine.id, agentId)).run()
+  const off = await app.inject({ method: 'POST', url: `/api/agents/${agentId}/rotate` })
+  assert.equal(off.statusCode, 409, JSON.stringify(off.body))
+  assert.equal((off.json() as { error: string }).error, 'agent_offline', '离线拒绝轮换（防打砖）')
+
+  // 恢复在线后轮换，agent 报 apply 失败 → 回滚
+  db.update(schema.agentMachine).set({ lastSeenAt: Date.now() }).where(eq(schema.agentMachine.id, agentId)).run()
+  const rot = await app.inject({ method: 'POST', url: `/api/agents/${agentId}/rotate` })
+  assert.equal(rot.statusCode, 200)
+  const cmd = db.select().from(schema.agentCommand).all().find((c) => c.type === 'config.deliver')
+  const newToken = (JSON.parse(cmd?.payload ?? '{}') as { agentToken?: string }).agentToken
+  // 真实时序：agent 先长轮询领取（delivered）再回报结果
+  const claim = await app.inject({
+    method: 'GET',
+    url: `/api/internal/agents/${agentId}/commands?wait=0`,
+    headers: { authorization: `Bearer ${newToken!}` },
+  })
+  assert.equal(claim.statusCode, 200)
+  await app.inject({
+    method: 'POST',
+    url: `/api/internal/agents/${agentId}/events`,
+    headers: { authorization: `Bearer ${newToken!}` },
+    payload: { events: [{ type: 'command_result', commandId: cmd!.id, ok: false, result: { message: 'apply failed' } }] },
+  })
+  const after = db.select().from(schema.agentMachine).where(eq(schema.agentMachine.id, agentId)).all()[0]
+  assert.equal(after?.tokenHash, sha256(oldToken), 'apply 失败回滚主 token')
+  assert.equal(after?.prevTokenHash, null)
+})

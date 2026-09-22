@@ -475,6 +475,18 @@ $('join-close').addEventListener('click', () => {
 })
 
 $('machines-list').addEventListener('click', (event) => {
+  const rotate = event.target.closest('[data-agent-rotate]')
+  if (rotate !== null) {
+    const id = rotate.dataset.agentRotate
+    if (!window.confirm(`轮换机器「${agentHostnames.get(id) ?? id}」的 agent 密钥？\n\n新密钥只经指令通道投递给 agent，旧密钥在确认前仍有效（30 分钟宽限）。`)) return
+    void apiJson(`/api/agents/${encodeURIComponent(id)}/rotate`, { method: 'POST' })
+      .then((r) => {
+        if (!r.ok) alert(r.detail)
+        return load()
+      })
+      .catch((error) => alert(`轮换失败：${error.message}`))
+    return
+  }
   const revoke = event.target.closest('[data-agent-revoke]')
   if (revoke === null) return
   const id = revoke.dataset.agentRevoke

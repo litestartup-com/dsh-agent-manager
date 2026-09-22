@@ -110,6 +110,9 @@ process = reseed + reinstall + restart), no config edits.
   token, **zero inbound ports** (the agent dials out);
 - **Nodes keep running when the manager is down** — the agent reconnects and
   reconciles on recovery;
+- The machines page can **revoke** (token dies immediately) or **rotate the key**
+  (online machines only; the new token is delivered over the command channel
+  with a 30-minute grace window for the old one);
 - Security: the agent is a fixed command set (not a generic shell); node facade
   ports must be firewalled to the manager's egress IP; the GUI still goes
   through the user-side SSH tunnel.

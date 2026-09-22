@@ -163,6 +163,25 @@ test('能力四 M1 试点回归: spawn 优先 profile-local bin（prefix 独立�
   assert.equal(a.proc.installed.length, 0, 'prefix 独立安装跳过（其树缺 legacy peer 会崩）')
 })
 
+test('能力四 M4-1: config.deliver 身份轮换——新 token 落盘立即生效；未知 kind 诚实失败', async () => {
+  const a = makeRuntime()
+  await a.runtime.registerOnce()
+  a.transport.commandBatches.push([
+    { id: 21, type: 'config.deliver', payload: { kind: 'identity', agentToken: 'token-rotated-1' } },
+  ])
+  await a.runtime.loopOnce()
+  assert.equal(a.runtime.agentToken, 'token-rotated-1', '新 token 立即生效（后续轮询用它鉴权）')
+  const saved = JSON.parse(a.fs.store.get('/agent/agent.json') ?? '{}')
+  assert.equal(saved.agentToken, 'token-rotated-1', '身份落盘')
+  const posted = a.transport.eventsPosted.flat().find((e) => e.type === 'command_result')
+  assert.equal(posted?.ok, true, '回报成功')
+
+  a.transport.commandBatches.push([{ id: 22, type: 'config.deliver', payload: { kind: 'nope' } }])
+  await a.runtime.loopOnce()
+  const second = a.transport.eventsPosted.at(-1)?.find((e) => e.commandId === 22)
+  assert.equal(second?.ok, false, '未知 kind 诚实失败（manager 侧据此回滚）')
+})
+
 test('能力四 M1-5: stop/restart/logs/status/未知指令', async () => {
   const a = makeRuntime()
   await a.runtime.registerOnce()

@@ -195,6 +195,9 @@ export const agentMachine = sqliteTable('agent_machine', {
   joinedAt: integer('joined_at').notNull(),
   lastSeenAt: integer('last_seen_at'),
   revokedAt: integer('revoked_at'),
+  /** M4-1 轮换宽限位：上一代 token 哈希（ack 后清除）。 */
+  prevTokenHash: text('prev_token_hash'),
+  prevSetAt: integer('prev_set_at'),
 })
 
 /** 能力四（舰队）：一次性注册 token（manager 签发，15 分钟过期，一次即焚）。 */

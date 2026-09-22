@@ -97,6 +97,8 @@ manager 只生成「怎么连」的命令，**SSH 私钥永不进入 manager**�
 - 每台服务器 = 一个 node-agent（零配置：只有 MANAGER_URL 与 token 两个环境
   变量；**零入站端口**，出站拨号 manager）；
 - **manager 掉线节点照跑**：agent 保活重连、恢复后对账收敛；
+- 机器页可**吊销**（token 立即失效）或**轮换密钥**（仅在线机器；新 token 经
+  指令通道投递，旧 token 30 分钟宽限防打砖）；
 - 安全：agent 是固定指令集（非通用 shell）；节点 facade 端口要防火墙白名单
   （只放行 manager 出口 IP）；GUI 仍走用户侧 SSH 隧道。
 

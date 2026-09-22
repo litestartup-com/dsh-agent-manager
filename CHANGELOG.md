@@ -43,6 +43,13 @@
   再报 `*_recovered`）；未读去重防 manager 重启刷屏；只报 agent runner 节点，
   本机 process/docker 节点不越界。本地实测：停 agent 任务 → 铃铛
   「机器掉线」；重启任务 → 「机器恢复」。
+- **能力四 · 舰队 M4-1 agent token 轮换（2026-09-23）**：
+  `POST /api/agents/:id/rotate`（机器页「轮换密钥」按钮）——仅在线机器可轮换
+  （离线 409 防打砖）；新 token 只经 `config.deliver` 指令投递给 agent
+  （不回传浏览器）；旧 token 进 30 分钟宽限位（ack 丢失不砖机），agent 报
+  成功才清宽限、报失败自动回滚；迁移 18（prev_token_hash/prev_set_at）+
+  审计 `agent_token_rotated`。本地 E2E：轮换 → agent 身份落盘换新 → ack
+  收敛 → 新 token 心跳续命。
 - **能力四 · 舰队 M3-1 ops 节点（2026-09-23）**：向导/API 放行第三档沙箱
   `danger-full-access`（整机全量，Q2 拍板口径）——provision schema 档位 +
   向导下拉（高危标注）+ 独立黄字确认（审批卡片/审计/凭据口径）；check-docs

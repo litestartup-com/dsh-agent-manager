@@ -20,6 +20,8 @@ const hashToken = (token: string): string => createHash('sha256').update(token).
 export const JOIN_TOKEN_TTL_MS = 15 * 60_000
 /** 心跳超时：超过该时长未鉴权露面 = 离线（agent 轮询周期 ~30s，3 个周期兜底）。 */
 export const AGENT_OFFLINE_MS = 90_000
+/** M4-1：轮换宽限期——旧 token 在此窗口内仍可用（防 ack 丢失把机器打砖）。 */
+export const ROTATION_GRACE_MS = 30 * 60_000
 /** 长轮询单次等待上限。 */
 const MAX_WAIT_MS = 25_000
 /** agent 日志环形缓冲（内存，按 agent:node 键控，各 64KB——设计 §5.2）。 */
@@ -46,10 +48,15 @@ const eventsBody = z.object({
   ])).max(100),
 })
 
-/** 按 agentToken 找未吊销的 agent 行；找不到/已吊销 = null。 */
+/** 按 agentToken 找未吊销的 agent 行；找不到/已吊销 = null。
+ * M4-1：轮换宽限期内的旧 token 同样可鉴权（prev 位，ack 后清除）。 */
 export const findAgentByToken = (db: Db, token: string): { id: string; hostname: string; os: string; arch: string; nodeVersion: string } | null => {
-  const row = db.select().from(schema.agentMachine).where(eq(schema.agentMachine.tokenHash, hashToken(token))).all()[0]
+  const digest = hashToken(token)
+  const row = db.select().from(schema.agentMachine).where(eq(schema.agentMachine.tokenHash, digest)).all()[0]
+    ?? db.select().from(schema.agentMachine).where(eq(schema.agentMachine.prevTokenHash, digest)).all()[0]
   if (row === undefined || row.revokedAt !== null) return null
+  const prevMatches = row.tokenHash !== digest
+  if (prevMatches && (row.prevSetAt === null || Date.now() - row.prevSetAt > ROTATION_GRACE_MS)) return null
   return { id: row.id, hostname: row.hostname, os: row.os, arch: row.arch, nodeVersion: row.nodeVersion }
 }
 
@@ -271,6 +278,19 @@ export const registerAgentsRoutes = (
             .run()
           if (updated.changes > 0) {
             for (const cb of resultSubs) cb(event.commandId, event.ok)
+            // M4-1：config.deliver（身份轮换）ack → 宽限位收敛——
+            // 成功 = 清 prev；失败 = 回滚主 token（agent 还持旧 token）。
+            const cmd = db.select().from(schema.agentCommand).where(eq(schema.agentCommand.id, event.commandId)).all()[0]
+            if (cmd?.type === 'config.deliver') {
+              if (event.ok) {
+                db.update(schema.agentMachine).set({ prevTokenHash: null, prevSetAt: null }).where(eq(schema.agentMachine.id, agentId)).run()
+              } else {
+                const machine = db.select().from(schema.agentMachine).where(eq(schema.agentMachine.id, agentId)).all()[0]
+                if (machine !== undefined && machine.prevTokenHash !== null) {
+                  db.update(schema.agentMachine).set({ tokenHash: machine.prevTokenHash, prevTokenHash: null, prevSetAt: null }).where(eq(schema.agentMachine.id, agentId)).run()
+                }
+              }
+            }
           }
         } else if (event.type === 'log_chunk') {
           appendLog(agentId, event.nodeId, event.chunk)
@@ -316,6 +336,31 @@ export const registerAgentsRoutes = (
       db.update(schema.agentMachine).set({ revokedAt: Date.now() }).where(eq(schema.agentMachine.id, request.params.id)).run()
       audit?.(request.currentUser?.username ?? 'unknown', 'agent_revoked', `agent ${request.params.id}（${row.hostname}）已吊销`)
       return reply.send({ ok: true })
+    },
+  )
+
+  // ---- 用户面：轮换 agent token（M4-1）----
+  // 只对在线机器开放（离线轮换 = 旧 token 得不到续命，机器可能被打砖）；
+  // 新 token 只经 config.deliver 指令投递给 agent（不返回给浏览器）。
+  app.post<{ Params: { id: string } }>(
+    '/api/agents/:id/rotate',
+    { preHandler: requireUser, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      const row = db.select().from(schema.agentMachine).where(eq(schema.agentMachine.id, request.params.id)).all()[0]
+      if (row === undefined) return reply.code(404).send({ error: 'unknown_agent' })
+      if (row.revokedAt !== null) return reply.code(409).send({ error: 'agent_revoked' })
+      const online = row.lastSeenAt !== null && Date.now() - row.lastSeenAt <= AGENT_OFFLINE_MS
+      if (!online) {
+        return reply.code(409).send({ error: 'agent_offline', detail: '机器离线——轮换可能把 agent 打砖（旧 token 无法续命），请先让 agent 上线再轮换' })
+      }
+      const agentToken = randomBytes(32).toString('base64url')
+      db.update(schema.agentMachine)
+        .set({ tokenHash: hashToken(agentToken), prevTokenHash: row.tokenHash, prevSetAt: Date.now() })
+        .where(eq(schema.agentMachine.id, row.id))
+        .run()
+      const commandId = enqueueAgentCommand(db, row.id, 'config.deliver', { kind: 'identity', agentToken })
+      audit?.(request.currentUser?.username ?? 'unknown', 'agent_token_rotated', `agent ${row.id}（${row.hostname}）密钥轮换，deliver 指令 #${commandId}`)
+      return reply.send({ ok: true, commandId })
     },
   )
 }

@@ -12,6 +12,8 @@ test('能力四 M1-7: 机器行——在线/离线/吊销/待执行指令各态�
   assert.ok(!machineRowHtml({ ...base, revoked: true }).includes('data-agent-revoke'), '已吊销不显示吊销按钮')
   assert.ok(machineRowHtml({ ...base, pendingCommands: 3 }).includes('3 条待执行指令'))
   assert.ok(machineRowHtml(base).includes('data-agent-revoke="agent-abc123"'))
+  assert.ok(machineRowHtml(base).includes('data-agent-rotate="agent-abc123"'), 'M4-1: 未吊销机器显示轮换密钥按钮')
+  assert.ok(!machineRowHtml({ ...base, revoked: true }).includes('data-agent-rotate'), '已吊销不显示轮换按钮')
 })
 
 test('能力四 M1-7: join 命令——origin 与 token 注入，静态面分发 join.sh', () => {

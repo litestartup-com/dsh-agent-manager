@@ -188,6 +188,12 @@ try {
   if (!/profileBin !== null && this\.fs\.exists\(profileBin\)/.test(agentRuntime)) {
     failures.push('public/assets/agent/runtime.mjs: execSpawn 未优先 profile-local bin（prefix 树缺 legacy peer，启动即崩——M1 试点实证）')
   }
+  if (!/execDeliver/.test(agentRuntime)) {
+    failures.push('public/assets/agent/runtime.mjs: 缺 config.deliver 身份轮换处理（M4-1 轮换指令落地端）')
+  }
+  if (!/\/api\/agents\/:id\/rotate/.test(readFileSync(join(root, 'src/routes/agents.ts'), 'utf8'))) {
+    failures.push('src/routes/agents.ts: 缺 /api/agents/:id/rotate 轮换端点（M4-1）')
+  }
   // M1 试点实证（dsh-facts §14）：0.1.5-rc.2 的 legacy 装法跳过全部 peer →
   // 显式 peer 清单（profile.ts 与 gen-node-profile.mjs 两份）必须逐字一致；
   // 锁文件 PROFILE_LOCKS 必须覆盖矩阵所有 needsLegacyPeerDeps 行。

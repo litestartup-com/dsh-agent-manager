@@ -281,6 +281,13 @@ const MIGRATIONS: readonly string[][] = [
      )`,
     `CREATE INDEX IF NOT EXISTS agent_command_pending ON agent_command(agent_id, state)`,
   ],
+  // 18 -- 能力四（舰队 M4-1）：agent token 轮换宽限位。
+  // 轮换 = 主 token 换新 + 旧 token 进 prev 位（30 分钟宽限，防 ack 丢失把机器
+  // 打砖）；agent 报 config.deliver 成功 → 清 prev；报失败 → 回滚主 token。
+  [
+    `ALTER TABLE agent_machine ADD COLUMN prev_token_hash TEXT`,
+    `ALTER TABLE agent_machine ADD COLUMN prev_set_at INTEGER`,
+  ],
 ]
 
 export interface OpenDbResult {
