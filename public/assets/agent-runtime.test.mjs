@@ -1,0 +1,174 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { AgentRuntime, LEGACY_PEER_DEPS_VERSIONS } from './agent/runtime.mjs'
+
+/** 内存假文件系统。 */
+const fakeFs = () => {
+  const store = new Map()
+  return {
+    store,
+    readFile: (p) => store.get(p) ?? null,
+    writeFile: (p, c) => store.set(p, c),
+    mkdir: () => {},
+    exists: (p) => store.has(p),
+    stat: (p) => (store.has(p) ? store.get(p).length : null),
+  }
+}
+
+const makeRuntime = (over = {}) => {
+  const transport = {
+    registerCalls: [],
+    register: async (_url, body) => {
+      transport.registerCalls.push(body)
+      return { agentId: 'agent-test-1', agentToken: 'token-1' }
+    },
+    commandBatches: [],
+    eventsPosted: [],
+    commands: async () => {
+      const batch = transport.commandBatches.shift() ?? []
+      return batch
+    },
+    events: async (_url, _id, _token, events) => {
+      transport.eventsPosted.push(events)
+    },
+    ...over.transport,
+  }
+  const proc = {
+    installed: [],
+    spawned: [],
+    killed: [],
+    install: async (_dir, version, legacy) => {
+      proc.installed.push({ version, legacy })
+      return `/agent/dsh/${version}/node_modules/@deepseek-ai/dsh/lib/bin.js`
+    },
+    spawn: async (bin, args, env) => {
+      proc.spawned.push({ bin, args, env })
+      return { pid: 4242 }
+    },
+    kill: async (pid) => {
+      proc.killed.push(pid)
+    },
+    alive: async () => true,
+    ...over.proc,
+  }
+  const fs = over.fs ?? fakeFs()
+  const backoffs = []
+  const runtime = new AgentRuntime({
+    managerUrl: 'https://app.example.com',
+    joinToken: 'join-1',
+    agentDir: '/agent',
+    transport,
+    proc,
+    fs,
+    maxWaitMs: 10,
+    backoff: async (ms) => {
+      backoffs.push(ms)
+    },
+    log: () => {},
+    ...over,
+  })
+  return { runtime, transport, proc, fs, backoffs }
+}
+
+test('能力四 M1-5: 注册——首次换发身份并落盘 0600 状态文件；重启复用不重注册', async () => {
+  const a = makeRuntime()
+  await a.runtime.registerOnce()
+  assert.equal(a.runtime.agentId, 'agent-test-1')
+  assert.equal(a.transport.registerCalls.length, 1)
+  assert.deepEqual(a.transport.registerCalls[0], { joinToken: 'join-1', hostname: a.transport.registerCalls[0].hostname, os: process.platform, arch: process.arch, nodeVersion: process.version })
+  assert.ok(a.fs.store.get('/agent/agent.json')?.includes('agent-test-1'), '身份落盘')
+
+  const b = makeRuntime({ fs: a.fs })
+  await b.runtime.registerOnce()
+  assert.equal(b.transport.registerCalls.length, 0, '已有身份不重注册')
+})
+
+test('能力四 M1-5: spawn 指令——prefix 安装钉版（0.1.5 带 legacy）、spawn 载荷、pidfile、结果回报', async () => {
+  const a = makeRuntime()
+  await a.runtime.registerOnce()
+  a.transport.commandBatches.push([
+    { id: 7, type: 'node.spawn', payload: { nodeId: 'ops01', args: ['--profile', 'ops01', '--port', '3081', '--no-open'], env: { DSH_HOME: '/srv/nodes/ops01', GW_KEY: 'apigw-k' }, dshVersion: '0.1.5-rc.2' } },
+  ])
+  await a.runtime.loopOnce()
+  assert.equal(a.proc.installed.length, 1)
+  assert.deepEqual(a.proc.installed[0], { version: '0.1.5-rc.2', legacy: true }, '0.1.5 必须 --legacy-peer-deps')
+  const spawned = a.proc.spawned[0]
+  assert.equal(spawned.bin.endsWith('/0.1.5-rc.2/node_modules/@deepseek-ai/dsh/lib/bin.js'), true)
+  assert.deepEqual(spawned.args, ['--profile', 'ops01', '--port', '3081', '--no-open'])
+  assert.equal(spawned.env.DSH_HOME, '/srv/nodes/ops01')
+  assert.ok(a.fs.store.get('/agent/nodes/ops01/node.pid') === '4242', 'pidfile 落盘')
+  assert.match(a.fs.store.get('/srv/nodes/ops01/settings.yaml') ?? '', /apigw-k/, 'GW_KEY 写 settings')
+  const posted = a.transport.eventsPosted.flat()
+  assert.deepEqual(posted[0], { type: 'command_result', commandId: 7, ok: true, result: { pid: 4242 } })
+})
+
+test('能力四 M1-5: stop/restart/logs/status/未知指令', async () => {
+  const a = makeRuntime()
+  await a.runtime.registerOnce()
+  a.runtime.nodes.set('ops01', { pid: 4242, startedAt: Date.now(), logOffset: 0 })
+  a.fs.store.set('/agent/nodes/ops01/node.log', 'line1\nline2\nline3\n')
+
+  a.transport.commandBatches.push([{ id: 1, type: 'node.stop', payload: { nodeId: 'ops01' } }])
+  a.transport.commandBatches.push([{ id: 2, type: 'node.restart', payload: { nodeId: 'ops01', args: [], env: {}, dshVersion: '0.1.2-rc.1' } }])
+  a.transport.commandBatches.push([{ id: 3, type: 'node.logs', payload: { nodeId: 'ops01' } }])
+  a.transport.commandBatches.push([{ id: 4, type: 'node.status' }])
+  a.transport.commandBatches.push([{ id: 5, type: 'agent.update', payload: {} }])
+  await a.runtime.loopOnce()
+  await a.runtime.loopOnce()
+  await a.runtime.loopOnce()
+  await a.runtime.loopOnce()
+  await a.runtime.loopOnce()
+
+  assert.deepEqual(a.proc.killed, [4242], 'stop 杀 pid')
+  const results = a.transport.eventsPosted.flat().filter((e) => e.type === 'command_result')
+  assert.equal(results[0]?.ok, true, 'stop ok')
+  assert.equal(results[1]?.ok, true, 'restart ok（stop+spawn）')
+  assert.equal((results[2]?.result?.logs ?? '').includes('line3'), true, 'logs 读尾部')
+  assert.equal((results[3]?.result?.nodes ?? []).length >= 1, true, 'status 列出节点')
+  assert.equal(results[4]?.ok, false, '未知指令诚实失败')
+})
+
+test('能力四 M1-5: 日志增量分块回传；失联指数退避；401 清身份重注册；AbortSignal 干净退出', async () => {
+  const a = makeRuntime()
+  await a.runtime.registerOnce()
+  a.runtime.nodes.set('ops01', { pid: 4242, startedAt: Date.now(), logOffset: 0 })
+  a.fs.store.set('/agent/nodes/ops01/node.log', 'boot\n')
+  a.transport.commandBatches.push([])
+  await a.runtime.loopOnce()
+  const chunked = a.transport.eventsPosted.flat().find((e) => e.type === 'log_chunk')
+  assert.equal(chunked?.chunk, 'boot\n', '首轮全量增量')
+
+  a.fs.store.set('/agent/nodes/ops01/node.log', 'boot\ndsh web: http://127.0.0.1:3081\n')
+  a.transport.commandBatches.push([])
+  await a.runtime.loopOnce()
+  const chunked2 = a.transport.eventsPosted[1].find((e) => e.type === 'log_chunk')
+  assert.equal(chunked2?.chunk, 'dsh web: http://127.0.0.1:3081\n', '只回传增量')
+
+  // 失联退避 + AbortSignal 退出
+  const b = makeRuntime()
+  let calls = 0
+  b.transport.commands = async () => {
+    calls += 1
+    throw new Error('network down')
+  }
+  const controller = new AbortController()
+  setTimeout(() => controller.abort(), 50)
+  await b.runtime.run({ signal: controller.signal })
+  assert.ok(b.backoffs.length >= 1, '失败后走了退避')
+  assert.ok(b.backoffs[0] >= 1_000, `首次退避 ≥1s（实际 ${b.backoffs[0]}）`)
+
+  // 401 → 清身份 → 重注册（吊销场景可观测 = 再次注册）
+  const c = makeRuntime()
+  c.transport.commands = async () => {
+    throw new Error('unauthorized')
+  }
+  const ctrl = new AbortController()
+  setTimeout(() => ctrl.abort(), 80)
+  await c.runtime.run({ signal: ctrl.signal })
+  assert.ok(c.transport.registerCalls.length >= 2, '401 后重新注册')
+})
+
+test('能力四 M1-5: LEGACY_PEER_DEPS_VERSIONS 覆盖 0.1.5（与矩阵 needsLegacyPeerDeps 对齐）', () => {
+  assert.ok(LEGACY_PEER_DEPS_VERSIONS.includes('0.1.5-rc.2'))
+  assert.ok(!LEGACY_PEER_DEPS_VERSIONS.includes('0.1.2-rc.1'))
+})

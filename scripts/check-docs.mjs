@@ -159,6 +159,21 @@ try {
   if (!installSh.includes('APP_DIR_ABS}/workspaces')) {
     failures.push('install.sh: 缺 host_volumes 宿主侧路径重钉 sed（搬家重钉守卫）')
   }
+  // node-agent 的 LEGACY_PEER_DEPS_VERSIONS = 矩阵 needsLegacyPeerDeps 行集合
+  // （agent 独立运行无法 import TS 矩阵，双份清单由本守卫钉同步）。
+  const agentRuntime = readFileSync(join(root, 'public/assets/agent/runtime.mjs'), 'utf8')
+  const agentLegacyMatch = /LEGACY_PEER_DEPS_VERSIONS = \[([^\]]*)\]/.exec(agentRuntime)
+  if (agentLegacyMatch === null) {
+    failures.push('public/assets/agent/runtime.mjs: 缺 LEGACY_PEER_DEPS_VERSIONS 声明（能力四守卫）')
+  } else {
+    const agentLegacy = [...agentLegacyMatch[1].matchAll(/'([^']+)'/g)].map((m) => m[1])
+    for (const v of matrixLegacy) {
+      if (!agentLegacy.includes(v)) failures.push(`public/assets/agent/runtime.mjs: LEGACY_PEER_DEPS_VERSIONS 缺矩阵行 ${v}`)
+    }
+    for (const v of agentLegacy) {
+      if (!matrixLegacy.includes(v)) failures.push(`public/assets/agent/runtime.mjs: LEGACY_PEER_DEPS_VERSIONS 的 ${v} 在矩阵里不是 needsLegacyPeerDeps`)
+    }
+  }
   // 前端 import 完整性 canary（2026-09-22 事故）：nodes.js 用到
   // versionOptionsHtml 但漏导入 → 页面卡「加载中」且无测试可拦（DOM 文件
   // 不可单测导入）。至少守住这一个已知回归点。
