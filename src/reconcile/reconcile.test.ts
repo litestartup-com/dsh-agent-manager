@@ -81,7 +81,7 @@ test('修路 A2/A3: convergeNodes healOnly——cold 不动、offline restart �
   const restarts: string[] = []
   const spec = {
     managed: true, command: 'node', args: [], cwd: null, readyTimeoutMs: 1000, detached: false, logFile: null,
-    env: {}, restart: { maxAttempts: 3, baseDelayMs: 100, maxDelayMs: 1000 }, runner: 'process' as const, docker: null,
+    env: {}, restart: { maxAttempts: 3, baseDelayMs: 100, maxDelayMs: 1000 }, runner: 'process' as const, host: null, docker: null,
   }
   const mk = (id: string, state: string, opts: { liveProbeFlips?: boolean } = {}): NodeSupervisor => {
     const current = { state }

@@ -84,6 +84,7 @@ const dockerSpec = (): ResolvedSpawnSpec => ({
   env: {},
   restart: { maxAttempts: 3, baseDelayMs: 1_000, maxDelayMs: 30_000 },
   runner: 'docker',
+  host: null,
   docker: {
     image: 'ohdsh/dsh-node:0.1.1-rc.2',
     containerName: null,

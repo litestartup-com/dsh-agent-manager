@@ -182,6 +182,7 @@ test('蜂群2计划 P2b: docker runner 节点的日志走 docker logs', async ()
   const dockerSpawn = {
     ...managedSpawn,
     runner: 'docker' as const,
+    host: null,
     docker: { image: 'ohdsh/dsh-node:0.1.1-rc.2', containerName: null, network: 'hive', port: 3081, hostVolumes: {}, namedVolumes: {} },
   }
   config.endpoints['A']!.spawn = dockerSpawn
@@ -205,6 +206,7 @@ test('债务 P3 回归: 进程节点漂移检测 + align-version 对齐（重播
   const spawn = {
     ...managedSpawn,
     runner: 'process' as const,
+    host: null,
     env: { DSH_HOME: join(profileDir, '..') }, // profile 目录 = DSH_HOME/profiles/<id>
     docker: null,
   }
@@ -250,6 +252,7 @@ test('P1 回归: POST /api/nodes/:id/version 进程分支——钉版落盘 + �
   const spawn = {
     ...managedSpawn,
     runner: 'process' as const,
+    host: null,
     env: { DSH_HOME: join(profileRoot, '..') },
     docker: null,
   }
@@ -293,6 +296,7 @@ test('P1 回归: POST /api/nodes/:id/version 容器分支——镜像 tag 落盘
   const dockerSpawn = {
     ...managedSpawn,
     runner: 'docker' as const,
+    host: null,
     docker: { image: 'ohdsh/dsh-node:0.1.2-rc.1', containerName: null, network: 'ohdsh-hive', port: 3081, hostVolumes: {}, namedVolumes: {} },
   }
   config.endpoints['A']!.spawn = dockerSpawn as never

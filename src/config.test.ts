@@ -208,6 +208,40 @@ test('债务 P3 回归: spawn.dsh_version / gateway_ref 按节点钉版解析（
   assert.equal(defaults.endpoints['A']?.spawn?.gatewayRef ?? null, null)
 })
 
+test('能力四回归: runner=agent + host 解析——舰队远端节点形态（无本地 command，agent 侧用自己 prefix 的 bin）', () => {
+  const cfg = loadFrom(baseConfig({
+    endpoints: {
+      A: {
+        url: 'http://10.0.0.7:3081',
+        driver: 'apiproxy',
+        spawn: { managed: true, runner: 'agent', host: 'agent-abc123', env: { DSH_HOME: '/home/ohdsh-node/.dsh-ohdsh/ops01' } },
+      },
+    },
+  }))
+  const spawn = cfg.endpoints['A']?.spawn
+  assert.equal(spawn?.runner, 'agent')
+  assert.equal(spawn?.host, 'agent-abc123', 'host = 执行该节点的 agent id')
+  assert.equal(spawn?.command, '', 'agent 形态不要求本地 command')
+  assert.equal(spawn?.docker, null, 'agent 形态无 docker 段')
+})
+
+test('能力四回归: runner=agent 缺 host 拒绝；非 agent 形态写 host 拒绝（执行地与形态必须一致）', () => {
+  assert.throws(
+    () => loadFrom(baseConfig({
+      endpoints: { A: { url: 'http://10.0.0.7:3081', driver: 'apiproxy', spawn: { managed: true, runner: 'agent' } } },
+    })),
+    /host/,
+    'agent 无 host = fail-loud',
+  )
+  assert.throws(
+    () => loadFrom(baseConfig({
+      endpoints: { A: { url: 'http://127.0.0.1:3080', driver: 'apiproxy', spawn: { managed: true, command: 'node', host: 'agent-x' } } },
+    })),
+    /host/,
+    'process 写 host = 拒绝（防接线漂移）',
+  )
+})
+
 test('agent sandbox_mode without endpoint sandbox_base fails loud at boot', () => {
   assert.throws(
     () => loadFrom(baseConfig({

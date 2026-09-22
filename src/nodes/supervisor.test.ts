@@ -19,6 +19,7 @@ const spec = (over: Partial<ResolvedSpawnSpec> = {}): ResolvedSpawnSpec => ({
   env: {},
   restart: { maxAttempts: 3, baseDelayMs: 20, maxDelayMs: 100 },
   runner: 'process',
+  host: null,
   docker: null,
   ...over,
 })
@@ -28,6 +29,7 @@ const dockerSpec = (): ResolvedSpawnSpec =>
   spec({
     command: '',
     runner: 'docker',
+    host: null,
     readyTimeoutMs: 2_000,
     restart: { maxAttempts: 2, baseDelayMs: 10, maxDelayMs: 20 },
     docker: { image: 'ohdsh/dsh-node:0.1.1-rc.2', containerName: null, network: 'hive', port: 3081, hostVolumes: {}, namedVolumes: {} },

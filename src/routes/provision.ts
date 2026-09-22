@@ -220,6 +220,7 @@ const spawnFor = (dshBin: string, name: string, nodeHomePath: string, pins?: { d
   env: { DSH_HOME: nodeHomePath },
   restart: { maxAttempts: 3, baseDelayMs: 1_000, maxDelayMs: 30_000 },
   runner: 'process',
+  host: null,
   docker: null,
   // 能力二：按节点钉版（未显式钉 = 不写字段，跟随全局默认）
   ...(pins?.dshVersion === undefined ? {} : { dshVersion: pins.dshVersion }),
@@ -390,6 +391,7 @@ export const registerProvisionRoutes = (
             spawnYaml: {
               managed: true,
               runner: 'docker',
+              host: null,
               ready_timeout_ms: 30_000,
               docker: dockerSpec,
               // 能力二：显式钉版才写真相源（缺省跟随全局默认，不冻结）
@@ -411,6 +413,7 @@ export const registerProvisionRoutes = (
           env: {},
           restart: { maxAttempts: 3, baseDelayMs: 1_000, maxDelayMs: 30_000 },
           runner: 'docker',
+          host: null,
           docker: {
             image: dockerSpec.image,
             containerName: null,

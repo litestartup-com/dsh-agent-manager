@@ -195,6 +195,7 @@ test('能力一回归: 显式 runner=process 在 docker 部署上建宿主机进
       env: {},
       restart: { maxAttempts: 3, baseDelayMs: 1_000, maxDelayMs: 30_000 },
       runner: 'docker',
+      host: null,
       docker: {
         image: 'ohdsh/dsh-node:0.1.1-rc.2',
         containerName: null,
@@ -266,6 +267,7 @@ test('蜂群2计划 P6: 容器模式新节点 = docker runner（不找 DSH bin�
       env: {},
       restart: { maxAttempts: 3, baseDelayMs: 1_000, maxDelayMs: 30_000 },
       runner: 'docker',
+      host: null,
       docker: {
         image: 'ohdsh/dsh-node:0.1.1-rc.2',
         containerName: null,
@@ -333,6 +335,7 @@ test('蜂群2计划 P6 回归: 容器模式新建节点同步镜像进 DB（chat
       env: {},
       restart: { maxAttempts: 3, baseDelayMs: 1_000, maxDelayMs: 30_000 },
       runner: 'docker',
+      host: null,
       docker: {
         image: 'ohdsh/dsh-node:0.1.1-rc.2',
         containerName: null,
@@ -480,6 +483,7 @@ test('债务 R9: 热变更经 reconcile 收敛——不借 provision 抢拉用�
       env: {},
       restart: { maxAttempts: 3, baseDelayMs: 1_000, maxDelayMs: 30_000 },
       runner: 'process',
+      host: null,
       docker: null,
     },
     access: null,

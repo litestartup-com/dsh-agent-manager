@@ -49,16 +49,25 @@ const spawnSchema = z
       })
       .default({ max_attempts: 3, base_delay_ms: 1_000, max_delay_ms: 30_000 }),
     // 蜂群2计划 P2：运行方式。process（默认）= 本机直接拉起（现状，裸机路径）；
-    // docker = 经 docker.sock 以容器形态管理（compose 脊柱场景的工蜂）。
-    runner: z.enum(['process', 'docker']).default('process'),
+    // docker = 经 docker.sock 以容器形态管理（compose 脊柱场景的工蜂）；
+    // agent = 舰队模式（能力四）：经 node-agent 在远端宿主机拉起（spawn.host
+    // 指定 agent id，本机与容器形态不写）。
+    runner: z.enum(['process', 'docker', 'agent']).default('process'),
     docker: dockerSpawnSchema.optional(),
+    // 能力四（舰队）：该节点由哪个 agent 执行（null=本机）。runner=agent 必填；
+    // 其它 runner 写它 = 校验拒绝（执行地与形态必须一致，防接线漂移）。
+    host: z.string().min(1).optional(),
     // 能力二（2026-09-20）：按节点钉版。缺省 = 跟随全局默认（版本矩阵首行）；
     // 显式值必须能在 SUPPORTED_DSH 矩阵里解析（loadConfig 校验）。
     dsh_version: z.string().min(1).optional(),
     gateway_ref: z.string().min(1).optional(),
   })
-  .refine((v) => (v.runner === 'docker' ? v.docker !== undefined : v.command !== undefined), {
-    message: 'spawn: runner=docker 需要 docker 段；runner=process 需要 command',
+  .refine((v) => {
+    if (v.runner === 'docker') return v.docker !== undefined && v.host === undefined
+    if (v.runner === 'agent') return v.host !== undefined
+    return v.command !== undefined && v.host === undefined
+  }, {
+    message: 'spawn: runner=docker 需要 docker 段；runner=agent 需要 host（agent id）；runner=process 需要 command；host 只允许 runner=agent 使用',
   })
 
 /**
@@ -221,9 +230,11 @@ export interface ResolvedSpawnSpec {
   /** Extra env vars layered over the manager's own (典型：DSH_HOME 节点专属目录). */
   env: Record<string, string>
   restart: { maxAttempts: number; baseDelayMs: number; maxDelayMs: number }
-  /** 蜂群2计划 P2：运行方式（process=本机拉起 / docker=容器管理）。 */
-  runner: 'process' | 'docker'
-  /** docker runner 专属段；process runner 为 null。 */
+  /** 蜂群2计划 P2：运行方式（process=本机拉起 / docker=容器管理 / agent=舰队远端）。 */
+  runner: 'process' | 'docker' | 'agent'
+  /** 能力四（舰队）：执行该节点的 agent id；非 agent runner = null。 */
+  host: string | null
+  /** docker runner 专属段；process/agent runner 为 null。 */
   docker: {
     image: string
     containerName: string | null
@@ -429,6 +440,7 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
               maxDelayMs: spawnRaw.restart.max_delay_ms,
             },
             runner: spawnRaw.runner,
+            host: spawnRaw.host ?? null,
             docker:
               spawnRaw.docker === undefined
                 ? null

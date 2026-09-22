@@ -33,6 +33,7 @@ const configFor = (): AppConfig => {
           env: {},
           restart: { maxAttempts: 3, baseDelayMs: 1_000, maxDelayMs: 30_000 },
           runner: 'docker',
+          host: null,
           docker: { image: 'x', containerName: null, network: 'ohdsh-hive', port: 3081, hostVolumes: {}, namedVolumes: { 'ohdsh-personal': '/data' } },
         },
         access: null,

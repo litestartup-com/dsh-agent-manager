@@ -34,6 +34,7 @@ const managedProcess: ResolvedEndpoint['spawn'] = {
   env: {},
   restart: { maxAttempts: 3, baseDelayMs: 1_000, maxDelayMs: 30_000 },
   runner: 'process',
+  host: null,
   docker: null,
 }
 
