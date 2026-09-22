@@ -303,9 +303,55 @@ export const registerNodesRoutes = (
   )
 
   /**
+   * P1（hive/plan-config-version-switch）：进程节点「改钉版 → 重播种 → 后台重装
+   * → 隔离 bin 重启」的共享实现——align-version（对齐到配置钉版）与 version
+   * （显式切换）共用，不复制逻辑。ep.spawn.dshVersion 由调用方先改好。
+   */
+  const alignProcessNode = (
+    id: string,
+    actor: string,
+    reply: { code: (n: number) => { send: (b: unknown) => unknown } },
+    ep: ResolvedEndpoint,
+    supervisor: NodeSupervisor,
+    opts: { version: string; gatewayRef: string; auditKind: AuditKind; auditDetail: string },
+  ): unknown => {
+    const spawn = ep.spawn
+    if (spawn === null) return reply.code(409).send({ error: 'not_managed', detail: '外部管理的节点无法对齐' })
+    const { profileDir } = pinnedOf(ep)
+    if (profileDir === null) return reply.code(400).send({ error: 'no_dsh_home', detail: '节点的 spawn.env 缺 DSH_HOME，无法定位 profile 目录' })
+
+    const port = Number(new URL(ep.url).port || 3080)
+    try {
+      reseedProfile(profileDir, { name: id, port }, opts.gatewayRef, opts.version)
+      audit?.(actor, opts.auditKind, opts.auditDetail)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      return reply.code(500).send({ error: 'reseed_failed', detail: message })
+    }
+
+    // 后台重装依赖 → 完成/失败都重启（缺依赖崩溃 → offline 显性，同 provision 口径）
+    void installDeps(profileDir, opts.version)
+      .then(() => {
+        const isolatedBin = dshBinInProfile(profileDir)
+        if (isolatedBin !== null) {
+          const next = { ...spawn, args: [isolatedBin, ...spawn.args.slice(1)] }
+          ep.spawn = next
+          supervisor.restart(next)
+          return
+        }
+        supervisor.restart(spawn)
+      })
+      .catch((error: unknown) => {
+        app.log.warn(`node ${id}: align install failed: ${error instanceof Error ? error.message : String(error)}`)
+        supervisor.restart(spawn)
+      })
+    return reply.code(202).send({ ok: true, aligning: true, version: opts.version, gatewayRef: opts.gatewayRef })
+  }
+
+  /**
    * 能力二：版本对齐——把进程节点的 profile 重播种到配置钉版（重写依赖清单 +
    * .seed-version）→ 后台重装依赖 → 用 profile 内隔离 bin 重启节点（幂等）。
-   * 容器节点 409（换版本 = 改镜像 tag，语义不同）。审计 node_align_version。
+   * 容器节点 409（换版本 = 改镜像 tag，用 /version 路由）。审计 node_align_version。
    */
   app.post<{ Params: { id: string } }>(
     '/api/nodes/:id/align-version',
@@ -315,39 +361,82 @@ export const registerNodesRoutes = (
       if (ep === undefined) return reply.code(404).send({ error: 'unknown_node' })
       const spawn = ep.spawn
       if (spawn === null || spawn.runner !== 'process') {
-        return reply.code(409).send({ error: 'not_host_process', detail: '只有宿主机进程节点支持版本对齐；容器节点请改镜像 tag' })
+        return reply.code(409).send({ error: 'not_host_process', detail: '只有宿主机进程节点支持版本对齐；容器节点请用「切换版本」（POST /api/nodes/:id/version）' })
       }
       const supervisor = supervisors.get(request.params.id)
       if (supervisor === undefined) return reply.code(409).send({ error: 'not_managed', detail: '外部管理的节点无法对齐' })
-      const { version, gatewayRef, profileDir } = pinnedOf(ep)
-      if (profileDir === null) return reply.code(400).send({ error: 'no_dsh_home', detail: '节点的 spawn.env 缺 DSH_HOME，无法定位 profile 目录' })
+      const { version, gatewayRef } = pinnedOf(ep)
+      return alignProcessNode(request.params.id, request.currentUser?.username ?? 'unknown', reply, ep, supervisor, {
+        version,
+        gatewayRef,
+        auditKind: 'node_align_version',
+        auditDetail: `节点 ${request.params.id} 对齐到 DSH ${version}（facade ${gatewayRef}）`,
+      })
+    },
+  )
 
-      const port = Number(new URL(ep.url).port || 3080)
+  /**
+   * P1（hive/plan-config-version-switch）：节点切换 DSH 版本——升级零 sed。
+   * 双分支：容器 = 改 spawn.docker.image tag + 立即重建（镜像 ID 比对触发）；
+   * 进程 = 改钉版后委托对齐链（重播种→重装→重启）。矩阵校验 + 审计
+   * node_version_change + 显式切版才写真相源（口径同 provision）。
+   */
+  const versionBody = z.object({ dsh_version: z.string().min(1) })
+  app.post<{ Params: { id: string }; Body: unknown }>(
+    '/api/nodes/:id/version',
+    { preHandler: requireUser, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      const id = request.params.id
+      const ep = config.endpoints[id]
+      if (ep === undefined) return reply.code(404).send({ error: 'unknown_node' })
+      const parsed = versionBody.safeParse(request.body)
+      if (!parsed.success) return reply.code(400).send({ error: 'invalid_body', detail: 'dsh_version 必填（矩阵内版本）' })
+      const pair = resolvePair(parsed.data.dsh_version)
+      if (pair === null) {
+        return reply.code(400).send({ error: 'unknown_dsh_version', detail: `DSH 版本 ${parsed.data.dsh_version} 不在版本矩阵里（支持：${SUPPORTED_DSH.map((p) => p.dsh).join(' / ')}）` })
+      }
+      const target = pair.dsh
+      const spawn = ep.spawn
+      if (spawn === null) return reply.code(409).send({ error: 'not_managed', detail: '外部管理的节点无法切换版本' })
+      const supervisor = supervisors.get(id)
+      if (supervisor === undefined) return reply.code(409).send({ error: 'not_managed', detail: '外部管理的节点无法切换版本' })
+
+      const configPath = config.configPath ?? resolve('manager.config.yaml')
+      const actor = request.currentUser?.username ?? 'unknown'
+      // 真相源落盘：显式切版才写 dsh_version 钉版（默认跟随矩阵的节点不落盘）
       try {
-        reseedProfile(profileDir, { name: request.params.id, port }, gatewayRef, version)
-        audit?.(request.currentUser?.username ?? 'unknown', 'node_align_version', `节点 ${request.params.id} 对齐到 DSH ${version}（facade ${gatewayRef}）`)
+        await withConfigLock(() => mutateYamlFile(configPath, (doc) => doc.setIn(['endpoints', id, 'spawn', 'dsh_version'], target)))
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        return reply.code(500).send({ error: 'reseed_failed', detail: message })
+        return reply.code(500).send({ error: 'config_write_failed', detail: message })
       }
 
-      // 后台重装依赖 → 完成/失败都重启（缺依赖崩溃 → offline 显性，同 provision 口径）
-      void installDeps(profileDir, version)
-        .then(() => {
-          const isolatedBin = dshBinInProfile(profileDir)
-          if (isolatedBin !== null) {
-            const next = { ...spawn, args: [isolatedBin, ...spawn.args.slice(1)] }
-            ep.spawn = next
-            supervisor.restart(next)
-            return
-          }
-          supervisor.restart(spawn)
-        })
-        .catch((error: unknown) => {
-          app.log.warn(`node ${request.params.id}: align install failed: ${error instanceof Error ? error.message : String(error)}`)
-          supervisor.restart(spawn)
-        })
-      return reply.code(202).send({ ok: true, aligning: true, version, gatewayRef })
+      if (spawn.runner === 'docker') {
+        const dockerSpec = spawn.docker
+        if (dockerSpec === null) return reply.code(409).send({ error: 'invalid_spawn', detail: 'docker runner 缺 docker 段，无法切换镜像' })
+        const image = `ohdsh/dsh-node:${target}`
+        try {
+          await withConfigLock(() => mutateYamlFile(configPath, (doc) => doc.setIn(['endpoints', id, 'spawn', 'docker', 'image'], image)))
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          return reply.code(500).send({ error: 'config_write_failed', detail: message })
+        }
+        const oldImage = dockerSpec.image
+        const next = { ...spawn, dshVersion: target, docker: { ...dockerSpec, image } }
+        ep.spawn = next
+        audit?.(actor, 'node_version_change', `节点 ${id} 切换 DSH → ${target}（容器镜像 ${oldImage} → ${image}）`)
+        // 立即重建：停旧容器 → ensureImage → 起新镜像（不等对账周期）
+        supervisor.restart(next)
+        return reply.code(202).send({ ok: true, switching: true, version: target, image })
+      }
+
+      ep.spawn = { ...spawn, dshVersion: target }
+      return alignProcessNode(id, actor, reply, ep, supervisor, {
+        version: target,
+        gatewayRef: pair.gateway,
+        auditKind: 'node_version_change',
+        auditDetail: `节点 ${id} 切换 DSH → ${target}（facade ${pair.gateway}）`,
+      })
     },
   )
 }

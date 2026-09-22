@@ -238,6 +238,81 @@ test('债务 P3 回归: 进程节点漂移检测 + align-version 对齐（重播
   assert.equal(marker.length, 40, '标记重写为 sha1')
 })
 
+test('P1 回归: POST /api/nodes/:id/version 进程分支——钉版落盘 + 对齐链 + 审计 + 未知版本 400', async () => {
+  const gw = await startFakeGateway({ frames: [] }, API_KEY)
+  gateways.push(gw)
+  const config = configFor(gw)
+  const dir = mkdtempSync(join(tmpdir(), 'nodes-version-'))
+  const configPath = join(dir, 'manager.config.yaml')
+  writeFileSync(configPath, 'endpoints:\n  A:\n    url: http://x\n', 'utf8')
+  config.configPath = configPath
+  const profileRoot = mkdtempSync(join(tmpdir(), 'nodes-vprof-'))
+  const spawn = {
+    ...managedSpawn,
+    runner: 'process' as const,
+    env: { DSH_HOME: join(profileRoot, '..') },
+    docker: null,
+  }
+  config.endpoints['A']!.spawn = spawn
+  mkdirSync(join(profileRoot, '..', 'profiles', 'A'), { recursive: true })
+  const calls = { start: 0, stop: 0, restart: 0 }
+  const audits: string[] = []
+  const app = Fastify()
+  registerNodesRoutes(
+    app, config, new Map([['A', stubSupervisor(calls)]]), new Map(), new Map(), async () => {},
+    (_actor, kind) => audits.push(kind),
+    async (dir2) => {
+      const binDir = join(dir2, 'node_modules', '@deepseek-ai', 'dsh', 'lib')
+      mkdirSync(binDir, { recursive: true })
+      writeFileSync(join(binDir, 'bin.js'), '', 'utf8')
+    },
+  )
+
+  const res = await app.inject({ method: 'POST', url: '/api/nodes/A/version', payload: { dsh_version: '0.1.5-rc.2' } })
+  assert.equal(res.statusCode, 202, JSON.stringify(res.body))
+  assert.equal((res.json() as { version: string }).version, '0.1.5-rc.2')
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.equal(config.endpoints['A']?.spawn?.dshVersion, '0.1.5-rc.2', '内存钉版热加载')
+  assert.match(readFileSync(configPath, 'utf8'), /dsh_version: 0.1.5-rc.2/, '真相源落盘显式钉版')
+  assert.ok(audits.includes('node_version_change'), '审计 node_version_change')
+  assert.equal(calls.restart, 1, '对齐完成后重启')
+
+  const bad = await app.inject({ method: 'POST', url: '/api/nodes/A/version', payload: { dsh_version: '0.9.9' } })
+  assert.equal(bad.statusCode, 400)
+  assert.equal((bad.json() as { error: string }).error, 'unknown_dsh_version')
+})
+
+test('P1 回归: POST /api/nodes/:id/version 容器分支——镜像 tag 落盘 + 立即重建 + 审计', async () => {
+  const gw = await startFakeGateway({ frames: [] }, API_KEY)
+  gateways.push(gw)
+  const config = configFor(gw)
+  const dir = mkdtempSync(join(tmpdir(), 'nodes-vdocker-'))
+  const configPath = join(dir, 'manager.config.yaml')
+  writeFileSync(configPath, 'endpoints:\n  A:\n    url: http://x\n', 'utf8')
+  config.configPath = configPath
+  const dockerSpawn = {
+    ...managedSpawn,
+    runner: 'docker' as const,
+    docker: { image: 'ohdsh/dsh-node:0.1.2-rc.1', containerName: null, network: 'ohdsh-hive', port: 3081, hostVolumes: {}, namedVolumes: {} },
+  }
+  config.endpoints['A']!.spawn = dockerSpawn as never
+  const calls = { start: 0, stop: 0, restart: 0 }
+  const audits: string[] = []
+  const app = Fastify()
+  registerNodesRoutes(
+    app, config, new Map([['A', stubSupervisor(calls)]]), new Map(), new Map(), async () => {},
+    (_actor, kind) => audits.push(kind),
+  )
+
+  const res = await app.inject({ method: 'POST', url: '/api/nodes/A/version', payload: { dsh_version: '0.1.5-rc.2' } })
+  assert.equal(res.statusCode, 202, JSON.stringify(res.body))
+  assert.equal((res.json() as { image: string }).image, 'ohdsh/dsh-node:0.1.5-rc.2')
+  assert.equal((config.endpoints['A']?.spawn as unknown as { docker: { image: string } } | null)?.docker.image, 'ohdsh/dsh-node:0.1.5-rc.2', '内存镜像 tag 热加载')
+  assert.match(readFileSync(configPath, 'utf8'), /image: ohdsh\/dsh-node:0.1.5-rc.2/, '真相源落盘镜像 tag')
+  assert.equal(calls.restart, 1, '立即重建（不等对账周期）')
+  assert.ok(audits.includes('node_version_change'))
+})
+
 test('债务 P1 回归: POST /api/nodes/:id/access 写真相源并热加载;clear 移除;非法值 400', async () => {
   const gw = await startFakeGateway({ frames: [] }, API_KEY)
   gateways.push(gw)
