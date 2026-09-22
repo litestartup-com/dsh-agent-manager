@@ -198,8 +198,10 @@ export const fileSchema = z.object({
     .object({
       docker_volumes: z.array(z.string()).default([]),
       auto: z.boolean().default(false),
+      /** 自动备份间隔（分钟）；auto: true 时生效，默认 15。小盘线上可放宽（如 1440 = 每日）。 */
+      interval_minutes: z.number().int().positive().default(15),
     })
-    .default({ docker_volumes: [], auto: false }),
+    .default({ docker_volumes: [], auto: false, interval_minutes: 15 }),
 })
 
 export interface ResolvedSpawnSpec {
@@ -336,11 +338,13 @@ export interface AppConfig {
   /** 蜂群2计划 P4：额外纳入备份的 docker 命名卷（无 spawn 段的节点 home，如脊柱主脑卷）。 */
   backupDockerVolumes?: string[]
   /**
-   * 自动备份开关（backup.auto，默认 false——线上小盘教训）。true = 15 分钟
-   * 周期快照；false 只保留手动 npm run backup 与更新前备份。测试字面量可
-   * 省略（读取方 ?? false）。
+   * 自动备份开关（backup.auto，默认 false——线上小盘教训）。true = 按
+   * backup.interval_minutes 周期快照；false 只保留手动 npm run backup 与
+   * 更新前备份。测试字面量可省略（读取方 ?? false）。
    */
   backupAuto?: boolean
+  /** 自动备份间隔（毫秒）；auto: true 时生效，缺省 15 分钟。 */
+  backupIntervalMs?: number
   sessionSecret: string
   initialUser: { username: string; password: string | null }
   /**
@@ -608,6 +612,7 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
     pricing,
     backupDockerVolumes: file.backup.docker_volumes,
     backupAuto: file.backup.auto,
+    backupIntervalMs: file.backup.interval_minutes * 60_000,
     sessionSecret,
     initialUser: {
       username: process.env.MANAGER_USERNAME ?? 'admin',

@@ -49,7 +49,7 @@ server ──► node (= one DSH agent process + its own DSH_HOME) ──► wor
 - **Skill inventory**: `/skills` page lists skills per workspace with version mapping (= workspace git HEAD)
 - **In-app notifications**: bell — cron results / budget breaker / brain task completions
 - **Billing**: peak/off-peak pricing (**weekends are all off-peak**), per-run cost, monthly summary, per-workspace breakdown
-- **Backup & restore**: on-demand `npm run backup` + one-click restore; optional automatic snapshots (`backup.auto: true`, default off — 15-min DB snapshots + retention policy 24h full → daily 30 days → weekly 12 weeks)
+- **Backup & restore**: on-demand `npm run backup` + one-click restore; optional automatic snapshots (`backup.auto: true`, default off — 15-min DB snapshots + retention policy 24h full → daily 30 days → weekly 12 weeks; interval tunable via `backup.interval_minutes`, e.g. 1440 = daily)
 - **Service**: auto-start on boot (Windows Task Scheduler / Linux systemd)
 - **Self-update**: backup → pull → build → health probe, auto-rollback on failure
 - **Native GUI one-click open**: each node row carries a "Native GUI" card — one SSH

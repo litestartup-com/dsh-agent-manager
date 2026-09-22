@@ -291,7 +291,7 @@ export const buildManagerConfig = (options: {
     database: { path: './data/manager.db' },
     // 债务 E7:与 fileSchema 默认值显式对齐(生成文件自带,不依赖下游默认)
     reconcile_interval_minutes: 10,
-    backup: { docker_volumes: [], auto: false },
+    backup: { docker_volumes: [], auto: false, interval_minutes: 15 },
     pricing: {
       // 债务 E7:与 pricingSchema 的默认值显式对齐(生成文件自带,不依赖下游默认)
       weekends_off_peak: true,

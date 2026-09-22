@@ -371,12 +371,16 @@ test('蜂群2计划 P5: 随仓发布的容器示例配置必须始终通过 sche
   })
 })
 
-test('线上磁盘教训回归: backup.auto 默认关闭，显式 true 才开自动备份', () => {
+test('线上磁盘教训回归: backup.auto 默认关闭，显式 true 才开自动备份；interval_minutes 可调', () => {
   const bare = loadFrom(baseConfig())
   assert.equal(bare.backupAuto, false, '缺省 = 关闭')
+  assert.equal(bare.backupIntervalMs, 15 * 60_000, '缺省间隔 15 分钟')
 
   const on = loadFrom(baseConfig({ backup: { auto: true } }))
   assert.equal(on.backupAuto, true, '显式开启')
+
+  const daily = loadFrom(baseConfig({ backup: { auto: true, interval_minutes: 1440 } }))
+  assert.equal(daily.backupIntervalMs, 1440 * 60_000, '小盘线上可放宽到每日')
 
   const off = loadFrom(baseConfig({ backup: { docker_volumes: ['x'] } }))
   assert.equal(off.backupAuto, false, '只配 docker_volumes 不改变默认关闭')

@@ -309,8 +309,9 @@ const main = async (): Promise<void> => {
     }
   }
   if (config.backupAuto === true) {
-    setInterval(() => void autoBackup(), 15 * 60_000)
-    app.log.info('自动备份：已开启（15 分钟周期）')
+    const intervalMs = config.backupIntervalMs ?? 15 * 60_000
+    setInterval(() => void autoBackup(), intervalMs)
+    app.log.info(`自动备份：已开启（每 ${Math.round(intervalMs / 60_000)} 分钟）`)
   } else {
     app.log.info('自动备份：关闭（backup.auto=false）——手动备份 npm run backup；开启见 manager.config.yaml 的 backup.auto')
   }
