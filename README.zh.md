@@ -100,6 +100,21 @@ manager 只生成「怎么连」的命令，**SSH 私钥永不进入 manager**�
 - 安全：agent 是固定指令集（非通用 shell）；节点 facade 端口要防火墙白名单
   （只放行 manager 出口 IP）；GUI 仍走用户侧 SSH 隧道。
 
+### facade 防火墙白名单（跨公网前必须收紧）
+
+agent 节点的 facade 端口（如 3081）暴露在服务器上，**必须只放行 manager
+的出口 IP**；GUI 走用户侧 SSH 隧道（loopback），不受影响。manager 出口 IP
+= manager 所在服务器访问外网的源 IP（云上多为 EIP/公网 IP）。
+
+- **Linux（ufw）**：
+  `sudo ufw allow from <manager出口IP> to any port 3081 proto tcp && sudo ufw enable`
+- **Linux（firewalld）**：
+  `sudo firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="<manager出口IP>" port port="3081" protocol="tcp" accept' && sudo firewall-cmd --reload`
+- **云安全组**：入方向仅允许 `<manager出口IP>/32` → 节点端口，其余拒绝。
+- **验收**：从非白名单 IP `curl` facade → 拒绝；manager 侧探活正常
+  （`/nodes` 页节点仍 live）。
+
+
 
 ## 升级
 

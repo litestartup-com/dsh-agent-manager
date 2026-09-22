@@ -114,6 +114,23 @@ process = reseed + reinstall + restart), no config edits.
   ports must be firewalled to the manager's egress IP; the GUI still goes
   through the user-side SSH tunnel.
 
+### Facade firewall whitelist (required before going cross-network)
+
+A node's facade port (e.g. 3081) is exposed on its server and **must only allow
+the manager's egress IP**; the GUI uses the user-side SSH tunnel (loopback) and
+is unaffected. The manager's egress IP is the source IP the manager server uses
+for outbound traffic (usually its EIP/public IP in the cloud).
+
+- **Linux (ufw)**:
+  `sudo ufw allow from <manager-egress-IP> to any port 3081 proto tcp && sudo ufw enable`
+- **Linux (firewalld)**:
+  `sudo firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="<manager-egress-IP>" port port="3081" protocol="tcp" accept' && sudo firewall-cmd --reload`
+- **Cloud security group**: inbound only `<manager-egress-IP>/32` → node port,
+  deny everything else.
+- **Acceptance**: `curl` the facade from a non-whitelisted IP → refused; the
+  manager's probe still shows the node live on the `/nodes` page.
+
+
 ## Upgrade
 
 - **Bare metal**: `npm run update` — backup → pull → build → health probe,
