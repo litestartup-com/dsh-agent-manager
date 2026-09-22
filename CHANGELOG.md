@@ -37,6 +37,12 @@
   40~90s）；兼容性信号改走版本矩阵（0.1.5-rc.2 verified 行不再误报不兼容）。
   试点另证实：worker agent 节点无模型凭据（设计如此，凭据下发属 M3），
   同机复制 `.credentials.yaml` 后聊天回合即通。
+- **能力四 · 舰队 M3-3 告警提前（§13 补丁，2026-09-23）**：fleet 看门狗
+  （`src/fleet/watchdog.ts`）30s 一轮——agent 心跳超时（90s）与 agent 节点
+  监督器 offline 边沿触发进站内铃铛（`agent_offline` / `node_offline`，恢复
+  再报 `*_recovered`）；未读去重防 manager 重启刷屏；只报 agent runner 节点，
+  本机 process/docker 节点不越界。本地实测：停 agent 任务 → 铃铛
+  「机器掉线」；重启任务 → 「机器恢复」。
 
 ## 1.1.1 — 线上验收修复三连（2026-09-20）
 

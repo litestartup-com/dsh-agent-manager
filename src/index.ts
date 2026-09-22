@@ -39,6 +39,7 @@ import { registerSkillsRoutes } from './routes/skills.js'
 import { registerNotificationRoutes } from './routes/notifications.js'
 import { registerMetricsRoutes } from './metrics.js'
 import { registerProvisionRoutes } from './routes/provision.js'
+import { createFleetWatchdog } from './fleet/watchdog.js'
 import { Scheduler } from './cron/schedule.js'
 import { assetCacheHeaders, buildPages } from './pages.js'
 import { registerSecurityHeaders } from './security.js'
@@ -339,6 +340,30 @@ const main = async (): Promise<void> => {
   } else {
     app.log.info('自动备份：关闭（backup.auto=false）——手动备份 npm run backup；开启见 manager.config.yaml 的 backup.auto')
   }
+
+  // 能力四（舰队 M3-3，§13 补丁提前）：fleet 看门狗——agent 掉线 / agent 节点
+  // 异常边沿触发进铃铛（30s 一轮，未读去重防重启刷屏）。失败只留痕不退出。
+  const fleetWatchdog = createFleetWatchdog({
+    db,
+    nodeStates: () =>
+      Object.keys(config.endpoints).map((id) => {
+        const ep = config.endpoints[id]
+        const sup = nodeSupervisors.get(id)
+        return sup === undefined || ep === undefined
+          ? { id, state: 'unknown', runner: 'process', host: null, lastError: null }
+          : { id, state: sup.current.state, runner: ep.spawn?.runner ?? 'process', host: ep.spawn?.host ?? null, lastError: sup.current.lastError }
+      }),
+  })
+  const watchdogTimer = setInterval(() => {
+    try {
+      const result = fleetWatchdog()
+      if (result.alerts > 0) app.log.info(`fleet watchdog: ${result.alerts} 条告警进铃铛`)
+    } catch (error) {
+      app.log.warn(`fleet watchdog failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }, 30_000)
+  watchdogTimer.unref()
+  app.log.info('fleet watchdog: 已启动（agent 掉线/节点异常 → 站内铃铛，30s 一轮）')
 }
 
 main().catch((error: unknown) => {
