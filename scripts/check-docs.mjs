@@ -174,6 +174,40 @@ try {
       if (!matrixLegacy.includes(v)) failures.push(`public/assets/agent/runtime.mjs: LEGACY_PEER_DEPS_VERSIONS 的 ${v} 在矩阵里不是 needsLegacyPeerDeps`)
     }
   }
+  // M1 试点 Windows 回归：npm 必须 shell:true（.cmd 垫片，无 shell = ENOENT/EINVAL），
+  // 安装目录只走 cwd（--prefix 传路径，带空格会被 shell 连接时拆断）。
+  if (!/shell:\s*true/.test(agentRuntime)) {
+    failures.push('public/assets/agent/runtime.mjs: npm 调用缺 shell:true（Windows .cmd 垫片 ENOENT 回归点）')
+  }
+  if (/'--prefix'/.test(agentRuntime)) {
+    failures.push('public/assets/agent/runtime.mjs: npm 安装不得用 --prefix 传路径（空格路径会被 shell 拆断，改走 cwd）')
+  }
+  if (!/spawnInvocation\s*=/.test(agentRuntime)) {
+    failures.push('public/assets/agent/runtime.mjs: 缺 spawnInvocation（win32 spawn bin.js = EFTYPE，必须经 node 执行）')
+  }
+  if (!/profileBin !== null && this\.fs\.exists\(profileBin\)/.test(agentRuntime)) {
+    failures.push('public/assets/agent/runtime.mjs: execSpawn 未优先 profile-local bin（prefix 树缺 legacy peer，启动即崩——M1 试点实证）')
+  }
+  // M1 试点实证（dsh-facts §14）：0.1.5-rc.2 的 legacy 装法跳过全部 peer →
+  // 显式 peer 清单（profile.ts 与 gen-node-profile.mjs 两份）必须逐字一致；
+  // 锁文件 PROFILE_LOCKS 必须覆盖矩阵所有 needsLegacyPeerDeps 行。
+  const profileSrc = readFileSync(join(root, 'src/host-node/profile.ts'), 'utf8')
+  const pinPairs = (src, anchor) => {
+    const block = new RegExp(`${anchor}[\\s\\S]*?= \\{([\\s\\S]*?)\\n\\}`, 'm').exec(src)
+    return block === null ? null : new Map([...block[1].matchAll(/'([^']+)':\s*'([^']+)'/g)].map((m) => [m[1], m[2]]))
+  }
+  const tsPins = pinPairs(profileSrc, 'LEGACY_PEER_PINS')
+  const mjsPins = pinPairs(readFileSync(join(root, 'images/node/gen-node-profile.mjs'), 'utf8'), 'const LEGACY_PEER_PINS')
+  const pinSetsEqual = (a, b) => a !== null && b !== null && a.size === b.size && [...a].every(([k, v]) => b.get(k) === v)
+  if (tsPins === null) failures.push('src/host-node/profile.ts: 缺 LEGACY_PEER_PINS 声明（legacy peer 补齐清单）')
+  if (mjsPins === null) failures.push('images/node/gen-node-profile.mjs: 缺 LEGACY_PEER_PINS 声明（与 profile.ts 同步）')
+  if (!pinSetsEqual(tsPins, mjsPins)) failures.push('profile.ts 与 gen-node-profile.mjs 的 LEGACY_PEER_PINS 不一致（两份清单必须逐字同步）')
+  if (!/patchReload:\s*'startup'/.test(profileSrc)) failures.push('src/host-node/profile.ts: profile manifest 未钉 patchReload startup（live 监听强依赖 HMR，legacy 装法必崩）')
+  const locksSrc = readFileSync(join(root, 'src/host-node/profile-locks.ts'), 'utf8')
+  for (const v of matrixLegacy) {
+    if (!new RegExp(`'${v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}':`).test(locksSrc)) failures.push(`src/host-node/profile-locks.ts: 矩阵 legacy 行 ${v} 缺锁文件（^ 区间漂移回归点）`)
+  }
+  if (!locksSrc.includes('node_modules/@deepseek-ai/cordis-plugin-group')) failures.push('src/host-node/profile-locks.ts: 锁内缺 cordis-plugin-group（显式 peer 未进锁）')
   // 前端 import 完整性 canary（2026-09-22 事故）：nodes.js 用到
   // versionOptionsHtml 但漏导入 → 页面卡「加载中」且无测试可拦（DOM 文件
   // 不可单测导入）。至少守住这一个已知回归点。

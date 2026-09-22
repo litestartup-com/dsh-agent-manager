@@ -53,14 +53,38 @@ const defaultTransport = {
   },
 }
 
+/**
+ * npm 调用契约（M1 试点 Windows 实证回归）：npm 是 .cmd 垫片，node ≥20
+ * 无 shell 直接 execFile 会 ENOENT/EINVAL（CVE-2024-27980，manager 侧
+ * setup.ts L543 同款坑）——恒 shell:true 交给系统 shell 解析；安装目录只走
+ * cwd，绝不进参数（路径带空格会被 shell 连接时拆断）。
+ */
+export const npmInvocation = (args, cwd) => ({
+  cmd: 'npm',
+  args,
+  options: { cwd, shell: true, stdio: ['ignore', 'inherit', 'inherit'] },
+})
+
+/**
+ * spawn 调用契约（M1 试点 Windows 实证回归）：bin.js 在 Windows 上没有可执行
+ * 语义（CreateProcess 无 shebang → EFTYPE）——win32 必须以 node 为命令、bin
+ * 转第一个参数（manager 侧 supervisor 同款「command: node」接线）；posix 直接
+ * spawn（shebang）。
+ */
+export const spawnInvocation = (platform, bin, args) =>
+  platform === 'win32'
+    ? { cmd: process.execPath, args: [bin, ...args] }
+    : { cmd: bin, args }
+
 const defaultProc = {
   /** 安装 DSH 到 agent 自有 prefix（不碰用户全局 npm）。 */
   install: async (agentDir, version, legacyPeerDeps) => {
     const { execFileSync } = await import('node:child_process')
     const prefix = `${agentDir}/dsh/${version}`
-    const args = ['install', `${DSH_PACKAGE}@${version}`, '--prefix', prefix, '--no-audit', '--no-fund']
+    const args = ['install', `${DSH_PACKAGE}@${version}`, '--no-audit', '--no-fund']
     if (legacyPeerDeps) args.push('--legacy-peer-deps')
-    execFileSync('npm', args, { stdio: 'inherit' })
+    const inv = npmInvocation(args, prefix)
+    execFileSync(inv.cmd, inv.args, inv.options)
     return `${prefix}/node_modules/${DSH_PACKAGE}/lib/bin.js`
   },
   /** 派生下发（M1-6）：profile 依赖安装（cwd = profile 目录，钉版全在文件里）。 */
@@ -68,14 +92,16 @@ const defaultProc = {
     const { execFileSync } = await import('node:child_process')
     const args = ['install', '--no-audit', '--no-fund']
     if (legacyPeerDeps) args.push('--legacy-peer-deps')
-    execFileSync('npm', args, { cwd: profileDir, stdio: 'inherit' })
+    const inv = npmInvocation(args, profileDir)
+    execFileSync(inv.cmd, inv.args, inv.options)
   },
   /** 拉起节点进程（detached + 文件流），返回 pid。 */
   spawn: async (bin, args, env, outPath) => {
     const { spawn } = await import('node:child_process')
     const { openSync } = await import('node:fs')
     const fd = openSync(outPath, 'a')
-    const child = spawn(bin, args, {
+    const inv = spawnInvocation(process.platform, bin, args)
+    const child = spawn(inv.cmd, inv.args, {
       env: { ...process.env, ...env },
       stdio: ['ignore', fd, fd],
       detached: true,
@@ -207,8 +233,9 @@ export class AgentRuntime {
       const version = typeof payload.dshVersion === 'string' && payload.dshVersion !== '' ? payload.dshVersion : '0.1.2-rc.1'
       const legacy = LEGACY_PEER_DEPS_VERSIONS.includes(version)
       // 派生下发（M1-6）：profile 文件落盘（幂等，内容不变不重写）+ 依赖安装
+      let profileDir = null
       if (payload.profile !== null && payload.profile !== undefined) {
-        const profileDir = `${dshHome}/${payload.profile.dir}`
+        profileDir = `${dshHome}/${payload.profile.dir}`
         this.fs.mkdir(profileDir)
         const files = payload.profile.files ?? {}
         for (const [name, content] of Object.entries(files)) {
@@ -224,7 +251,11 @@ export class AgentRuntime {
           this.fs.writeFile(`${dshHome}/fleet.md`, payload.fleetMd)
         }
       }
-      const bin = await this.ensureDsh(payload.dshVersion)
+      // M1 试点实证：profile-local bin 优先——profile 依赖安装带锁文件与显式
+      // peer（manager 侧 profileFiles 生成），而 prefix 独立装树缺 legacy 跳过的
+      // peer，启动即崩（ERR_MODULE_NOT_FOUND）。有 profile-local bin 绝不用 prefix。
+      const profileBin = profileDir === null ? null : `${profileDir}/node_modules/${DSH_PACKAGE}/lib/bin.js`
+      const bin = profileBin !== null && this.fs.exists(profileBin) ? profileBin : await this.ensureDsh(payload.dshVersion)
       const env = { ...(payload.env ?? {}), DSH_HOME: dshHome }
       const { pid } = await this.proc.spawn(bin, payload.args ?? [], env, `${home}/node.log`)
       this.fs.writeFile(`${home}/node.pid`, String(pid))

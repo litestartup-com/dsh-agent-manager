@@ -81,3 +81,22 @@ test('能力二回归: .seed-version 标记与漂移判定——生成即带标�
     rmSync(nodesHome, { recursive: true, force: true })
   }
 })
+
+test('舰队 M1 试点回归: 0.1.5-rc.2 profile 必须补 legacy 跳过的 peer + 携带锁文件 + patchReload startup（Windows 实证：新装整树漂 rc.3 + peer 缺失 → 启动即崩）', () => {
+  const files = profileFiles({ name: 'pilot01', port: 3197 }, GATEWAY_REF, '0.1.5-rc.2')
+  const pkg = JSON.parse(files['package.json'] ?? '{}')
+  assert.equal(pkg.dependencies['@deepseek-ai/cordis-plugin-group'], '1.0.2', 'dsh-app-boot 静态导入的 peer（legacy 跳过）必须显式补上')
+  assert.equal(pkg.dependencies['@deepseek-ai/dsh-sandbox'], '0.1.5-rc.3', '旧家族名 peer 显式补上（rc.3 家族版本）')
+  assert.equal(pkg.dependencies['@deepseek-ai/cordis-plugin-hmr'], '1.0.17', 'HMR peer 显式补上')
+  assert.equal(pkg.dsh?.profile?.patchReload, 'startup', '节点 profile 不启用 live patch 监听（免 HMR 硬依赖，实证默认 live 会崩）')
+  assert.ok(files['package-lock.json'] !== undefined, 'profileFiles 必须随送锁文件——0.1.5-rc.2 的 ^ 区间会漂到 rc.3（registry next）')
+  const lock = JSON.parse(files['package-lock.json'] ?? '{}')
+  assert.equal(lock.packages['node_modules/@deepseek-ai/dsh']?.version, '0.1.5-rc.2', '锁文件钉住 dsh 自身')
+  assert.equal(lock.packages['node_modules/@deepseek-ai/dsh-app-boot']?.version, '0.1.5-rc.3', '锁文件钉住家族快照（rc.3 家族实证可启动）')
+  assert.equal(lock.packages['node_modules/@deepseek-ai/cordis-plugin-group']?.version, '1.0.2', '锁含显式 peer')
+  // 0.1.2 线不需要锁与补丁（^0.1.2-rc.1 无同 tuple 新版本可漂；无 legacy 时 npm 自动装 peer）
+  const clean = profileFiles({ name: 'worker', port: 3083 }, GATEWAY_REF, '0.1.2-rc.1')
+  const cleanPkg = JSON.parse(clean['package.json'] ?? '{}')
+  assert.ok(clean['package-lock.json'] === undefined, '0.1.2 不带锁')
+  assert.ok(cleanPkg.dependencies['@deepseek-ai/cordis-plugin-group'] === undefined, '0.1.2 不补 peer')
+})

@@ -519,7 +519,9 @@ export const registerProvisionRoutes = (
               runner: 'agent',
               host: body.host,
               args: ['--profile', body.name, '--port', String(port), '--no-open'],
-              ready_timeout_ms: 30_000,
+              // M1 试点实证：agent 远端首启 = 依赖安装 + DSH 全量 boot，实测
+              // 40~90s 才听端口——30s 就绪窗会误杀重启链；放宽到 120s。
+              ready_timeout_ms: 120_000,
               ...(pinnedDsh === undefined ? {} : { dsh_version: dshVersion, gateway_ref: gatewayRef }),
             },
           },
@@ -540,7 +542,8 @@ export const registerProvisionRoutes = (
             command: '',
             args: ['--profile', body.name, '--port', String(port), '--no-open'],
             cwd: null,
-            readyTimeoutMs: 30_000,
+            // M1 试点实证：agent 远端首启 40~90s，30s 就绪窗误杀（与 yaml 同源）
+            readyTimeoutMs: 120_000,
             detached: false,
             logFile: null,
             env: {},

@@ -2,14 +2,16 @@ import type { FastifyInstance, preHandlerHookHandler } from 'fastify'
 import { desc, eq } from 'drizzle-orm'
 import type { AppConfig } from '../config.js'
 import { schema, type Db } from '../db/index.js'
-import { COMPAT_DSH_VERSION } from '../dsh-version.js'
-import type { GatewayClient } from '../gateway/client.js'
 import { errorText } from '../errors.js'
+import type { GatewayClient } from '../gateway/client.js'
 import type { SessionDriver } from '../session-driver/port.js'
 import { listArchivedChats, listChats } from '../chat/store.js'
 import { activeRunCount, runningRunId } from '../runner.js'
 import { currentMonth, monthByAgent } from '../usage/store.js'
-// 债务 D5:manager 自身版本(构建期注入,与 DSH 兼容版本 COMPAT_DSH_VERSION 勿混淆)
+// 舰队 M1 试点回归：兼容性信号走版本矩阵（0.1.5-rc.2 是 verified 行，
+// 旧逻辑 === COMPAT_DSH_VERSION 会把它误报为不兼容）
+import { dshCompatible } from '../dsh-matrix.js'
+// 债务 D5:manager 自身版本(构建期注入,与 DSH 兼容版本勿混淆)
 import { MANAGER_VERSION } from '../version.js'
 
 export interface EndpointStatus {
@@ -23,7 +25,7 @@ export interface EndpointStatus {
   error: string | null
   /** 蜂群2计划 P1：apiproxy 探测到的节点 DSH 版本；gateway/未知 = null。 */
   dshVersion: string | null
-  /** 与验证版本 COMPAT_DSH_VERSION 是否一致；null = 版本未知（无告警）。 */
+  /** 舰队 M1 试点回归：按版本矩阵判定（dsh-matrix.ts）；null = 版本未知（无告警）。 */
   dshCompatible: boolean | null
 }
 
@@ -69,7 +71,7 @@ export const probeEndpoint = async (
         // 0.1.2 起 host.describe 由 facade 合成，version 返回宿主树的真实 DSH
         // 版本（读不到回退协议号 '0.0.1'）——展示用，且据此给兼容性信号。
         row.dshVersion = version
-        row.dshCompatible = version === COMPAT_DSH_VERSION
+        row.dshCompatible = dshCompatible(version)
       }
       return row
     } catch (error) {

@@ -14,6 +14,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { COMPAT_DSH_VERSION, GATEWAY_PACKAGE, GATEWAY_REF, resolvePair } from '../dsh-version.js'
+import { PROFILE_LOCKS } from './profile-locks.js'
 
 export interface ProfileSpec {
   name: string
@@ -31,6 +32,45 @@ export const PROFILE_BUNDLES: Record<string, string> = {
  * 能力二修正（2026-09-22 舰队 M1-6 揪出）：bundles 必须钉**目标** dshVersion——
  * 旧实现展开 PROFILE_BUNDLES（恒 COMPAT_DSH_VERSION）把传入版本盖掉，0.1.5
  * 节点会拿到 0.1.2 bundles（Windows 崩溃事故的配对形态，事实卡 §13）。 */
+/**
+ * 能力四（舰队 M1 试点实证，2026-09-23，事实卡 dsh-facts §14）：
+ * --legacy-peer-deps 会跳过全部 peer，而 0.1.5 家族的 dsh-app-boot 静态导入
+ * @deepseek-ai/cordis-plugin-group、23 个旧家族名包只存在于 peer 区间——
+ * 显式补为直接依赖（钉实证版本），否则新装节点启动即崩。与锁文件
+ * （profile-locks.ts）配套：锁钉整树快照，本表补上锁内缺失的 peer。
+ * 与 gen-node-profile.mjs 的清单同步（check-docs.mjs 常驻断言）。
+ */
+export const LEGACY_PEER_PINS: Record<string, Record<string, string>> = {
+  '0.1.5-rc.2': {
+    '@deepseek-ai/cordis-plugin-group': '1.0.2',
+    '@deepseek-ai/cordis-plugin-hmr': '1.0.17',
+    '@deepseek-ai/cordis-plugin-include': '1.0.7',
+    '@deepseek-ai/dsh-anonymous-user-id': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-attachment': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-authorization': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-bash-local': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-code-runtime': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-compaction': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-fs': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-hook-protocol': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-jobs': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-output-retention': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-sandbox': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-sdk-protocol': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-session-persistence': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-session-query': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-session-telemetry': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-session-title-llm': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-settings': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-shell': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-spill': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-subagent-in-process-driver': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-util-time': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-util-workspace-path': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-workflow': '0.1.5-rc.3',
+  },
+}
+
 export const profileDependencies = (
   dshVersion: string = COMPAT_DSH_VERSION,
   gatewayDep: string = GATEWAY_REF,
@@ -39,6 +79,7 @@ export const profileDependencies = (
   '@deepseek-ai/dsh-base': dshVersion,
   '@deepseek-ai/dsh-web-app': dshVersion,
   [GATEWAY_PACKAGE]: gatewayDep,
+  ...(LEGACY_PEER_PINS[dshVersion] ?? {}),
 })
 
 export const profileFiles = (
@@ -52,7 +93,15 @@ export const profileFiles = (
   const pkg = {
     name: `dsh-profile-${spec.name}`,
     private: true,
-    dsh: { profile: { bundles: [...Object.keys(PROFILE_BUNDLES), GATEWAY_PACKAGE] } },
+    dsh: {
+      profile: {
+        bundles: [...Object.keys(PROFILE_BUNDLES), GATEWAY_PACKAGE],
+        // M1 试点实证：缺省 live patch 监听强依赖 HMR 服务（legacy 装法下
+        // cordis-plugin-hmr 是 peer，不显式补必崩）——节点由 manager 托管，
+        // 不需要热监听，钉 startup（补丁在启动时生效即可）。
+        patchReload: 'startup',
+      },
+    },
     dependencies: profileDependencies(dshVersion, gatewayDep),
   }
   const patch = [
@@ -67,6 +116,8 @@ export const profileFiles = (
   ]
   return {
     'package.json': JSON.stringify(pkg, null, 2) + '\n',
+    // M1 试点实证：随送锁文件钉住整树快照（^ 区间会漂到 rc.3，registry next 已发）
+    ...(PROFILE_LOCKS[dshVersion] === undefined ? {} : { 'package-lock.json': PROFILE_LOCKS[dshVersion] }),
     // pnpm ≥10 默认拒绝运行依赖构建脚本（ERR_PNPM_IGNORED_BUILDS，实测容器构建撞过）——
     // 显式批准 DSH 依赖链里必须构建的原生/后置脚本包。10 认顶层键、11 认 pnpm 嵌套键，
     // 两个形态都给（9 及以下直接忽略，按旧语义照跑）。

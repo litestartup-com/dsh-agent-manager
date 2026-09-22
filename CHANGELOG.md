@@ -21,6 +21,22 @@
   随 spawn 载荷送达，幂等落盘）；机器页 UI（agent 目录 + join 命令 + 节点
   主机列 + 向导主机下拉）。修复：profileDependencies 展开顺序 bug（0.1.5
   节点拿 0.1.2 bundles）、微任务饥饿（瞬时 resolve 链饿死定时器）。
+- **能力四 · 舰队 M1 本地试点与三连修复（2026-09-23）**：M1 本地试点在
+  Windows 本机跑通全链（agent 注册 → 机器区现身 → API 建 agent 节点 →
+  facade live → 聊天回合 → 起停/重启/日志），过程中实证并修复三类问题：
+  1. **Windows 平台双坑**——agent 的 `execFileSync('npm')` 无 shell 直接
+  ENOENT（npm 是 .cmd 垫片）、`spawn(bin.js)` EFTYPE（CreateProcess 无
+  shebang），均改为平台感知调用（shell: true / win32 经 node 执行）；
+  2. **0.1.5 家族浮动区间 + legacy 跳 peer 双杀**（事实卡 dsh-facts §14）——
+  dsh@0.1.5-rc.2 依赖全是 `^` 浮动区间，registry 已发 0.1.5-rc.3，新装整树
+  漂移且 `--legacy-peer-deps` 跳过全部 peer → 启动即崩；修复 = profile 随送
+  package-lock 整树快照（profile-locks.ts）+ 26 个显式 peer 钉版
+  （LEGACY_PEER_PINS，profile.ts 与容器生成器逐字同步）+ `patchReload:
+  startup`（免 HMR 硬依赖）+ agent 优先 profile-local bin；
+  3. **agent 节点就绪窗 30s → 120s**（远端首启 = 依赖安装 + 全量 boot，实测
+  40~90s）；兼容性信号改走版本矩阵（0.1.5-rc.2 verified 行不再误报不兼容）。
+  试点另证实：worker agent 节点无模型凭据（设计如此，凭据下发属 M3），
+  同机复制 `.credentials.yaml` 后聊天回合即通。
 
 ## 1.1.1 — 线上验收修复三连（2026-09-20）
 

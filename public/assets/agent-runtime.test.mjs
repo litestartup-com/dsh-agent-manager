@@ -139,6 +139,30 @@ test('能力四 M1-5: spawn 指令——prefix 安装钉版（0.1.5 带 legacy�
   assert.deepEqual(posted[0], { type: 'command_result', commandId: 7, ok: true, result: { pid: 4242 } })
 })
 
+test('能力四 M1 试点回归: spawn 优先 profile-local bin（prefix 独立装树缺 peer，实证启动即崩）', async () => {
+  const a = makeRuntime()
+  await a.runtime.registerOnce()
+  // 预置 profile-local bin（幂等落盘的 profile 文件装好后的形态）
+  a.fs.store.set('/agent/nodes/ops01/profiles/ops01/node_modules/@deepseek-ai/dsh/lib/bin.js', '')
+  a.transport.commandBatches.push([
+    {
+      id: 9,
+      type: 'node.spawn',
+      payload: {
+        nodeId: 'ops01',
+        args: ['--profile', 'ops01', '--port', '3081'],
+        env: { DSH_HOME: '/agent/nodes/ops01', GW_KEY: 'apigw-k' },
+        dshVersion: '0.1.5-rc.2',
+        profile: { dir: 'profiles/ops01', files: { 'package.json': '{"dsh":1}' } },
+      },
+    },
+  ])
+  await a.runtime.loopOnce()
+  const spawned = a.proc.spawned[0]
+  assert.equal(spawned.bin.endsWith('/agent/nodes/ops01/profiles/ops01/node_modules/@deepseek-ai/dsh/lib/bin.js'), true, '有 profile-local bin 就绝不用 prefix 树')
+  assert.equal(a.proc.installed.length, 0, 'prefix 独立安装跳过（其树缺 legacy peer 会崩）')
+})
+
 test('能力四 M1-5: stop/restart/logs/status/未知指令', async () => {
   const a = makeRuntime()
   await a.runtime.registerOnce()
@@ -209,3 +233,27 @@ test('能力四 M1-5: LEGACY_PEER_DEPS_VERSIONS 覆盖 0.1.5（与矩阵 needsLe
   assert.ok(LEGACY_PEER_DEPS_VERSIONS.includes('0.1.5-rc.2'))
   assert.ok(!LEGACY_PEER_DEPS_VERSIONS.includes('0.1.2-rc.1'))
 })
+
+test('能力四 M1 试点回归: npm 调用必须 shell:true 且路径走 cwd（Windows .cmd 垫片 ENOENT 实证）', async () => {
+  const { execFileSync } = await import('node:child_process')
+  const { npmInvocation } = await import('./agent/runtime.mjs')
+  const inv = npmInvocation(['install', 'x@1.0.0', '--no-audit', '--no-fund'], 'C:\\dir with space\\p')
+  assert.equal(inv.options.shell, true, 'Windows 上 npm 是 .cmd 垫片，必须 shell:true 交给系统 shell 解析（node≥20 无 shell 直接 ENOENT/EINVAL）')
+  assert.equal(inv.options.cwd, 'C:\\dir with space\\p', '安装目录只走 cwd——路径参数会被 shell 连接时拆断')
+  assert.ok(!inv.args.some((a) => a.includes('dir with space')), '路径不得出现在参数里')
+  if (process.platform === 'win32') {
+    const out = execFileSync('npm', ['--version'], { shell: true, stdio: ['ignore', 'pipe', 'ignore'], encoding: 'utf8' })
+    assert.match(out.trim(), /^\d+\.\d+\.\d+/, '真实 npm 经 shell 可解析（旧写法 execFileSync(\'npm\') 无 shell = ENOENT）')
+  }
+})
+
+test('能力四 M1 试点回归: Windows spawn bin.js 必须经 node 执行（CreateProcess EFTYPE 实证）', async () => {
+  const { spawnInvocation } = await import('./agent/runtime.mjs')
+  const win = spawnInvocation('win32', 'C:\\agent\\dsh\\0.1.5-rc.2\\bin.js', ['--profile', 'pilot01', '--port', '3197'])
+  assert.equal(win.cmd, process.execPath, 'win32: .js 无 shebang，直接 spawn 是 EFTYPE——命令必须是 node')
+  assert.deepEqual(win.args, ['C:\\agent\\dsh\\0.1.5-rc.2\\bin.js', '--profile', 'pilot01', '--port', '3197'], 'bin 转第一个参数')
+  const posix = spawnInvocation('linux', '/agent/dsh/0.1.5-rc.2/bin.js', ['--profile', 'pilot01'])
+  assert.equal(posix.cmd, '/agent/dsh/0.1.5-rc.2/bin.js', 'posix: shebang 可直接 spawn')
+  assert.deepEqual(posix.args, ['--profile', 'pilot01'])
+})
+

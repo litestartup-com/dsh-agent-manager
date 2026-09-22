@@ -238,6 +238,7 @@ test('能力四 M1-7: 向导建 agent 节点——runner=agent+host 落真相源
   const spawn = config.endpoints['ops01']?.spawn
   assert.equal(spawn?.runner, 'agent')
   assert.equal(spawn?.host, 'agent-abc123')
+  assert.equal(spawn?.readyTimeoutMs, 120_000, 'M1 试点实证：agent 远端首启 40~90s，就绪窗必须放宽（30s 误杀重启链）')
   assert.equal(config.endpoints['ops01']?.url, 'http://10.0.0.7:3081', '远程 facade 地址进真相源')
   const yaml = readFileSync(join(dir, 'manager.config.yaml'), 'utf8')
   const section = yaml.slice(yaml.indexOf('ops01:'))

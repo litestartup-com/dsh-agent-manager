@@ -13,6 +13,40 @@ const out = process.env.PROFILE_DIR ?? '/opt/ohdsh-profile'
 // facade peer 区间 ^0.1.2-rc.1 覆盖不到 0.1.5 线 → 不带 --legacy-peer-deps 必 ERESOLVE
 // （服务器 smoke15 实测，事实卡 dsh-facts §12；裸机路径 profileInstallCommand 同款修复）。
 const LEGACY_PEER_DEPS_VERSIONS = ['0.1.5-rc.2']
+// M1 试点实证（事实卡 dsh-facts §14）：legacy 跳过全部 peer，0.1.5 家族的
+// dsh-app-boot 静态导入 cordis-plugin-group、23 个旧家族名包只存在于 peer 区间——
+// 显式补为直接依赖，否则新装节点启动即崩。与 src/host-node/profile.ts 的
+// LEGACY_PEER_PINS 保持一致（check-docs.mjs 常驻断言）。
+const LEGACY_PEER_PINS = {
+  '0.1.5-rc.2': {
+    '@deepseek-ai/cordis-plugin-group': '1.0.2',
+    '@deepseek-ai/cordis-plugin-hmr': '1.0.17',
+    '@deepseek-ai/cordis-plugin-include': '1.0.7',
+    '@deepseek-ai/dsh-anonymous-user-id': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-attachment': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-authorization': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-bash-local': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-code-runtime': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-compaction': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-fs': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-hook-protocol': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-jobs': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-output-retention': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-sandbox': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-sdk-protocol': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-session-persistence': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-session-query': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-session-telemetry': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-session-title-llm': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-settings': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-shell': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-spill': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-subagent-in-process-driver': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-util-time': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-util-workspace-path': '0.1.5-rc.3',
+    '@deepseek-ai/dsh-workflow': '0.1.5-rc.3',
+  },
+}
 
 mkdirSync(out, { recursive: true })
 
@@ -20,11 +54,18 @@ writeFileSync(`${out}/package.json`, JSON.stringify(
   {
     name: 'dsh-profile-ohdsh-node',
     private: true,
-    dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'ohdsh-api-facade'] } },
+    dsh: {
+      profile: {
+        bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'ohdsh-api-facade'],
+        // M1 试点实证：节点 profile 不启用 live patch 监听（免 HMR 硬依赖）
+        patchReload: 'startup',
+      },
+    },
     dependencies: {
       '@deepseek-ai/dsh-base': DSH_VERSION,
       '@deepseek-ai/dsh-web-app': DSH_VERSION,
       'ohdsh-api-facade': GATEWAY_REF,
+      ...(LEGACY_PEER_PINS[DSH_VERSION] ?? {}),
     },
   },
   null,

@@ -153,3 +153,31 @@ test('债务 B4 回归: TTL 内重复轮询复用缓存探测,不每请求扇出
   assert.equal(probes, 2, 'TTL 过期后恢复探测')
   await app.close()
 })
+
+test('舰队 M1 试点回归: 兼容性信号走矩阵——0.1.5-rc.2 verified 行必须 compatible（旧逻辑 === COMPAT_DSH_VERSION 误报）', async () => {
+  _clearProbeCache()
+  const workspace = tempDir('route-status-matrix-ws')
+  const db = makeDbWithAgents([{ id: 'personal', workspacePath: workspace }])
+  const config: AppConfig = {
+    listen: { host: '127.0.0.1', port: 0 },
+    endpoints: { A: { id: 'A', url: 'http://127.0.0.1:1', driver: 'apiproxy', prefix: '/api', key: '', sandboxBase: null, sandboxKey: '', spawn: null, access: null } },
+    agents: { personal: agentFor('personal', 'Personal', workspace) },
+    runner: { timeoutMs: 10_000, silenceMs: 0, maxConsecutiveFailures: 3, dailyBudgetMicroUsd: null },
+    databasePath: ':memory:',
+    pricing: DEFAULT_PRICING,
+    sessionSecret: 'x'.repeat(32),
+    initialUser: { username: 'admin', password: null },
+    warnings: [],
+  }
+  const app = Fastify()
+  const fake = new FakeSessionDriver('A', { frames: [], probeVersion: '0.1.5-rc.2' })
+  fake.probeVersion = async (): Promise<string> => '0.1.5-rc.2'
+  const upstreamClients = new Map([['A', fake]])
+  registerStatusRoutes(app, config, db, new Map(), async () => undefined, upstreamClients)
+
+  const response = await app.inject({ method: 'GET', url: '/api/status' })
+  const body = response.json()
+  assert.equal(body.endpoints[0]!.dshVersion, '0.1.5-rc.2')
+  assert.equal(body.endpoints[0]!.dshCompatible, true, '0.1.5-rc.2 在矩阵 verified 行内，兼容性必须为 true')
+  await app.close()
+})
