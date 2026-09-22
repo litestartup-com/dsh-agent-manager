@@ -204,3 +204,16 @@ export const agentJoinToken = sqliteTable('agent_join_token', {
   usedAt: integer('used_at'),
   createdAt: integer('created_at').notNull(),
 })
+
+/** 能力四（舰队）：agent 指令队列（pending → delivered → done/failed）。 */
+export const agentCommand = sqliteTable('agent_command', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  agentId: text('agent_id').notNull(),
+  type: text('type').notNull(),
+  payload: text('payload').notNull(),
+  state: text('state').notNull().default('pending'),
+  result: text('result'),
+  createdAt: integer('created_at').notNull(),
+  deliveredAt: integer('delivered_at'),
+  doneAt: integer('done_at'),
+})

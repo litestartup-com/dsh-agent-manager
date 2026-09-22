@@ -264,6 +264,23 @@ const MIGRATIONS: readonly string[][] = [
        created_at INTEGER NOT NULL
      )`,
   ],
+  // 17 -- 能力四（舰队）：agent 指令队列（M1-3）。
+  // manager 入队 → agent 长轮询领取（delivered）→ 结果回报（done/failed）。
+  // 持久化队列：manager 重启不丢指令；payload/result 均 JSON 文本。
+  [
+    `CREATE TABLE IF NOT EXISTS agent_command (
+       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       agent_id TEXT NOT NULL,
+       type TEXT NOT NULL,
+       payload TEXT NOT NULL,
+       state TEXT NOT NULL DEFAULT 'pending',
+       result TEXT,
+       created_at INTEGER NOT NULL,
+       delivered_at INTEGER,
+       done_at INTEGER
+     )`,
+    `CREATE INDEX IF NOT EXISTS agent_command_pending ON agent_command(agent_id, state)`,
+  ],
 ]
 
 export interface OpenDbResult {

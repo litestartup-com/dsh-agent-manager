@@ -1,27 +1,34 @@
 import { createHash, randomBytes } from 'node:crypto'
-import type { FastifyInstance, preHandlerHookHandler } from 'fastify'
-import { eq } from 'drizzle-orm'
+import type { FastifyInstance, FastifyRequest, preHandlerHookHandler } from 'fastify'
+import { and, asc, count, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { schema, type Db } from '../db/index.js'
 import type { AuditKind } from '../audit.js'
 
 /**
- * 能力四（舰队，M1-2）：node-agent 注册链。
+ * 能力四（舰队，M1-2/M1-3）：node-agent 注册链 + 指令/事件通道。
  *
- * 两条面（与主脑面 /api/internal 共用前缀但鉴权完全不同）：
- * - `POST /api/agents/join` —— manager 用户面（requireUser）：签发一次性
- *   join token（15 分钟过期、一次即焚，DB 只存哈希）。
- * - `POST /api/internal/agents/register` —— agent 面（无用户会话、Bearer 不适用，
- *   join token 走 body）：换发 agent 身份（agentId + agentToken，token 只存哈希，
- *   明文只出现一次——与 session token 同款纪律）。
- *
- * 网络面：agent 从远端服务器拨号，所以 register 不套主脑面的私网闸——靠
- * 一次性 token + 限流兜底；agentToken 后续的指令/事件通道（M1-3）用 Bearer。
+ * 三条面：
+ * - 用户面（requireUser）：join 签发 / agent 列表 / 吊销；
+ * - agent 面（Bearer agentToken）：register（join token 换发身份）、
+ *   commands 长轮询（领取指令）、events（结果/心跳/日志分块回报）。
+ * 网络面：agent 从远端拨号，不套主脑面私网闸——一次性 token + 限流 + Bearer 兜底。
  */
 
 const hashToken = (token: string): string => createHash('sha256').update(token).digest('hex')
 
 export const JOIN_TOKEN_TTL_MS = 15 * 60_000
+/** 心跳超时：超过该时长未鉴权露面 = 离线（agent 轮询周期 ~30s，3 个周期兜底）。 */
+export const AGENT_OFFLINE_MS = 90_000
+/** 长轮询单次等待上限。 */
+const MAX_WAIT_MS = 25_000
+/** agent 日志环形缓冲（内存，按 agent:node 键控，各 64KB——设计 §5.2）。 */
+export const AGENT_LOG_RING_BYTES = 64 * 1024
+
+export const COMMAND_TYPES = ['node.spawn', 'node.stop', 'node.restart', 'node.logs', 'node.status', 'config.deliver', 'agent.update'] as const
+export type AgentCommandType = (typeof COMMAND_TYPES)[number]
+
+const commandTypeSchema = z.enum(COMMAND_TYPES)
 
 const registerBody = z.object({
   joinToken: z.string().min(1).max(200),
@@ -31,11 +38,91 @@ const registerBody = z.object({
   nodeVersion: z.string().min(1).max(32),
 })
 
-/** 按 agentToken 找未吊销的 agent 行；找不到/已吊销 = null（M1-3 通道用）。 */
+const eventsBody = z.object({
+  events: z.array(z.discriminatedUnion('type', [
+    z.object({ type: z.literal('command_result'), commandId: z.number().int().positive(), ok: z.boolean(), result: z.unknown().optional() }),
+    z.object({ type: z.literal('heartbeat'), detail: z.record(z.string(), z.unknown()).optional() }),
+    z.object({ type: z.literal('log_chunk'), nodeId: z.string().min(1).max(64), chunk: z.string().max(32_000) }),
+  ])).max(100),
+})
+
+/** 按 agentToken 找未吊销的 agent 行；找不到/已吊销 = null。 */
 export const findAgentByToken = (db: Db, token: string): { id: string; hostname: string; os: string; arch: string; nodeVersion: string } | null => {
   const row = db.select().from(schema.agentMachine).where(eq(schema.agentMachine.tokenHash, hashToken(token))).all()[0]
   if (row === undefined || row.revokedAt !== null) return null
   return { id: row.id, hostname: row.hostname, os: row.os, arch: row.arch, nodeVersion: row.nodeVersion }
+}
+
+// ---- 指令队列（DB 为真相源；内存等待者只做唤醒）----
+const waiters = new Map<string, Array<() => void>>()
+
+const wake = (agentId: string): void => {
+  const list = waiters.get(agentId)
+  if (list === undefined) return
+  waiters.delete(agentId)
+  for (const done of list) done()
+}
+
+/** manager 侧入队（supervisor/派生下发用）；返回指令 id。 */
+export const enqueueAgentCommand = (db: Db, agentId: string, type: AgentCommandType, payload: unknown): number => {
+  const result = db.insert(schema.agentCommand).values({
+    agentId,
+    type,
+    payload: JSON.stringify(payload ?? null),
+    state: 'pending',
+    result: null,
+    createdAt: Date.now(),
+    deliveredAt: null,
+    doneAt: null,
+  }).run()
+  const id = Number(result.lastInsertRowid)
+  wake(agentId)
+  return id
+}
+
+/** 原子领取该 agent 的全部 pending 指令（单连接下无并发竞态，条件更新双保险）。 */
+const claimCommands = (db: Db, agentId: string): Array<{ id: number; type: AgentCommandType; payload: unknown }> => {
+  const rows = db.select().from(schema.agentCommand)
+    .where(and(eq(schema.agentCommand.agentId, agentId), eq(schema.agentCommand.state, 'pending')))
+    .orderBy(asc(schema.agentCommand.id))
+    .all()
+  const claimed: Array<{ id: number; type: AgentCommandType; payload: unknown }> = []
+  for (const row of rows) {
+    const res = db.update(schema.agentCommand)
+      .set({ state: 'delivered', deliveredAt: Date.now() })
+      .where(and(eq(schema.agentCommand.id, row.id), eq(schema.agentCommand.state, 'pending')))
+      .run()
+    if (res.changes === 0) continue
+    let payload: unknown = null
+    try {
+      payload = JSON.parse(row.payload) as unknown
+    } catch {
+      payload = null
+    }
+    if (commandTypeSchema.safeParse(row.type).success) claimed.push({ id: row.id, type: row.type as AgentCommandType, payload })
+  }
+  return claimed
+}
+
+// ---- agent 日志环形缓冲（内存）----
+const logRing = new Map<string, string>()
+const appendLog = (agentId: string, nodeId: string, chunk: string): void => {
+  const key = `${agentId}:${nodeId}`
+  const next = `${logRing.get(key) ?? ''}${chunk}`
+  logRing.set(key, next.length > AGENT_LOG_RING_BYTES ? next.slice(next.length - AGENT_LOG_RING_BYTES) : next)
+}
+
+/** 供 UI/日志抽屉读取（M1-7）。 */
+export const readAgentLog = (agentId: string, nodeId: string): string => logRing.get(`${agentId}:${nodeId}`) ?? ''
+
+/** Bearer token → agent id；仅当 token 有效且与路由 :id 一致才返回（不泄露存在性）。 */
+const channelAgent = (db: Db, request: FastifyRequest, id: string): string | null => {
+  const header = request.headers.authorization
+  const token = typeof header === 'string' && header.startsWith('Bearer ') ? header.slice(7) : ''
+  if (token === '') return null
+  const agent = findAgentByToken(db, token)
+  if (agent === null || agent.id !== id) return null
+  return agent.id
 }
 
 export const registerAgentsRoutes = (
@@ -95,6 +182,115 @@ export const registerAgentsRoutes = (
       return reply.send({ agentId, agentToken })
     },
   )
+
+  // ---- agent 面：长轮询领取指令 ----
+  app.get<{ Params: { id: string }; Querystring: { wait?: string } }>(
+    '/api/internal/agents/:id/commands',
+    { config: { rateLimit: { max: 240, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      const agentId = channelAgent(db, request, request.params.id)
+      if (agentId === null) {
+        const header = request.headers.authorization
+        const token = typeof header === 'string' && header.startsWith('Bearer ') ? header.slice(7) : ''
+        const known = token !== '' && findAgentByToken(db, token) !== null
+        return known
+          ? reply.code(404).send({ error: 'unknown_agent' })
+          : reply.code(401).send({ error: 'unauthorized' })
+      }
+      // 任何鉴权请求刷心跳（设计：心跳随轮询携带）
+      db.update(schema.agentMachine).set({ lastSeenAt: Date.now() }).where(eq(schema.agentMachine.id, agentId)).run()
+
+      const waitRaw = Number(request.query.wait ?? MAX_WAIT_MS)
+      const waitMs = Number.isFinite(waitRaw) ? Math.min(Math.max(waitRaw, 0), MAX_WAIT_MS + 5_000) : MAX_WAIT_MS
+      let commands = claimCommands(db, agentId)
+      if (commands.length === 0 && waitMs > 0) {
+        await new Promise<void>((resolve) => {
+          let settled = false
+          const finish = (): void => {
+            if (settled) return
+            settled = true
+            clearTimeout(timer)
+            resolve()
+          }
+          const list = waiters.get(agentId) ?? []
+          list.push(finish)
+          waiters.set(agentId, list)
+          const timer = setTimeout(() => {
+            const cur = waiters.get(agentId) ?? []
+            const idx = cur.indexOf(finish)
+            if (idx >= 0) cur.splice(idx, 1)
+            finish()
+          }, waitMs)
+        })
+        commands = claimCommands(db, agentId)
+      }
+      return reply.send({ commands })
+    },
+  )
+
+  // ---- agent 面：结果/心跳/日志回报 ----
+  app.post<{ Params: { id: string } }>(
+    '/api/internal/agents/:id/events',
+    { config: { rateLimit: { max: 240, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      const agentId = channelAgent(db, request, request.params.id)
+      if (agentId === null) {
+        const header = request.headers.authorization
+        const token = typeof header === 'string' && header.startsWith('Bearer ') ? header.slice(7) : ''
+        const known = token !== '' && findAgentByToken(db, token) !== null
+        return known
+          ? reply.code(404).send({ error: 'unknown_agent' })
+          : reply.code(401).send({ error: 'unauthorized' })
+      }
+      db.update(schema.agentMachine).set({ lastSeenAt: Date.now() }).where(eq(schema.agentMachine.id, agentId)).run()
+
+      const parsed = eventsBody.safeParse(request.body)
+      if (!parsed.success) return reply.code(400).send({ error: 'invalid_body', detail: 'events 数组（command_result/heartbeat/log_chunk）' })
+
+      for (const event of parsed.data.events) {
+        if (event.type === 'command_result') {
+          // 只认领自己 agent 的 delivered 指令；幂等（重复回报被条件更新忽略）
+          db.update(schema.agentCommand)
+            .set({ state: event.ok ? 'done' : 'failed', result: JSON.stringify(event.result ?? null), doneAt: Date.now() })
+            .where(and(
+              eq(schema.agentCommand.id, event.commandId),
+              eq(schema.agentCommand.agentId, agentId),
+              eq(schema.agentCommand.state, 'delivered'),
+            ))
+            .run()
+        } else if (event.type === 'log_chunk') {
+          appendLog(agentId, event.nodeId, event.chunk)
+        }
+        // heartbeat：lastSeenAt 已刷新，载荷暂不落库（M4 指标采集用）
+      }
+      return reply.send({ ok: true })
+    },
+  )
+
+  // ---- 用户面：agent 目录列表（在线状态实时计算）----
+  app.get('/api/agents', { preHandler: requireUser }, async () => {
+    const rows = db.select().from(schema.agentMachine).orderBy(asc(schema.agentMachine.joinedAt)).all()
+    const now = Date.now()
+    const agents = rows.map((r) => {
+      const pending = db.select({ n: count() })
+        .from(schema.agentCommand)
+        .where(and(eq(schema.agentCommand.agentId, r.id), eq(schema.agentCommand.state, 'pending')))
+        .all()[0]?.n ?? 0
+      return {
+        id: r.id,
+        hostname: r.hostname,
+        os: r.os,
+        arch: r.arch,
+        nodeVersion: r.nodeVersion,
+        joinedAt: r.joinedAt,
+        lastSeenAt: r.lastSeenAt,
+        revoked: r.revokedAt !== null,
+        online: r.revokedAt === null && r.lastSeenAt !== null && now - r.lastSeenAt <= AGENT_OFFLINE_MS,
+        pendingCommands: pending,
+      }
+    })
+    return { agents }
+  })
 
   // ---- 用户面：吊销 agent ----
   app.post<{ Params: { id: string } }>(
