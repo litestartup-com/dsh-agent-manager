@@ -7,6 +7,10 @@
   前自动迁移旧配置——写回前原文件备份 `.pre-mig.bak`、迁移说明进 warnings
   （boot 日志可见）、版本超前/链断裂 fail-loud；check-docs 常驻断言迁移链
   覆盖完整（改结构忘配迁移 = CI 红）
+- **节点切版本 API + 页面下拉（P1/P2）**：`POST /api/nodes/:id/version` 双分支
+  ——进程 = 改钉版 + 对齐链（与 align-version 共享实现）；容器 = 改镜像 tag +
+  立即重建（补上容器节点 409 无替代入口的缺口）；审计 `node_version_change`；
+  节点行「DSH 版本」下拉（矩阵数据源，pending 标注），切版本全程零 sed
 
 ## 1.1.1 — 线上验收修复三连（2026-09-20）
 

@@ -61,6 +61,15 @@ secure cookie（`.env` 写入 `NODE_ENV=production`）。letsencrypt 模式：�
 **首次登录强制修改密码** → 进入首页。初始密码：安装时自设，或看 manager 启动日志
 （只打印一次）。
 
+### 升级
+
+- **裸机部署**：安装目录里 `npm run update`（备份 → 拉新 → 构建 → 探活，失败自动回滚）；
+- **容器部署**：`.env` 里把 `MANAGER_VERSION` 改成新 tag → `docker compose up -d`；
+- **节点 DSH 版本**：`/nodes` 页节点行上的版本下拉直接切换（容器 = 换镜像重建；
+  进程 = 重播种 + 重装 + 重启，约 1-2 分钟）；
+- **配置迁移全自动**：旧 `manager.config.yaml` 会在启动时自动升级（原文件备份
+  `.pre-mig.bak`），升级不需要手改配置。
+
 ## 2. 界面导览
 
 - **侧栏顶部「主脑」卡片**：总控入口，展开看它的会话；

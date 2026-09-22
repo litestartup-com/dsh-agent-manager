@@ -79,7 +79,16 @@ manager 只生成「怎么连」的命令，**SSH 私钥永不进入 manager**�
 每行 = DSH 版本 ↔ facade ref 配对）校验：未知版本直接拒绝，未验证配对安装带
 黄字警告。每个节点的 profile 钉自己的版本；节点页显示配置版本 + 漂移状态，
 「对齐版本」= 重建 profile → 重装依赖 → 按钉版重启。容器节点用镜像
-`ohdsh/dsh-node:<version>`。
+`ohdsh/dsh-node:<version>`。节点行另有版本下拉——切版本是页面操作（容器 =
+换镜像重建；进程 = 重播种 + 重装 + 重启），不需要改配置文件。
+
+## 升级
+
+- **裸机**：`npm run update`——备份 → 拉新 → 构建 → 探活，失败自动回滚
+- **容器（compose）**：`.env` 里把 `MANAGER_VERSION` 改成新 tag → `docker compose up -d`
+- **节点 DSH 版本**：`/nodes` 节点行下拉直接切换
+- **配置迁移全自动**：旧 `manager.config.yaml` 在启动时自动升级（原文件备份为
+  `.pre-mig.bak`），升级不需要手改配置
 
 ## 从源码运行（开发者）
 

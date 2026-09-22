@@ -87,7 +87,20 @@ facade ref; unknown versions are rejected, and pairs not yet verified install wi
 a warning). Each node's profile is pinned to its version; the nodes page shows the
 configured version plus drift state, and "Align version" reseeds the profile,
 reinstalls dependencies, and restarts the node on its pinned version. Container
-nodes use image `ohdsh/dsh-node:<version>`.
+nodes use image `ohdsh/dsh-node:<version>`. Every node row also carries a version
+dropdown — switching versions is a page action (container = image rebuild;
+process = reseed + reinstall + restart), no config edits.
+
+## Upgrade
+
+- **Bare metal**: `npm run update` — backup → pull → build → health probe,
+  auto-rollback on failure.
+- **Container (compose)**: set `MANAGER_VERSION` in `.env` to the new tag, then
+  `docker compose up -d`.
+- **Node DSH version**: pick a version from the node row's dropdown on `/nodes`.
+- **Config migration is automatic**: old `manager.config.yaml` files are upgraded
+  at boot (original backed up as `.pre-mig.bak`); no manual edits are needed on
+  upgrade.
 
 ## Run from source (developers)
 
