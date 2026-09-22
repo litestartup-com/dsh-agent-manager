@@ -50,6 +50,12 @@
   成功才清宽限、报失败自动回滚；迁移 18（prev_token_hash/prev_set_at）+
   审计 `agent_token_rotated`。本地 E2E：轮换 → agent 身份落盘换新 → ack
   收敛 → 新 token 心跳续命。
+- **能力四 · 舰队 M4-4 指标采集（2026-09-23）**：agent 每 60s 随心跳上报
+  主机指标（CPU 忙占比 ×10 整数、内存/磁盘总量与用量、运行时长、平台）——
+  CPU 用两次采样间差值（`os.cpus()` 时间片），磁盘走 `fs.statfs`；manager 落库
+  （迁移 20 `agent_metric`，7 天保留自动清理）、`GET /api/agents/:id/metrics`
+  趋势端点（≤1440 点）、机器行展示最新快照（CPU/内存/磁盘占比）。红绿 2 例
+  + 本地 E2E（真实 agent 两轮采样：CPU 差值 1.4% 落库并进快照）。
 - **能力四 · 舰队 M4-3 agent 自更新原子性（2026-09-23）**：
   `POST /api/agents/:id/update`（在线门禁）把 manager 静态面的
   agent.mjs/runtime.mjs/update.mjs + 排序拼接 sha256 打成 `agent.update`

@@ -170,6 +170,51 @@ test('能力四 M4-3: update 端点——在线机器入队 agent.update 指令�
   assert.equal(off.statusCode, 409, '离线机器不投递更新（丢指令）')
 })
 
+test('能力四 M4-4: 心跳指标落库 + 列表带最新快照 + 超 7 天自动清理', async () => {
+  const { db } = openDb(':memory:')
+  const app = buildApp(db)
+  const join = ((await app.inject({ method: 'POST', url: '/api/agents/join' })).json() as { token: string }).token
+  const registered = await app.inject({
+    method: 'POST',
+    url: '/api/internal/agents/register',
+    payload: { joinToken: join, hostname: 'srv-h', os: 'linux', arch: 'amd64', nodeVersion: '22.23.2' },
+  })
+  const { agentId, agentToken } = registered.json() as { agentId: string; agentToken: string }
+
+  const beat = await app.inject({
+    method: 'POST',
+    url: `/api/internal/agents/${agentId}/events`,
+    headers: { authorization: `Bearer ${agentToken}` },
+    payload: { events: [{ type: 'heartbeat', detail: { agentVersion: '1.1.2', metrics: { cpuPercentTenths: 125, memTotal: 16_000_000_000, memUsed: 8_000_000_000, diskTotal: 500_000_000_000, diskFree: 200_000_000_000, uptime: 3600, platform: 'linux' } } }] },
+  })
+  assert.equal(beat.statusCode, 200)
+  const rows = db.select().from(schema.agentMetric).all()
+  assert.equal(rows.length, 1, '指标落库')
+  assert.equal(rows[0]?.cpuPercent, 125, 'CPU ×10 整数（125 = 12.5%）')
+  assert.equal(rows[0]?.memUsed, 8_000_000_000)
+
+  const list = await app.inject({ method: 'GET', url: '/api/agents' })
+  const body = list.json() as { agents: Array<{ id: string; latestMetric: { cpuPercent: number } | null }> }
+  assert.equal(body.agents.find((a) => a.id === agentId)?.latestMetric?.cpuPercent, 125, '列表带最新快照')
+
+  const series = await app.inject({ method: 'GET', url: `/api/agents/${agentId}/metrics` })
+  const sbody = series.json() as { metrics: Array<{ cpuPercent: number }>; latest: { cpuPercent: number } | null }
+  assert.equal(sbody.metrics.length, 1, '趋势端点返回序列')
+  assert.equal(sbody.latest?.cpuPercent, 125)
+
+  // 超 7 天清理：插入一条 8 天前的旧指标，再心跳一次 → 旧行被清
+  db.insert(schema.agentMetric).values({ agentId, at: Date.now() - 8 * 24 * 60 * 60 * 1000, cpuPercent: 990, memTotal: 1, memUsed: 1, diskTotal: 1, diskFree: 1, uptime: 1, platform: 'linux' }).run()
+  await app.inject({
+    method: 'POST',
+    url: `/api/internal/agents/${agentId}/events`,
+    headers: { authorization: `Bearer ${agentToken}` },
+    payload: { events: [{ type: 'heartbeat', detail: { metrics: { cpuPercentTenths: 130, memTotal: 1, memUsed: 1, diskTotal: 1, diskFree: 1, uptime: 1, platform: 'linux' } } }] },
+  })
+  const after = db.select().from(schema.agentMetric).all()
+  assert.equal(after.some((r) => r.cpuPercent === 990), false, '超期指标已清理')
+  assert.ok(after.some((r) => r.cpuPercent === 130), '新指标保留')
+})
+
 test('能力四 M4-1: 轮换 agent token——在线才可轮换、旧 token 宽限期可用、ack 后旧 token 失效', async () => {
   const { db } = openDb(':memory:')
   const audits: string[] = []
@@ -253,3 +298,4 @@ test('能力四 M4-1: 离线机器轮换 409 agent_offline；apply 失败回滚�
   assert.equal(after?.tokenHash, sha256(oldToken), 'apply 失败回滚主 token')
   assert.equal(after?.prevTokenHash, null)
 })
+

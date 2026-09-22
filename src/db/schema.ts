@@ -222,3 +222,18 @@ export const agentCommand = sqliteTable('agent_command', {
   deliveredAt: integer('delivered_at'),
   doneAt: integer('done_at'),
 })
+
+/** 能力四（舰队 M4-4）：主机指标趋势（心跳 60s 采样，7 天保留）。 */
+export const agentMetric = sqliteTable('agent_metric', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  agentId: text('agent_id').notNull(),
+  at: integer('at').notNull(),
+  /** CPU 忙占比 ×10（125 = 12.5%；INTEGER 避免 REAL 与漂移测试的兼容坑）。 */
+  cpuPercent: integer('cpu_percent'),
+  memTotal: integer('mem_total'),
+  memUsed: integer('mem_used'),
+  diskTotal: integer('disk_total'),
+  diskFree: integer('disk_free'),
+  uptime: integer('uptime'),
+  platform: text('platform'),
+})

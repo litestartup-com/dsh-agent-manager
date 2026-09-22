@@ -172,6 +172,22 @@ test('能力四 M1 试点回归: spawn 优先 profile-local bin（prefix 独立�
   assert.equal(a.proc.installed.length, 0, 'prefix 独立安装跳过（其树缺 legacy peer 会崩）')
 })
 
+test('能力四 M4-4: 心跳指标——首轮携带主机指标，60s 窗口内不重报', async () => {
+  const a = makeRuntime()
+  await a.runtime.registerOnce()
+  a.transport.commandBatches.push([])
+  await a.runtime.loopOnce()
+  const first = a.transport.eventsPosted.flat().find((e) => e.type === 'heartbeat')
+  assert.ok(first !== undefined && typeof first.detail?.metrics === 'object', '首轮心跳带指标')
+  assert.equal(typeof first.detail.metrics.memTotal, 'number')
+  assert.equal(first.detail.metrics.platform, process.platform)
+
+  a.transport.commandBatches.push([])
+  await a.runtime.loopOnce()
+  const second = (a.transport.eventsPosted[1] ?? []).filter((e) => e.type === 'heartbeat')
+  assert.equal(second.length, 0, '60s 窗口内不重复上报（采样节流）')
+})
+
 test('能力四 M4-3: agent.update——sha256 校验通过 staging 到 .next + 待退出；坏校验拒绝', async () => {
   const { createHash } = await import('node:crypto')
   const a = makeRuntime()
@@ -210,7 +226,7 @@ test('能力四 M4-3: 版本协商——启动后首轮心跳携带 agentVersion
   a.transport.commandBatches.push([])
   await a.runtime.loopOnce()
   const heartbeat = a.transport.eventsPosted.flat().find((e) => e.type === 'heartbeat')
-  assert.deepEqual(heartbeat?.detail, { agentVersion: '1.1.2' }, '心跳携带版本')
+  assert.equal(heartbeat?.detail?.agentVersion, '1.1.2', '心跳携带版本（与指标合并进同一条）')
 })
 
 test('能力四 M4-2: 超大 node.log 在 spawn 前轮转（保留一代，新日志从零开始）', async () => {

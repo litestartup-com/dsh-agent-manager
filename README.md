@@ -113,6 +113,10 @@ process = reseed + reinstall + restart), no config edits.
 - The machines page can **revoke** (token dies immediately) or **rotate the key**
   (online machines only; the new token is delivered over the command channel
   with a 30-minute grace window for the old one);
+- **Observability**: each machine row shows live CPU/memory/disk usage (60s
+  heartbeat sampling, 7-day trend kept by the manager, series available via
+  `GET /api/agents/:id/metrics`); agent outages and node anomalies land in the
+  bell; stale versions get a "update available" badge with one-click self-update;
 - Security: the agent is a fixed command set (not a generic shell); node facade
   ports must be firewalled to the manager's egress IP; the GUI still goes
   through the user-side SSH tunnel.

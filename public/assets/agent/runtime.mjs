@@ -13,9 +13,9 @@
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, statfsSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { hostname } from 'node:os'
+import { hostname, totalmem, freemem, cpus, uptime } from 'node:os'
 import { currentAgentVersion } from './update.mjs'
 
 /** 与 src/dsh-matrix.ts 的 needsLegacyPeerDeps 保持一致（check-docs.mjs 常驻断言）。 */
@@ -172,6 +172,45 @@ export class AgentRuntime {
     this.agentVersion = currentAgentVersion(this.agentDir)
     this.pendingExit = false
     this.versionReportedAt = null
+    // M4-4：主机指标采样（CPU 用两次采样间忙占比；60s 节流）
+    this.lastMetricsAt = null
+    this.lastCpuTotal = null
+    this.lastCpuIdle = null
+  }
+
+  /** M4-4：主机指标快照（CPU/内存/磁盘/运行时长）。失败字段为 null，绝不抛。 */
+  collectMetrics() {
+    try {
+      const cpuInfo = cpus()
+      const total = cpuInfo.reduce((a, c) => a + c.times.user + c.times.nice + c.times.sys + c.times.idle + c.times.irq, 0)
+      const idle = cpuInfo.reduce((a, c) => a + c.times.idle, 0)
+      let cpuPercentTenths = null
+      if (this.lastCpuTotal !== null && this.lastCpuIdle !== null && total > this.lastCpuTotal) {
+        const dTotal = total - this.lastCpuTotal
+        const dIdle = idle - this.lastCpuIdle
+        cpuPercentTenths = dTotal > 0 ? Math.round((1 - dIdle / dTotal) * 1000) : 0
+      }
+      this.lastCpuTotal = total
+      this.lastCpuIdle = idle
+      let diskTotal = null
+      let diskFree = null
+      try {
+        const s = statfsSync(this.agentDir)
+        diskTotal = Number(s.blocks) * Number(s.bsize)
+        diskFree = Number(s.bavail) * Number(s.bsize)
+      } catch { /* 磁盘信息拿不到不强求 */ }
+      return {
+        cpuPercentTenths,
+        memTotal: totalmem(),
+        memUsed: totalmem() - freemem(),
+        diskTotal,
+        diskFree,
+        uptime: Math.round(uptime()),
+        platform: process.platform,
+      }
+    } catch {
+      return { cpuPercentTenths: null, memTotal: null, memUsed: null, diskTotal: null, diskFree: null, uptime: null, platform: process.platform }
+    }
   }
 
   /** 读/恢复身份（agent.json 0600）。 */
@@ -406,11 +445,21 @@ export class AgentRuntime {
       events.push({ type: 'command_result', commandId: command.id, ok: outcome.ok, result: outcome.result })
     }
     events.push(...this.collectLogChunks())
-    // M4-3：版本协商——启动后首个循环与每 10 分钟心跳携带 agentVersion
+    // M4-3/M4-4：版本协商（首循环 + 每 10 分钟）与主机指标（60s 采样）合并进心跳
     const now = Date.now()
-    if (this.versionReportedAt === null || now - this.versionReportedAt > 10 * 60_000) {
-      events.push({ type: 'heartbeat', detail: { agentVersion: this.agentVersion } })
-      this.versionReportedAt = now
+    const versionDue = this.versionReportedAt === null || now - this.versionReportedAt > 10 * 60_000
+    const metricsDue = this.lastMetricsAt === null || now - this.lastMetricsAt > 60_000
+    if (versionDue || metricsDue) {
+      const detail = {}
+      if (versionDue) {
+        detail.agentVersion = this.agentVersion
+        this.versionReportedAt = now
+      }
+      if (metricsDue) {
+        detail.metrics = this.collectMetrics()
+        this.lastMetricsAt = now
+      }
+      events.push({ type: 'heartbeat', detail })
     }
     if (events.length > 0) {
       await this.transport.events(this.managerUrl, this.agentId, this.agentToken, events)

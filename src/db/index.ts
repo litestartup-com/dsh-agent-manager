@@ -293,6 +293,23 @@ const MIGRATIONS: readonly string[][] = [
   [
     `ALTER TABLE agent_machine ADD COLUMN agent_version TEXT`,
   ],
+  // 20 -- 能力四（舰队 M4-4）：主机指标趋势（CPU/内存/磁盘随心跳上报）。
+  // 60s 采样；manager 侧保留 7 天自动清理。cpu_percent 为 ×10 整数（125 = 12.5%）。
+  [
+    `CREATE TABLE IF NOT EXISTS agent_metric (
+       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       agent_id TEXT NOT NULL,
+       at INTEGER NOT NULL,
+       cpu_percent INTEGER,
+       mem_total INTEGER,
+       mem_used INTEGER,
+       disk_total INTEGER,
+       disk_free INTEGER,
+       uptime INTEGER,
+       platform TEXT
+     )`,
+    `CREATE INDEX IF NOT EXISTS agent_metric_agent_at ON agent_metric(agent_id, at)`,
+  ],
 ]
 
 export interface OpenDbResult {

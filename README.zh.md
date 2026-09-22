@@ -99,6 +99,9 @@ manager 只生成「怎么连」的命令，**SSH 私钥永不进入 manager**�
 - **manager 掉线节点照跑**：agent 保活重连、恢复后对账收敛；
 - 机器页可**吊销**（token 立即失效）或**轮换密钥**（仅在线机器；新 token 经
   指令通道投递，旧 token 30 分钟宽限防打砖）；
+- **可观测性**：机器行实时显示 CPU/内存/磁盘占用（agent 60s 心跳采样，
+  manager 保留 7 天趋势，`GET /api/agents/:id/metrics` 可取序列）；agent
+  掉线/节点异常自动进站内铃铛；版本落后显示「待更新」徽标并可一键下发自更新；
 - 安全：agent 是固定指令集（非通用 shell）；节点 facade 端口要防火墙白名单
   （只放行 manager 出口 IP）；GUI 仍走用户侧 SSH 隧道。
 

@@ -12,11 +12,22 @@ export const machineRowHtml = (m) => {
   const dot = m.revoked ? 'muted' : m.online ? 'ok' : 'err'
   const when = new Date(m.joinedAt).toLocaleString('zh-CN', { hour12: false })
   const stale = typeof m.agentVersion === 'string' && m.agentVersion !== '' && typeof m.managerVersion === 'string' && m.agentVersion !== m.managerVersion
+  // M4-4：最新指标快照（CPU % / 内存 % / 磁盘 %）
+  const lm = m.latestMetric
+  const pct = (used, total) => (typeof used === 'number' && typeof total === 'number' && total > 0 ? Math.round((used / total) * 100) : null)
+  const metricBits = lm === null || lm === undefined
+    ? []
+    : [
+        typeof lm.cpuPercent === 'number' ? `CPU ${lm.cpuPercent / 10}%` : null,
+        pct(lm.memUsed, lm.memTotal) !== null ? `内存 ${pct(lm.memUsed, lm.memTotal)}%` : null,
+        pct(lm.diskTotal - lm.diskFree, lm.diskTotal) !== null ? `磁盘 ${pct(lm.diskTotal - lm.diskFree, lm.diskTotal)}%` : null,
+      ].filter(Boolean)
   const detail = [
     m.online ? '在线' : '离线',
     `注册于 ${when}`,
     m.pendingCommands > 0 ? `${m.pendingCommands} 条待执行指令` : null,
     typeof m.agentVersion === 'string' && m.agentVersion !== '' ? `agent v${m.agentVersion}` : null,
+    ...metricBits,
     m.revoked ? '已吊销' : null,
   ].filter(Boolean).join(' · ')
   return `<div class="node-row" data-machine-row="${esc(m.id)}">

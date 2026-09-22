@@ -18,6 +18,12 @@ test('能力四 M1-7: 机器行——在线/离线/吊销/待执行指令各态�
   assert.ok(machineRowHtml({ ...base, agentVersion: '1.0.0', managerVersion: '1.1.2' }).includes('待更新'), '旧版本显示待更新徽标')
   assert.ok(!machineRowHtml({ ...base, agentVersion: '1.1.2', managerVersion: '1.1.2' }).includes('待更新'), '同版本无徽标')
   assert.ok(!machineRowHtml({ ...base, agentVersion: null, managerVersion: '1.1.2' }).includes('待更新'), '旧 agent 未上报版本不误报')
+  // M4-4：最新指标快照
+  const withMetrics = machineRowHtml({ ...base, latestMetric: { cpuPercent: 125, memTotal: 16_000_000_000, memUsed: 8_000_000_000, diskTotal: 500_000_000_000, diskFree: 200_000_000_000, uptime: 3600 } })
+  assert.ok(withMetrics.includes('CPU 12.5%'), 'CPU 快照（×10 整数换算）')
+  assert.ok(withMetrics.includes('内存 50%'), '内存占比')
+  assert.ok(withMetrics.includes('磁盘 60%'), '磁盘占比')
+  assert.ok(!machineRowHtml(base).includes('CPU'), '无指标不渲染')
 })
 
 test('能力四 M1-7: join 命令——origin 与 token 注入，静态面分发 join.sh', () => {

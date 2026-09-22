@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { FastifyInstance, FastifyRequest, preHandlerHookHandler } from 'fastify'
-import { and, asc, count, eq } from 'drizzle-orm'
+import { and, asc, count, desc, eq, lt } from 'drizzle-orm'
 import { z } from 'zod'
 import { schema, type Db } from '../db/index.js'
 import type { AuditKind } from '../audit.js'
@@ -309,6 +309,26 @@ export const registerAgentsRoutes = (
           if (typeof version === 'string' && version !== '' && version.length <= 32) {
             db.update(schema.agentMachine).set({ agentVersion: version }).where(eq(schema.agentMachine.id, agentId)).run()
           }
+          // M4-4：主机指标落库（字段级校验）+ 7 天保留自动清理
+          const metrics = event.detail?.metrics
+          if (metrics !== null && typeof metrics === 'object') {
+            const m = metrics as Record<string, unknown>
+            const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
+            db.insert(schema.agentMetric).values({
+              agentId,
+              at: Date.now(),
+              cpuPercent: num(m.cpuPercentTenths),
+              memTotal: num(m.memTotal),
+              memUsed: num(m.memUsed),
+              diskTotal: num(m.diskTotal),
+              diskFree: num(m.diskFree),
+              uptime: num(m.uptime),
+              platform: typeof m.platform === 'string' && m.platform.length <= 32 ? m.platform : null,
+            }).run()
+            db.delete(schema.agentMetric)
+              .where(and(eq(schema.agentMetric.agentId, agentId), lt(schema.agentMetric.at, Date.now() - 7 * 24 * 60 * 60 * 1000)))
+              .run()
+          }
         }
         // lastSeenAt 已由入口统一刷新
       }
@@ -325,6 +345,12 @@ export const registerAgentsRoutes = (
         .from(schema.agentCommand)
         .where(and(eq(schema.agentCommand.agentId, r.id), eq(schema.agentCommand.state, 'pending')))
         .all()[0]?.n ?? 0
+      // M4-4：最新指标快照（机器行展示 CPU/内存/磁盘）
+      const latest = db.select().from(schema.agentMetric)
+        .where(eq(schema.agentMetric.agentId, r.id))
+        .orderBy(desc(schema.agentMetric.at))
+        .limit(1)
+        .all()[0]
       return {
         id: r.id,
         hostname: r.hostname,
@@ -338,10 +364,40 @@ export const registerAgentsRoutes = (
         pendingCommands: pending,
         // M4-3：运行时版本（null = 旧 agent 未上报）；前端与 managerVersion 比对出徽标
         agentVersion: r.agentVersion,
+        latestMetric: latest === undefined
+          ? null
+          : { at: latest.at, cpuPercent: latest.cpuPercent, memTotal: latest.memTotal, memUsed: latest.memUsed, diskTotal: latest.diskTotal, diskFree: latest.diskFree, uptime: latest.uptime },
       }
     })
     return { agents, managerVersion: MANAGER_VERSION }
   })
+
+  // ---- 用户面：单机指标趋势（M4-4；最多 1440 个点 = 24h@60s）----
+  app.get<{ Params: { id: string }; Querystring: { limit?: string } }>(
+    '/api/agents/:id/metrics',
+    { preHandler: requireUser },
+    async (request, reply) => {
+      const row = db.select().from(schema.agentMachine).where(eq(schema.agentMachine.id, request.params.id)).all()[0]
+      if (row === undefined) return reply.code(404).send({ error: 'unknown_agent' })
+      const limitRaw = Number(request.query.limit ?? 120)
+      const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(Math.trunc(limitRaw), 1), 1440) : 120
+      const metrics = db.select().from(schema.agentMetric)
+        .where(eq(schema.agentMetric.agentId, row.id))
+        .orderBy(desc(schema.agentMetric.at))
+        .limit(limit)
+        .all()
+        .reverse()
+      return {
+        metrics: metrics.map((m) => ({
+          at: m.at, cpuPercent: m.cpuPercent, memTotal: m.memTotal, memUsed: m.memUsed,
+          diskTotal: m.diskTotal, diskFree: m.diskFree, uptime: m.uptime,
+        })),
+        latest: metrics.length > 0
+          ? { at: metrics[metrics.length - 1]!.at, cpuPercent: metrics[metrics.length - 1]!.cpuPercent, memTotal: metrics[metrics.length - 1]!.memTotal, memUsed: metrics[metrics.length - 1]!.memUsed, diskTotal: metrics[metrics.length - 1]!.diskTotal, diskFree: metrics[metrics.length - 1]!.diskFree, uptime: metrics[metrics.length - 1]!.uptime }
+          : null,
+      }
+    },
+  )
 
   // ---- 用户面：吊销 agent ----
   app.post<{ Params: { id: string } }>(
