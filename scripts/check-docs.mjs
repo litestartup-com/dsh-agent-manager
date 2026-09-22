@@ -166,6 +166,9 @@ try {
   if (nodesJs.includes('versionOptionsHtml(') && !nodesJs.includes('versionOptionsHtml }')) {
     failures.push('public/assets/nodes.js: 使用了 versionOptionsHtml 但未导入（前端 ReferenceError 回归点）')
   }
+  if (nodesJs.includes('${guiBits}') && !nodesJs.includes('const guiBits')) {
+    failures.push('public/assets/nodes.js: nodeRow 引用了 guiBits 但无定义（前端 ReferenceError 回归点）')
+  }
   // P0 配置迁移链守卫（hive/plan-config-version-switch）：CONFIG_MIGRATIONS
   // 必须覆盖 0..CURRENT_CONFIG_VERSION 连续 +1 升链——升级自动迁移的前提；
   // 删/断链 = CI 红。
