@@ -110,7 +110,6 @@ test('蜂群 P5.5: deleting a node removes its workspace binding rows too, files
     },
   })
   assert.equal(created.statusCode, 201, JSON.stringify(created.body))
-
   assert.equal(config.agents['company']?.name, '企业')
   assert.equal(config.agents['company']?.endpoint, 'company')
   const row = db.select().from(schema.agent).all().find((a) => a.id === 'company')
@@ -260,6 +259,32 @@ test('能力四 M1-7: 向导建 agent 节点——runner=agent+host 落真相源
     payload: { name: 'ops03', install: false, host: 'agent-abc123', url: 'http://10.0.0.7:3083', runner: 'docker' },
   })
   assert.equal(conflict.statusCode, 400, 'host 与 docker 互斥')
+})
+
+test('舰队 M3-1: ops 节点第三档沙箱——agent.sandboxMode=danger-full-access 落真相源；非法档位 400', async () => {
+  const { app, config, supervisors } = await boot()
+  const created = await app.inject({
+    method: 'POST',
+    url: '/api/nodes',
+    payload: {
+      name: 'ops01',
+      install: false,
+      host: 'agent-abc123',
+      url: 'http://10.0.0.7:3081',
+      agent: { id: 'ops01', name: '运维助手', workspace: join(dir, 'ws-ops01'), preset: 'standard', sandboxMode: 'danger-full-access' },
+    },
+  })
+  assert.equal(created.statusCode, 201, JSON.stringify(created.body))
+  assert.equal(config.agents['ops01']?.sandboxMode, 'danger-full-access', '全量沙箱档位进真相源（审批卡片由 facade 兜底）')
+  const supervisor = supervisors.get('ops01')!
+  stopped.push(supervisor)
+
+  const bad = await app.inject({
+    method: 'POST',
+    url: '/api/nodes',
+    payload: { name: 'ops02', install: false, host: 'agent-abc123', url: 'http://10.0.0.7:3082', agent: { sandboxMode: 'total-control' } },
+  })
+  assert.equal(bad.statusCode, 400, '未知沙箱档位显性拒绝')
 })
 
 test('线上教训回归: 容器形态部署显式 process = 400 host_process_unavailable；无标记的裸机部署照常放行', async () => {

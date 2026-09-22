@@ -6,7 +6,7 @@
 // gui-access.js。
 import { $, ago, esc, setHtml, apiJson, poll } from './ui.js'
 import { guiCardHtml, guiDirectCardHtml, guiSetupButton } from './gui-access.js'
-import { nodeCreatePayload, hostRunnerConfirmText, versionOptionsHtml } from './node-form.js'
+import { nodeCreatePayload, hostRunnerConfirmText, dangerSandboxConfirmText, versionOptionsHtml } from './node-form.js'
 import { machineRowHtml, joinCommand } from './machines.js'
 
 const NODE_STATE_DOT = { live: 'ok', cold: 'muted', starting: 'warn', restarting: 'warn', offline: 'bad' }
@@ -309,6 +309,8 @@ $('node-form').addEventListener('submit', async (event) => {
     return
   }
   if ((hostId !== '' || runner === 'process') && !window.confirm(hostRunnerConfirmText(name))) return
+  // 舰队 M3-1：ops 第三档沙箱 = 整机全量，独立黄字确认（审批卡片 + 审计）
+  if ($('f-agent-sandbox').value === 'danger-full-access' && !window.confirm(dangerSandboxConfirmText(name))) return
 
   // 工作区总是创建；clean 的字段省略（后端按节点名生成同款默认）。
   const payload = nodeCreatePayload({

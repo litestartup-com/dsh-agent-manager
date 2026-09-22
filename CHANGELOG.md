@@ -43,6 +43,12 @@
   再报 `*_recovered`）；未读去重防 manager 重启刷屏；只报 agent runner 节点，
   本机 process/docker 节点不越界。本地实测：停 agent 任务 → 铃铛
   「机器掉线」；重启任务 → 「机器恢复」。
+- **能力四 · 舰队 M3-1 ops 节点（2026-09-23）**：向导/API 放行第三档沙箱
+  `danger-full-access`（整机全量，Q2 拍板口径）——provision schema 档位 +
+  向导下拉（高危标注）+ 独立黄字确认（审批卡片/审计/凭据口径）；check-docs
+  三件套守卫；README 双语补「运维助手节点（ops）」部署配方（布放规则 D3、
+  审批卡片兜底、服务器本地凭据不经 manager 下发、节点侧 allowFullAccess
+  开锁）。
 
 ## 1.1.1 — 线上验收修复三连（2026-09-20）
 

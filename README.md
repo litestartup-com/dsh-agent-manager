@@ -114,6 +114,21 @@ process = reseed + reinstall + restart), no config edits.
   ports must be firewalled to the manager's egress IP; the GUI still goes
   through the user-side SSH tunnel.
 
+### Ops assistant nodes
+
+Critical servers (production / the manager host) should also run an **ops
+assistant node** (placement rule D3): in the node wizard, after picking the host
+and address, choose sandbox mode **danger-full-access (whole machine · high
+risk)**:
+
+- That tier grants whole-machine capability (files/terminal/system); dangerous
+  operations must pass **approval cards** for human sign-off (facade side, Q2
+  decision); creation and unlocking are both audited;
+- **Server ops account credentials stay on the node's machine** and are never
+  shipped by the manager;
+- The node must unlock full access on its side (facade `host.describe`
+  allowFullAccess); until unlocked, the "full access" tier in chat shows locked.
+
 ### Facade firewall whitelist (required before going cross-network)
 
 A node's facade port (e.g. 3081) is exposed on its server and **must only allow

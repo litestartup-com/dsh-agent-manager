@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { nodeCreatePayload, hostRunnerConfirmText, versionOptionsHtml } from './node-form.js'
+import { nodeCreatePayload, hostRunnerConfirmText, dangerSandboxConfirmText, versionOptionsHtml } from './node-form.js'
 
 test('能力一回归: runner=auto 时省略字段（后端按部署自动判定），显式选择才下发', () => {
   const base = { name: 'worker', port: '3083', dshVersion: '', agent: { preset: 'standard', sandboxMode: 'workspace-write' } }
@@ -43,6 +43,19 @@ test('能力一回归: 宿主机进程形态的确认文案含整机风险警告
   assert.match(text, /宿主机进程/)
   assert.match(text, /整台机器/)
   assert.match(text, /ops-agent/)
+})
+
+test('舰队 M3-1 回归: ops 第三档沙箱进载荷 + 独立黄字确认文案（审批卡片/凭据口径）', () => {
+  const payload = nodeCreatePayload({
+    name: 'ops01', port: '', runner: 'auto', dshVersion: '',
+    host: 'agent-abc123', url: 'http://10.0.0.7:3081',
+    agent: { preset: 'standard', sandboxMode: 'danger-full-access' },
+  })
+  assert.equal(payload.agent.sandboxMode, 'danger-full-access', '第三档沙箱原样下发（后端 schema 已放行）')
+  const text = dangerSandboxConfirmText('ops01')
+  assert.match(text, /全量访问/)
+  assert.match(text, /审批卡片/)
+  assert.match(text, /不经 manager 下发/)
 })
 
 test('P2 回归: versionOptionsHtml——跟随默认/当前钉版选中态/pending 标注', () => {

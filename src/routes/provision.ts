@@ -44,7 +44,7 @@ interface NewAgentSpec {
   name: string
   workspace: string
   preset: string | null
-  sandboxMode: 'read-only' | 'workspace-write' | null
+  sandboxMode: 'read-only' | 'workspace-write' | 'danger-full-access' | null
 }
 
 /** 流水线第 1 步：工作区目录 + git 初始化（返回警告文案）。 */
@@ -188,7 +188,8 @@ const provisionBody = z.object({
       name: z.string().min(1).max(80).optional(),
       workspace: z.string().optional(),
       preset: z.string().optional(),
-      sandboxMode: z.enum(['read-only', 'workspace-write']).optional(),
+      // 舰队 M3-1：ops 节点第三档（整机能力，审批卡片由 facade 兜底）。
+      sandboxMode: z.enum(['read-only', 'workspace-write', 'danger-full-access']).optional(),
     })
     .optional(),
 })

@@ -32,6 +32,15 @@ export const hostRunnerConfirmText = (name) =>
   `把节点「${name}」建成【宿主机进程】形态？\n\n⚠️ 此节点以本机用户权限直接运行，可操作整台机器（文件、终端、安装软件）。\n\n- 依赖装进节点自己的目录（不碰全局 npm）\n- 创建会留下审计记录（node_create_host）\n\n确定继续？`
 
 /**
+ * 舰队 M3-1：ops 节点第三档沙箱（danger-full-access）确认文案——整机全量
+ * 能力，审批卡片兜底（Q2 拍板口径）。
+ * @param {string} name
+ * @returns {string}
+ */
+export const dangerSandboxConfirmText = (name) =>
+  `把节点「${name}」建成【全量访问】沙箱（ops 运维助手档）？\n\n⚠️ 该档位授予整机全量能力（文件/终端/系统操作），仅建议用于关键服务器上的运维助手节点。\n\n- 危险操作必须经【审批卡片】人工放行（facade 侧）\n- 创建与每次开锁都会留下审计记录\n- 服务器本地运维账号凭据留在节点所在机器，不经 manager 下发\n\n确定继续？`
+
+/**
  * 能力二/P1：节点行「DSH 版本」下拉的 option 列表（纯函数）。
  * 数据源 = GET /api/nodes 的 supportedDsh（矩阵，前端不硬编码版本清单）。
  * @param {Array<{ dsh: string, status: string }>} list

@@ -218,6 +218,14 @@ try {
   if (nodesJs.includes('${guiBits}') && !nodesJs.includes('const guiBits')) {
     failures.push('public/assets/nodes.js: nodeRow 引用了 guiBits 但无定义（前端 ReferenceError 回归点）')
   }
+  // 舰队 M3-1：ops 第三档沙箱三件套守卫（schema 档位 / 向导选项 / 黄字确认）
+  const nodesHtml = readFileSync(join(root, 'public/pages/nodes.html'), 'utf8')
+  if (!nodesHtml.includes('value="danger-full-access"')) {
+    failures.push('public/pages/nodes.html: 向导沙箱下拉缺 danger-full-access 档位（M3-1 ops 节点）')
+  }
+  if (!/danger-full-access/.test(readFileSync(join(root, 'src/routes/provision.ts'), 'utf8'))) {
+    failures.push('src/routes/provision.ts: provisionBody 沙箱 schema 缺 danger-full-access 档位')
+  }
   // P0 配置迁移链守卫（hive/plan-config-version-switch）：CONFIG_MIGRATIONS
   // 必须覆盖 0..CURRENT_CONFIG_VERSION 连续 +1 升链——升级自动迁移的前提；
   // 删/断链 = CI 红。
