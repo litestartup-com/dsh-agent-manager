@@ -11,6 +11,16 @@
   ——进程 = 改钉版 + 对齐链（与 align-version 共享实现）；容器 = 改镜像 tag +
   立即重建（补上容器节点 409 无替代入口的缺口）；审计 `node_version_change`；
   节点行「DSH 版本」下拉（矩阵数据源，pending 标注），切版本全程零 sed
+- **能力四 · 舰队 M1（node-agent 多机形态）**：设计稿 `fleet-agent-architecture.md`
+  Q1–Q5 拍板后按 `plan-fleet-agent.md` 落地——`spawn.runner=agent + host` 配置
+  真相源；agent 注册链（一次性 join token 换发身份、token 哈希落库、吊销）；
+  指令队列与事件通道（DB 持久化、长轮询领取、结果/心跳/日志回报、90s 在线
+  判定）；supervisor agent 分支（远端生命周期走指令队列，spawn 结果订阅快速
+  失败链）；node-agent 进程本体（零原生依赖、DSH 钉版装自有 prefix、失联退避
+  自愈、401 清身份重注册；join.sh/join.ps1）；派生下发（profile/种子/fleet.md
+  随 spawn 载荷送达，幂等落盘）；机器页 UI（agent 目录 + join 命令 + 节点
+  主机列 + 向导主机下拉）。修复：profileDependencies 展开顺序 bug（0.1.5
+  节点拿 0.1.2 bundles）、微任务饥饿（瞬时 resolve 链饿死定时器）。
 
 ## 1.1.1 — 线上验收修复三连（2026-09-20）
 

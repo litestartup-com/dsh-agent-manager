@@ -60,6 +60,10 @@ server ──► node (= one DSH agent process + its own DSH_HOME) ──► wor
 - **Per-node DSH version**: the (dsh, facade) version matrix is the single source of
   truth; nodes can pin a version at creation, the nodes page shows the configured
   version + drift state, and one click aligns it (reseed → reinstall → restart)
+- **Fleet (multi-server)**: a machine directory plus one join command per server
+  (node-agent resident service, outbound dialing, zero inbound ports); the wizard's
+  "host" picker creates nodes as remote host processes; nodes keep running when the
+  manager is down, and the agent reconnects with reconciliation
 
 ## Open a node's native GUI (SSH tunnel)
 
@@ -90,6 +94,25 @@ reinstalls dependencies, and restarts the node on its pinned version. Container
 nodes use image `ohdsh/dsh-node:<version>`. Every node row also carries a version
 dropdown — switching versions is a page action (container = image rebuild;
 process = reseed + reinstall + restart), no config edits.
+
+## Machines & fleet (multi-server)
+
+1. On the nodes page, click "Add machine" in the Machines section → get a join
+   command (token valid 15 minutes, one-time);
+2. Run the join command on the target server (installs the node-agent service
+   and registers the machine);
+3. In the node wizard, pick the machine in the "Host" dropdown and fill in the
+   node address (`http://IP:port` reachable from the manager) — the node is
+   created as a host process on that machine (whole-machine capability,
+   confirmation + audit).
+
+- One node-agent per server, zero config beyond `MANAGER_URL` and the join
+  token, **zero inbound ports** (the agent dials out);
+- **Nodes keep running when the manager is down** — the agent reconnects and
+  reconciles on recovery;
+- Security: the agent is a fixed command set (not a generic shell); node facade
+  ports must be firewalled to the manager's egress IP; the GUI still goes
+  through the user-side SSH tunnel.
 
 ## Upgrade
 
