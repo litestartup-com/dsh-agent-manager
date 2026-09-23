@@ -73,6 +73,21 @@ export const loadI18n = () => {
 export const brandInfo = () =>
   brand ?? { name: 'DAC', full: 'Dispatched Agent Cluster', tagline: '', repo: '', site: '' }
 
+/**
+ * 直接注入字典（测试与离线预渲染用）。
+ *
+ * 为什么需要它：单测跑在 Node 里，没有页面、也不该真去 fetch——但断言必须打到
+ * **真实译文**上（否则 `t()` 只返回键名，测试等于没测文案）。页面运行时不用这个
+ * 入口，走 loadI18n()。
+ * @param {string} localeTag
+ * @param {Record<string, string>} entries
+ */
+export const useDictionary = (localeTag, entries) => {
+  locale = localeTag
+  dict = entries
+  loading = Promise.resolve()
+}
+
 /** 当前语言与可选语言（语言切换器用）。 */
 export const currentLocale = () => locale
 export const availableLocales = () => (locales.length > 0 ? locales : [locale])

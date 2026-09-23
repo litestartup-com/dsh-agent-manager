@@ -3,7 +3,7 @@
 // DOM 装配留在 nodes.js。可单测（gui-access.test.mjs）。
 // 红线：SSH 私钥永不进 manager——卡片只生成「怎么连」的命令，密钥留在用户本机
 // （体验优化：ssh_key 只是用户本机上的私钥**路径**，非密钥内容）。
-import { esc } from './ui.js'
+import { esc, t } from './ui.js'
 
 /**
  * 用户在本机终端执行的隧道命令：本地 loopback localPort → 节点宿主机
@@ -32,14 +32,14 @@ export const guiCardHtml = (nodeId, access, guiUrl) => {
   const notReady = guiUrl === null || guiUrl === undefined
   const urlAttr = notReady ? '' : ` data-gui-url="${esc(guiUrl)}"`
   return `<div class="node-gui">
-    <div class="node-gui-title">原生 GUI <span class="muted small">SSH 隧道 · 密钥在你本机</span></div>
+    <div class="node-gui-title">${esc(t('gui.title'))} <span class="muted small">${esc(t('gui.tunnelNote'))}</span></div>
     <code class="node-gui-cmd">${esc(command)}</code>
     <div class="node-actions">
-      <button type="button" class="btn-quiet btn-sm" data-gui-copy="${esc(nodeId)}" data-gui-cmd="${esc(command)}">复制命令</button>
-      <button type="button" class="btn btn-sm" data-gui-open="${esc(nodeId)}"${urlAttr}${notReady ? ' disabled' : ''}>打开 GUI</button>
-      <button type="button" class="btn-quiet btn-sm" data-node-access="${esc(nodeId)}">配置</button>
+      <button type="button" class="btn-quiet btn-sm" data-gui-copy="${esc(nodeId)}" data-gui-cmd="${esc(command)}">${esc(t('common.copy'))}</button>
+      <button type="button" class="btn btn-sm" data-gui-open="${esc(nodeId)}"${urlAttr}${notReady ? ' disabled' : ''}>${esc(t('gui.open'))}</button>
+      <button type="button" class="btn-quiet btn-sm" data-node-access="${esc(nodeId)}">${esc(t('gui.configure'))}</button>
     </div>
-    <div class="muted small">先在终端跑上面的命令并保持窗口打开，再点「打开 GUI」。提示 Permission denied (publickey)？点「配置」填私钥路径。</div>
+    <div class="muted small">${esc(t('gui.tunnelHint'))}</div>
   </div>`
 }
 
@@ -51,14 +51,14 @@ export const guiCardHtml = (nodeId, access, guiUrl) => {
  * @returns {string}
  */
 export const guiDirectCardHtml = (nodeId, guiUrl) => `<div class="node-gui">
-    <div class="node-gui-title">原生 GUI <span class="muted small">本机直连 · 无需隧道</span></div>
+    <div class="node-gui-title">${esc(t('gui.title'))} <span class="muted small">${esc(t('gui.directNote'))}</span></div>
     <div class="node-actions">
-      <button type="button" class="btn btn-sm" data-gui-open="${esc(nodeId)}" data-gui-url="${esc(guiUrl)}">打开 GUI</button>
-      <button type="button" class="btn-quiet btn-sm" data-node-access="${esc(nodeId)}">配置隧道</button>
+      <button type="button" class="btn btn-sm" data-gui-open="${esc(nodeId)}" data-gui-url="${esc(guiUrl)}">${esc(t('gui.open'))}</button>
+      <button type="button" class="btn-quiet btn-sm" data-node-access="${esc(nodeId)}">${esc(t('gui.configureTunnel'))}</button>
     </div>
-    <div class="muted small">浏览器与本机节点同为 loopback——直接打开，不需要 SSH。</div>
+    <div class="muted small">${esc(t('gui.directHint'))}</div>
   </div>`
 
 /** 未配置 access 且非本机直连的节点：一个「配置原生访问」入口。 */
 export const guiSetupButton = (nodeId) =>
-  `<button type="button" class="btn-quiet btn-sm" data-node-access="${esc(nodeId)}">配置原生访问</button>`
+  `<button type="button" class="btn-quiet btn-sm" data-node-access="${esc(nodeId)}">${esc(t('gui.configureAccess'))}</button>`

@@ -4,65 +4,75 @@
 // 15 秒轮询，与侧栏同一数据源 /api/nodes，不另起真相。
 // 能力三 v1：节点行挂「原生 GUI」卡（隧道命令 + 打开/配置），纯函数层在
 // gui-access.js。UI 收尾 A：全局任务流迁至 /runs（任务页）。
-import { $, esc, setHtml, apiJson, poll } from './ui.js'
+import { $, esc, setHtml, apiJson, poll, t, loadI18n } from './ui.js'
+
+// 动态文案走客户端字典（服务端已渲染静态文案；字典由 /api/i18n/<lang> 提供）。
+// 顶层 await：首屏渲染前字典就位，避免先显示键名再补译文。
+await loadI18n()
 import { guiCardHtml, guiDirectCardHtml, guiSetupButton } from './gui-access.js'
 import { nodeCreatePayload, hostRunnerConfirmText, dangerSandboxConfirmText, versionOptionsHtml } from './node-form.js'
 import { machineRowHtml, joinCommand, localMachineRowHtml } from './machines.js'
 import { topologyHtml, edgePairs, drawTopoEdges } from './topology.js'
 
 const NODE_STATE_DOT = { live: 'ok', cold: 'muted', starting: 'warn', restarting: 'warn', offline: 'bad' }
-const NODE_STATE_LABEL = { live: 'live', cold: '未启动', starting: '启动中', restarting: '重启中', offline: 'offline' }
+const NODE_STATE_LABEL = {
+  live: 'live',
+  cold: t('nodes.state.cold'),
+  starting: t('nodes.state.starting'),
+  restarting: t('nodes.state.restarting'),
+  offline: 'offline',
+}
 
 const nodeRow = (n) => {
   const dot = NODE_STATE_DOT[n.state] ?? 'muted'
   const label = NODE_STATE_LABEL[n.state] ?? n.state
   const agents = Array.isArray(n.agents) && n.agents.length > 0 ? n.agents.join(' / ') : '—'
-  const meta = [n.managed ? '托管' : '外管', typeof n.pid === 'number' && n.pid !== null ? `pid ${n.pid}` : null]
+  const meta = [n.managed ? t('nodes.managed') : t('nodes.external'), typeof n.pid === 'number' && n.pid !== null ? `pid ${n.pid}` : null]
     .filter(Boolean)
     .join(' · ')
   const err = typeof n.lastError === 'string' && n.lastError !== '' ? ` — ${n.lastError}` : ''
   // 蜂群2计划 P1：DSH 版本与验证版本不符 → 黄标（照跑不装瞎）
   const versionWarn =
     typeof n.dshVersion === 'string' && n.dshVersion !== '' && n.dshCompatible === false
-      ? `<span class="pill-mini warn" title="节点 DSH ${esc(n.dshVersion)} 与验证版本不符，契约未经此版本验证">版本告警</span>`
+      ? `<span class="pill-mini warn" title="${esc(t('nodes.versionWarnTitle', { version: n.dshVersion }))}">${esc(t('nodes.versionWarn'))}</span>`
       : ''
   // 能力二：profile 种子与配置钉版不一致 = 漂移（对齐按钮入口）
   const driftWarn =
     n.dshDrift === true
-      ? `<span class="pill-mini warn" title="profile 与配置钉版不一致（DSH 版本或 facade 引用漂移）——点「对齐版本」收敛">版本漂移</span>`
+      ? `<span class="pill-mini warn" title="${esc(t('nodes.driftWarnTitle'))}">${esc(t('nodes.driftWarn'))}</span>`
       : ''
   // 版本信息：容器形态先展示镜像标签（tag 即 DSH 版本），再补 DSH 版本行。
   const versionBits = []
   if (typeof n.image === 'string' && n.image !== '') versionBits.push(esc(n.image))
   if (typeof n.dshVersion === 'string' && n.dshVersion !== '') versionBits.push(`DSH ${esc(n.dshVersion)}`)
   // 显式钉版值得展示；跟随默认（null）不显示
-  if (typeof n.configuredDshVersion === 'string' && n.configuredDshVersion !== '') versionBits.push(`钉 ${esc(n.configuredDshVersion)}`)
+  if (typeof n.configuredDshVersion === 'string' && n.configuredDshVersion !== '') versionBits.push(esc(t('nodes.pinned', { version: n.configuredDshVersion })))
   // 能力四（M1-7）：舰队节点显示执行主机（hostname 映射，未知回退 id）
-  if (typeof n.host === 'string' && n.host !== '') versionBits.push(`主机 ${esc(agentHostnames.get(n.host) ?? n.host)}`)
+  if (typeof n.host === 'string' && n.host !== '') versionBits.push(esc(t('nodes.hostBit', { host: agentHostnames.get(n.host) ?? n.host })))
   const detail = `agent：${esc(agents)}${versionBits.length > 0 ? ` · ${versionBits.join(' · ')}` : ''}`
   const starting = n.state === 'starting'
   const alignBtn =
     n.dshDrift === true
-      ? `<button type="button" class="btn-quiet btn-sm" data-node-align="${esc(n.id)}" title="重建 profile → 重装依赖 → 重启（幂等）">对齐版本</button>`
+      ? `<button type="button" class="btn-quiet btn-sm" data-node-align="${esc(n.id)}" title="${esc(t('nodes.action.alignTitle'))}">${esc(t('nodes.action.align'))}</button>`
       : ''
   // 能力二/P1：版本切换下拉（矩阵数据源；跟随默认 = 未显式钉版）
   const versionSel =
     n.managed
-      ? `<select class="node-version-select" data-node-version="${esc(n.id)}" title="切换 DSH 版本（重建/重装 + 重启）">${versionOptionsHtml(versionList, n.configuredDshVersion)}</select>`
+      ? `<select class="node-version-select" data-node-version="${esc(n.id)}" title="${esc(t('nodes.action.versionTitle'))}">${versionOptionsHtml(versionList, n.configuredDshVersion)}</select>`
       : ''
   const controls = n.managed
     ? `<div class="node-actions">
         ${
           n.state === 'cold' || n.state === 'offline'
-            ? `<button type="button" class="btn-quiet btn-sm" data-node-up="${esc(n.id)}">启动</button>`
-            : `<button type="button" class="btn-quiet btn-sm" data-node-down="${esc(n.id)}" ${starting ? 'disabled' : ''}>停止</button>
-               <button type="button" class="btn-quiet btn-sm" data-node-restart="${esc(n.id)}" ${starting ? 'disabled' : ''}>重启</button>`
+            ? `<button type="button" class="btn-quiet btn-sm" data-node-up="${esc(n.id)}">${esc(t('nodes.action.start'))}</button>`
+            : `<button type="button" class="btn-quiet btn-sm" data-node-down="${esc(n.id)}" ${starting ? 'disabled' : ''}>${esc(t('nodes.action.stop'))}</button>
+               <button type="button" class="btn-quiet btn-sm" data-node-restart="${esc(n.id)}" ${starting ? 'disabled' : ''}>${esc(t('nodes.action.restart'))}</button>`
         }
         ${alignBtn}
-        <button type="button" class="btn-quiet btn-sm" data-node-logs="${esc(n.id)}">日志</button>
-        <button type="button" class="btn-quiet btn-sm" data-node-rm="${esc(n.id)}" title="解除托管（磁盘目录保留）">删除</button>
+        <button type="button" class="btn-quiet btn-sm" data-node-logs="${esc(n.id)}">${esc(t('nodes.action.logs'))}</button>
+        <button type="button" class="btn-quiet btn-sm" data-node-rm="${esc(n.id)}" title="${esc(t('nodes.action.removeTitle'))}">${esc(t('nodes.action.remove'))}</button>
       </div>`
-    : '<span class="muted small">外管 · 手动维护</span>'
+    : `<span class="muted small">${esc(t('nodes.externalManual'))}</span>`
   // 能力三 v1：原生 GUI 卡（隧道 / 本机直连 / 配置入口 三形态）。
   const guiBits =
     n.access !== null && n.access !== undefined
@@ -88,20 +98,20 @@ const nodeAction = async (id, action) => {
     const r = await apiJson(`/api/nodes/${encodeURIComponent(id)}/${action}`, { method: 'POST' })
     if (!r.ok) alert(r.detail)
   } catch (error) {
-    alert(`操作失败：${error.message}`)
+    alert(t('common.opFailed', { message: error.message }))
   }
   await load()
 }
 
 // 能力二：版本对齐 = 异步重播种 + 重装 + 重启（202 即受理）。
 const alignNode = async (id) => {
-  if (!window.confirm(`把节点「${id}」的 profile 对齐到配置钉版？\n\n重建 profile → 重装依赖 → 重启节点（幂等，约 1-2 分钟）。`)) return
+  if (!window.confirm(t('nodes.align.confirm', { id }))) return
   try {
     const r = await apiJson(`/api/nodes/${encodeURIComponent(id)}/align-version`, { method: 'POST' })
     if (!r.ok) alert(r.detail)
-    else alert('已提交对齐（重播种 → 重装 → 重启）。约 1-2 分钟后自动刷新查看。')
+    else alert(t('nodes.align.submitted'))
   } catch (error) {
-    alert(`操作失败：${error.message}`)
+    alert(t('common.opFailed', { message: error.message }))
   }
   await load()
 }
@@ -114,17 +124,17 @@ const refreshLogs = async () => {
   try {
     const r = await apiJson(`/api/nodes/${encodeURIComponent(logsNode)}/logs`)
     const body = r.ok ? r.data : {}
-    $('node-logs-body').textContent = typeof body.logs === 'string' && body.logs !== '' ? body.logs : '（暂无输出）'
+    $('node-logs-body').textContent = typeof body.logs === 'string' && body.logs !== '' ? body.logs : t('nodes.logs.empty')
     $('node-logs-body').scrollTop = $('node-logs-body').scrollHeight
   } catch {
-    $('node-logs-body').textContent = '读取日志失败'
+    $('node-logs-body').textContent = t('nodes.logs.readFailed')
   }
 }
 
 const openLogs = (id) => {
   logsNode = id
   $('node-logs').hidden = false
-  $('node-logs-title').textContent = `节点 ${id} · 日志`
+  $('node-logs-title').textContent = t('nodes.logs.title', { id })
   void refreshLogs()
   if (logsTimer !== null) clearInterval(logsTimer)
   logsTimer = setInterval(() => void refreshLogs(), 5_000)
@@ -162,8 +172,8 @@ $('nodes-list').addEventListener('click', (event) => {
     const command = guiCopy.dataset.guiCmd ?? ''
     navigator.clipboard
       ?.writeText(command)
-      .then(() => alert('隧道命令已复制——在终端跑起来（窗口别关），再点「打开 GUI」。'))
-      .catch(() => alert(`复制失败，手动复制：\n${command}`))
+      .then(() => alert(t('nodes.tunnel.copied')))
+      .catch(() => alert(t('nodes.tunnel.copyFailed', { command })))
     return
   }
   const access = event.target.closest('[data-node-access]')
@@ -178,8 +188,8 @@ $('nodes-list').addEventListener('change', (event) => {
   const followDefault = sel.value === ''
   const target = followDefault ? (versionList[0]?.dsh ?? '') : sel.value
   if (target === '') return
-  const note = followDefault ? '（当前未显式钉版——将写为显式钉到矩阵首行）\n' : ''
-  if (!window.confirm(`把节点「${id}」切换到 DSH ${target}？\n\n${note}容器 = 换镜像重建；进程 = 重播种→重装→重启。约 1-2 分钟。`)) {
+  const note = followDefault ? t('nodes.version.noteDefault') : ''
+  if (!window.confirm(t('nodes.version.confirm', { id, version: target, note }))) {
     void load() // 取消选择 → 还原下拉
     return
   }
@@ -193,10 +203,10 @@ $('nodes-list').addEventListener('change', (event) => {
       if (!r.ok) alert(r.detail)
       else {
         const rData = r.data ?? {}
-        alert(`已提交切换（${typeof rData.image === 'string' ? `镜像 ${rData.image}` : `DSH ${rData.version}`}）。约 1-2 分钟后自动刷新查看。`)
+        alert(typeof rData.image === 'string' ? t('nodes.version.switchedImage', { image: rData.image }) : t('nodes.version.switchedDsh', { version: rData.version }))
       }
     } catch (error) {
-      alert(`操作失败：${error.message}`)
+      alert(t('common.opFailed', { message: error.message }))
     }
     await load()
   })()
@@ -208,7 +218,7 @@ $('node-logs-close').addEventListener('click', closeLogs)
 // ---- 蜂群 P5.5：新增节点向导 + 删除 ----
 
 const removeNode = async (id) => {
-  if (!window.confirm(`解除节点「${id}」的托管？\n\n- 进程会停止\n- 配置里会删掉「节点 + 它绑定的工作区」两行\n- 磁盘上的目录全部保留`)) return
+  if (!window.confirm(t('nodes.remove.confirm', { id }))) return
   try {
     // 债务 F6:统一 Result 层。
     const r = await apiJson(`/api/nodes/${encodeURIComponent(id)}`, { method: 'DELETE' })
@@ -218,7 +228,7 @@ const removeNode = async (id) => {
     }
     await load()
   } catch (error) {
-    alert(`删除失败：${error.message}`)
+    alert(t('common.deleteFailed', { message: error.message }))
   }
 }
 
@@ -273,11 +283,11 @@ $('node-form').addEventListener('submit', async (event) => {
   const hostId = $('f-node-host').value.trim()
   const hostUrl = $('f-node-url').value.trim()
   if (hostId !== '' && hostUrl === '') {
-    $('f-warn').textContent = '选了主机就必须填「节点地址」（manager 可达的 http://IP:端口）'
+    $('f-warn').textContent = t('nodes.form.hostNeedsUrl')
     return
   }
   if (hostId !== '' && runner === 'docker') {
-    $('f-warn').textContent = '选了主机就不能用容器形态（agent 节点 = 远端宿主机进程）'
+    $('f-warn').textContent = t('nodes.form.hostNoDocker')
     return
   }
   if ((hostId !== '' || runner === 'process') && !window.confirm(hostRunnerConfirmText(name))) return
@@ -303,7 +313,7 @@ $('node-form').addEventListener('submit', async (event) => {
 
   const save = $('f-save')
   save.disabled = true
-  save.textContent = '创建中（安装依赖，可能需要一两分钟）…'
+  save.textContent = t('nodes.form.creating')
   try {
     // 债务 F6:统一 Result 层——创建失败提示读 r.detail。
     const r = await apiJson('/api/nodes', {
@@ -319,16 +329,16 @@ $('node-form').addEventListener('submit', async (event) => {
     $('f-warn').textContent =
       body.workspaceWarning === null || body.workspaceWarning === undefined
         ? ''
-        : `已创建，但有个提醒：${body.workspaceWarning}`
+        : t('nodes.form.createdWithWarning', { warning: body.workspaceWarning })
     $('node-editor').hidden = true
     $('node-form').reset()
     advancedDirty.clear()
     await load()
   } catch (error) {
-    $('f-warn').textContent = `创建失败：${error.message}`
+    $('f-warn').textContent = t('common.createFailed', { message: error.message })
   } finally {
     save.disabled = false
-    save.textContent = '创建'
+    save.textContent = t('common.create')
   }
 })
 
@@ -342,7 +352,7 @@ let accessNode = null
 const openAccessEditor = (id) => {
   accessNode = id
   const current = accessById[id]
-  $('f-acc-title').textContent = `配置原生访问 · ${id}`
+  $('f-acc-title').textContent = t('nodes.access.titleWith', { id })
   $('f-acc-user').value = current?.sshUser ?? ''
   $('f-acc-host').value = current?.sshHost ?? ''
   $('f-acc-sshport').value = current !== null && current !== undefined ? String(current.sshPort) : ''
@@ -363,7 +373,7 @@ $('f-acc-cancel').addEventListener('click', closeAccessEditor)
 
 $('f-acc-clear').addEventListener('click', async () => {
   if (accessNode === null) return
-  if (!window.confirm(`清除节点「${accessNode}」的原生访问配置？`)) return
+  if (!window.confirm(t('nodes.access.clearConfirm', { id: accessNode }))) return
   try {
     const r = await apiJson(`/api/nodes/${encodeURIComponent(accessNode)}/access`, {
       method: 'POST',
@@ -377,7 +387,7 @@ $('f-acc-clear').addEventListener('click', async () => {
     closeAccessEditor()
     await load()
   } catch (error) {
-    $('f-acc-warn').textContent = `清除失败：${error.message}`
+    $('f-acc-warn').textContent = t('nodes.access.clearFailed', { message: error.message })
   }
 })
 
@@ -388,7 +398,7 @@ $('node-access-form').addEventListener('submit', async (event) => {
   const host = $('f-acc-host').value.trim()
   const local = Number($('f-acc-local').value.trim())
   if (user === '' || host === '' || !Number.isInteger(local) || local <= 0) {
-    $('f-acc-warn').textContent = 'SSH 账号 / 主机 / 本机映射端口必填'
+    $('f-acc-warn').textContent = t('nodes.access.required')
     return
   }
   const sshPort = Number($('f-acc-sshport').value.trim())
@@ -415,7 +425,7 @@ $('node-access-form').addEventListener('submit', async (event) => {
     closeAccessEditor()
     await load()
   } catch (error) {
-    $('f-acc-warn').textContent = `保存失败：${error.message}`
+    $('f-acc-warn').textContent = t('nodes.access.saveFailed', { message: error.message })
   }
 })
 
@@ -431,15 +441,15 @@ $('add-machine').addEventListener('click', async () => {
     const origin = window.location.origin
     $('join-command').textContent = joinCommand(origin, token)
     $('join-box').hidden = false
-    $('join-command').title = `有效期至 ${new Date(expiresAt).toLocaleTimeString('zh-CN', { hour12: false })}（一次性）`
+    $('join-command').title = t('nodes.join.expiresAt', { time: new Date(expiresAt).toLocaleTimeString(undefined, { hour12: false }) })
   } catch (error) {
-    alert(`签发失败：${error.message}`)
+    alert(t('nodes.join.issueFailed', { message: error.message }))
   }
 })
 
 $('join-copy').addEventListener('click', () => {
   void navigator.clipboard?.writeText($('join-command').textContent ?? '')
-  alert('已复制 join 命令——到目标机器上执行（token 15 分钟有效，一次性）')
+  alert(t('nodes.join.copied'))
 })
 
 $('join-close').addEventListener('click', () => {
@@ -458,57 +468,64 @@ $('machines-list').addEventListener('click', (event) => {
     const box = $('machines-revoked')
     if (box !== null) {
       box.hidden = !box.hidden
-      toggle.textContent = box.hidden ? toggle.textContent.replace('隐藏', '显示') : toggle.textContent.replace('显示', '隐藏')
+      toggle.textContent = revokedToggleLabel(!box.hidden)
     }
     return
   }
   const del = event.target.closest('[data-agent-delete]')
   if (del !== null) {
     const id = del.dataset.agentDelete
-    if (!window.confirm(`删除机器「${agentHostnames.get(id) ?? id}」的记录？\n\n机器行与指令历史将被永久删除（账单与审计不受影响），不可恢复。`)) return
+    if (!window.confirm(t('nodes.machine.deleteConfirm', { host: agentHostnames.get(id) ?? id }))) return
     void apiJson(`/api/agents/${encodeURIComponent(id)}/delete`, { method: 'POST' })
       .then((r) => {
         if (!r.ok) alert(r.detail)
         return load()
       })
-      .catch((error) => alert(`删除失败：${error.message}`))
+      .catch((error) => alert(t('common.deleteFailed', { message: error.message })))
     return
   }
   const rotate = event.target.closest('[data-agent-rotate]')
   if (rotate !== null) {
     const id = rotate.dataset.agentRotate
-    if (!window.confirm(`轮换机器「${agentHostnames.get(id) ?? id}」的 agent 密钥？\n\n新密钥只经指令通道投递给 agent，旧密钥在确认前仍有效（30 分钟宽限）。`)) return
+    if (!window.confirm(t('nodes.machine.rotateConfirm', { host: agentHostnames.get(id) ?? id }))) return
     void apiJson(`/api/agents/${encodeURIComponent(id)}/rotate`, { method: 'POST' })
       .then((r) => {
         if (!r.ok) alert(r.detail)
         return load()
       })
-      .catch((error) => alert(`轮换失败：${error.message}`))
+      .catch((error) => alert(t('nodes.machine.rotateFailed', { message: error.message })))
     return
   }
   const revoke = event.target.closest('[data-agent-revoke]')
   if (revoke === null) return
   const id = revoke.dataset.agentRevoke
-  if (!window.confirm(`吊销机器「${agentHostnames.get(id) ?? id}」？其 agent token 立即失效，该机节点将标 unreachable。`)) return
+  if (!window.confirm(t('nodes.machine.revokeConfirm', { host: agentHostnames.get(id) ?? id }))) return
   void apiJson(`/api/agents/${encodeURIComponent(id)}/revoke`, { method: 'POST' })
     .then((r) => {
       if (!r.ok) alert(r.detail)
       return load()
     })
-    .catch((error) => alert(`吊销失败：${error.message}`))
+    .catch((error) => alert(t('nodes.machine.revokeFailed', { message: error.message })))
 })
 
 // ---- UI 收尾 C-P1：集群拓扑（视图切换 + 边线绘制 + 卡片跳转） ----
+let revokedCount = 0
 let topoState = { managerVersion: '', origin: window.location.origin, containerForm: false, machines: [], nodes: [], localHost: null }
 
 const VIEW_KEY = 'nodes-view'
+
+/** 折叠按钮文案（计数随机器数走；不靠中文字符串替换）。 */
+const revokedToggleLabel = (visible) =>
+  visible
+    ? t('nodes.revoked.hide', { count: revokedCount })
+    : t('nodes.revoked.show', { count: revokedCount })
 
 const setRevokedFold = (show) => {
   const box = $('machines-revoked')
   const toggle = $('machines-revoked-toggle')
   if (box === null) return
   box.hidden = !show
-  if (toggle !== null) toggle.textContent = show ? toggle.textContent.replace('显示', '隐藏') : toggle.textContent.replace('隐藏', '显示')
+  if (toggle !== null) toggle.textContent = revokedToggleLabel(show)
 }
 
 const redrawTopo = () => {
@@ -611,10 +628,11 @@ const load = async () => {
       agentHostnames = new Map(machines.map((m) => [m.id, m.hostname]))
       const active = machines.filter((m) => !m.revoked)
       const revoked = machines.filter((m) => m.revoked)
+      revokedCount = revoked.length
       // UI 收尾 C-P1.5：机器列表首行 = 本机（纯 UI 投影，不进 agent_machine）。
       const localNodes = nodes.filter((n) => typeof n.host !== 'string' || n.host === '')
       const localRow = localMachineRowHtml({
-        hostname: typeof hostName === 'string' ? hostName : '本机',
+        hostname: typeof hostName === 'string' ? hostName : t('nodes.local.hostnameFallback'),
         os: typeof hostOs === 'string' ? hostOs : 'unknown',
         arch: typeof hostArch === 'string' ? hostArch : 'unknown',
         nodeVersion: typeof hostNodeVersion === 'string' ? hostNodeVersion.replace(/^v/, '') : '—',
@@ -624,11 +642,11 @@ const load = async () => {
       setHtml('machines-list', [
         localRow,
         machines.length === 0
-          ? '<p class="muted small">还没有接入的远端机器——点「添加机器」拿到 join 命令。</p>'
-          : `<div class="muted small" style="margin-top:6px">远端机器（node-agent）</div>${[
+          ? `<p class="muted small">${t('nodes.emptyMachines')}</p>`
+          : `<div class="muted small" style="margin-top:6px">${esc(t('nodes.machines.remote'))}</div>${[
               ...active.map((m) => machineRowHtml({ ...m, managerVersion })),
               revoked.length > 0
-                ? `<div class="muted small" style="margin-top:8px"><button type="button" id="machines-revoked-toggle" class="btn-quiet btn-sm">显示已吊销 ${revoked.length} 台</button><div id="machines-revoked" hidden>${revoked.map((m) => machineRowHtml({ ...m, managerVersion })).join('')}</div></div>`
+                ? `<div class="muted small" style="margin-top:8px"><button type="button" id="machines-revoked-toggle" class="btn-quiet btn-sm">${esc(t('nodes.revoked.show', { count: revoked.length }))}</button><div id="machines-revoked" hidden>${revoked.map((m) => machineRowHtml({ ...m, managerVersion })).join('')}</div></div>`
                 : '',
             ].join('')}`,
       ].join(''))
@@ -659,7 +677,7 @@ const load = async () => {
     const processOpt = $('f-node-runner').querySelector('option[value="process"]')
     if (processOpt !== null) {
       processOpt.disabled = containerForm === true
-      processOpt.textContent = containerForm === true ? '宿主机进程（容器部署不可用）' : '宿主机进程（可操作整台机器 ⚠️）'
+      processOpt.textContent = containerForm === true ? t('nodes.form.runnerProcessDisabled') : t('nodes.form.runnerProcess')
     }
     // 能力二：版本下拉 = 矩阵数据源（首次填充后不再重复）
     if (Array.isArray(supportedDsh)) {
@@ -668,7 +686,7 @@ const load = async () => {
         for (const v of supportedDsh) {
           const opt = document.createElement('option')
           opt.value = v.dsh
-          opt.textContent = `${v.dsh}${v.status === 'pending' ? '（未验证）' : '（已验证）'}`
+          opt.textContent = v.status === 'pending' ? t('nodes.version.pending', { version: v.dsh }) : t('nodes.version.verified', { version: v.dsh })
           sel.appendChild(opt)
         }
       }
@@ -677,15 +695,18 @@ const load = async () => {
     accessById = Object.fromEntries(nodes.map((n) => [n.id, n.access ?? null]))
     const live = nodes.filter((n) => n.state === 'live').length
     const abnormal = nodes.filter((n) => n.state !== 'live').length
-    $('nodes-count').textContent = `${live}/${nodes.length} 正常${abnormal > 0 ? ` · ${abnormal} 个异常` : ''}`
+    $('nodes-count').textContent =
+      abnormal > 0
+        ? t('nodes.countAbnormal', { live, total: nodes.length, abnormal })
+        : t('nodes.count', { live, total: nodes.length })
     setHtml(
       'nodes-list',
       nodes.length === 0
-        ? '<p class="muted small">没有节点。config 里的 endpoints 为空，或全部节点由外部管理。</p>'
+        ? `<p class="muted small">${esc(t('nodes.empty'))}</p>`
         : nodes.map(nodeRow).join(''),
     )
 
-    $('nodes-refresh').textContent = `刷新于 ${new Date().toLocaleTimeString('zh-CN', { hour12: false })} · 15 秒自动`
+    $('nodes-refresh').textContent = t('nodes.refreshAt', { time: new Date().toLocaleTimeString(undefined, { hour12: false }) })
   } catch {
     // 网络失败时保留上一帧，不刷成错误页。
   }

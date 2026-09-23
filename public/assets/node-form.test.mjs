@@ -2,6 +2,10 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { nodeCreatePayload, hostRunnerConfirmText, dangerSandboxConfirmText, versionOptionsHtml } from './node-form.js'
 
+import { useTestDictionary } from './test-i18n.mjs'
+
+useTestDictionary('en')
+
 test('能力一回归: runner=auto 时省略字段（后端按部署自动判定），显式选择才下发', () => {
   const base = { name: 'worker', port: '3083', dshVersion: '', agent: { preset: 'standard', sandboxMode: 'workspace-write' } }
   assert.deepEqual(nodeCreatePayload({ ...base, runner: 'auto' }), {
@@ -40,8 +44,8 @@ test('能力二回归: 向导选版本 → dsh_version 进载荷；缺省字段�
 
 test('能力一回归: 宿主机进程形态的确认文案含整机风险警告', () => {
   const text = hostRunnerConfirmText('ops-agent')
-  assert.match(text, /宿主机进程/)
-  assert.match(text, /整台机器/)
+  assert.match(text, /host process/)
+  assert.match(text, /whole machine/)
   assert.match(text, /ops-agent/)
 })
 
@@ -53,9 +57,9 @@ test('舰队 M3-1 回归: ops 第三档沙箱进载荷 + 独立黄字确认文�
   })
   assert.equal(payload.agent.sandboxMode, 'danger-full-access', '第三档沙箱原样下发（后端 schema 已放行）')
   const text = dangerSandboxConfirmText('ops01')
-  assert.match(text, /全量访问/)
-  assert.match(text, /审批卡片/)
-  assert.match(text, /不经 manager 下发/)
+  assert.match(text, /full-access/)
+  assert.match(text, /approval card/)
+  assert.match(text, /never receives them/)
 })
 
 test('P2 回归: versionOptionsHtml——跟随默认/当前钉版选中态/pending 标注', () => {
@@ -64,13 +68,13 @@ test('P2 回归: versionOptionsHtml——跟随默认/当前钉版选中态/pend
     { dsh: '0.1.5-rc.2', status: 'pending' },
   ]
   const dflt = versionOptionsHtml(list, null)
-  assert.ok(dflt.includes('<option value="" selected>跟随默认</option>'), '未钉版 = 跟随默认选中')
+  assert.ok(dflt.includes('<option value="" selected>Follow the default</option>'), '未钉版 = 跟随默认选中')
   assert.ok(dflt.includes('0.1.2-rc.1') && dflt.includes('0.1.5-rc.2'), '矩阵行全列出')
-  assert.ok(dflt.includes('（未验证）'), 'pending 配对带标注')
+  assert.ok(dflt.includes('(unverified)'), 'pending 配对带标注')
 
   const pinned = versionOptionsHtml(list, '0.1.5-rc.2')
   assert.ok(pinned.includes('value="0.1.5-rc.2" selected'), '当前钉版选中')
   assert.ok(!pinned.includes('<option value="" selected>'), '钉版后不选跟随默认')
 
-  assert.equal(versionOptionsHtml(undefined, null), '<option value="" selected>跟随默认</option>', '数据源缺失不炸')
+  assert.equal(versionOptionsHtml(undefined, null), '<option value="" selected>Follow the default</option>', '数据源缺失不炸')
 })

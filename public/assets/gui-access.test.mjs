@@ -2,6 +2,10 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { guiTunnelCommand, guiCardHtml, guiDirectCardHtml, guiSetupButton } from './gui-access.js'
 
+import { useTestDictionary } from './test-i18n.mjs'
+
+useTestDictionary('en')
+
 const ACCESS = { sshUser: 'ubuntu', sshHost: '10.0.0.5', sshPort: 22, guiPort: 3080, localPort: 3088 }
 
 test('债务 P1 回归: 隧道命令——-N 纯隧道、22 端口省略 -p、其余字段照拼', () => {
@@ -38,7 +42,7 @@ test('债务 P1 回归: GUI 卡——命令+打开按钮；guiUrl 为空时按�
 
 test('体验优化回归: 本机直连卡——无需隧道命令，直接打开 + 配置隧道入口', () => {
   const html = guiDirectCardHtml('personal', 'http://127.0.0.1:3081/?token=tok-9')
-  assert.ok(html.includes('本机直连'), '标题注明直连形态')
+  assert.ok(html.includes('direct on this host'), '标题注明直连形态')
   assert.ok(!html.includes('ssh -N'), '不出现隧道命令')
   assert.ok(html.includes('data-gui-open="personal"'), '打开按钮挂节点 id')
   assert.ok(html.includes('http://127.0.0.1:3081/?token=tok-9'), '打开 URL 拼入')
@@ -48,5 +52,5 @@ test('体验优化回归: 本机直连卡——无需隧道命令，直接打开
 test('债务 P1 回归: 未配置 access 的非本机节点显示「配置原生访问」入口', () => {
   const html = guiSetupButton('personal')
   assert.ok(html.includes('data-node-access="personal"'), '配置入口挂节点 id')
-  assert.ok(html.includes('配置原生访问'), '文案')
+  assert.ok(html.includes('Set up native access'), '文案')
 })

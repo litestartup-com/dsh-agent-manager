@@ -1,7 +1,9 @@
 // @ts-check
 // 能力四（舰队 M1-7）：机器页纯函数层——agent 列表行与 join 命令拼装。
 // DOM 装配在 nodes.js；可单测（machines.test.mjs）。
-import { esc, platformLabel } from './ui.js'
+import { esc, platformLabel, t, loadI18n } from './ui.js'
+
+await loadI18n()
 
 /**
  * M4-4：最新指标快照徽标文案（CPU % / 内存 % / 磁盘 %）；无快照返回空数组。
@@ -13,9 +15,9 @@ export const machineMetricBits = (lm) => {
   if (lm === null || lm === undefined) return []
   const pct = (used, total) => (typeof used === 'number' && typeof total === 'number' && total > 0 ? Math.round((used / total) * 100) : null)
   return [
-    typeof lm.cpuPercent === 'number' ? `CPU ${lm.cpuPercent / 10}%` : null,
-    pct(lm.memUsed, lm.memTotal) !== null ? `内存 ${pct(lm.memUsed, lm.memTotal)}%` : null,
-    pct(lm.diskTotal - lm.diskFree, lm.diskTotal) !== null ? `磁盘 ${pct(lm.diskTotal - lm.diskFree, lm.diskTotal)}%` : null,
+    typeof lm.cpuPercent === 'number' ? t('machines.cpu', { percent: lm.cpuPercent / 10 }) : null,
+    pct(lm.memUsed, lm.memTotal) !== null ? t('machines.mem', { percent: pct(lm.memUsed, lm.memTotal) }) : null,
+    pct(lm.diskTotal - lm.diskFree, lm.diskTotal) !== null ? t('machines.disk', { percent: pct(lm.diskTotal - lm.diskFree, lm.diskTotal) }) : null,
   ].filter(Boolean)
 }
 
@@ -30,23 +32,23 @@ export const machineRowHtml = (m) => {
   const stale = typeof m.agentVersion === 'string' && m.agentVersion !== '' && typeof m.managerVersion === 'string' && m.agentVersion !== m.managerVersion
   const metricBits = machineMetricBits(m.latestMetric)
   const detail = [
-    m.online ? '在线' : '离线',
-    `注册于 ${when}`,
-    m.pendingCommands > 0 ? `${m.pendingCommands} 条待执行指令` : null,
+    m.online ? t('machines.online') : t('machines.offline'),
+    t('machines.registeredAt', { time: when }),
+    m.pendingCommands > 0 ? t('machines.pendingCommands', { count: m.pendingCommands }) : null,
     typeof m.agentVersion === 'string' && m.agentVersion !== '' ? `agent v${m.agentVersion}` : null,
     ...metricBits,
-    m.revoked ? '已吊销' : null,
+    m.revoked ? t('machines.revoked') : null,
   ].filter(Boolean).join(' · ')
   return `<div class="node-row" data-machine-row="${esc(m.id)}">
     <div class="node-main">
-      <div class="node-title"><span class="dot ${dot}"></span>${esc(m.hostname)} <span class="muted">· ${esc(m.os)}/${esc(m.arch)} · node ${esc(m.nodeVersion)}</span>${stale ? ' <span class="badge warn">待更新</span>' : ''}</div>
+      <div class="node-title"><span class="dot ${dot}"></span>${esc(m.hostname)} <span class="muted">· ${esc(m.os)}/${esc(m.arch)} · node ${esc(m.nodeVersion)}</span>${stale ? ` <span class="badge warn">${esc(t('machines.stale'))}</span>` : ''}</div>
       <div class="node-detail">${esc(detail)}</div>
     </div>
     <div class="node-actions">
       ${m.revoked
-        ? `<button type="button" class="btn-quiet btn-sm" data-agent-delete="${esc(m.id)}">删除记录</button>`
-        : `<button type="button" class="btn-quiet btn-sm" data-agent-rotate="${esc(m.id)}">轮换密钥</button>`}
-      ${m.revoked ? '' : `<button type="button" class="btn-quiet btn-sm" data-agent-revoke="${esc(m.id)}">吊销</button>`}
+        ? `<button type="button" class="btn-quiet btn-sm" data-agent-delete="${esc(m.id)}">${esc(t('machines.action.delete'))}</button>`
+        : `<button type="button" class="btn-quiet btn-sm" data-agent-rotate="${esc(m.id)}">${esc(t('machines.action.rotate'))}</button>`}
+      ${m.revoked ? '' : `<button type="button" class="btn-quiet btn-sm" data-agent-revoke="${esc(m.id)}">${esc(t('machines.action.revoke'))}</button>`}
     </div>
   </div>`
 }
@@ -70,12 +72,12 @@ export const joinCommand = (origin, token) =>
  * @returns {string}
  */
 export const localMachineRowHtml = (m) => {
-  const deploy = m.containerForm ? '容器工蜂' : '宿主机进程'
-  return `<div class="node-row" data-local-machine-row title="manager 宿主机——本机节点不经 node-agent，由 manager 直接拉起">
+  const deploy = m.containerForm ? t('nodes.local.deployDocker') : t('nodes.local.deployProcess')
+  return `<div class="node-row" data-local-machine-row title="${esc(t('topology.local.title'))}">
     <div class="node-main">
-      <div class="node-title"><span class="dot ok"></span>本机（manager 宿主） <span class="pill-mini">直管</span> <span class="muted">· ${esc(platformLabel(m.os))}/${esc(m.arch)} · node ${esc(m.nodeVersion)}</span></div>
-      <div class="node-detail">${esc(m.hostname)} · ${esc(deploy)} · 直管 ${m.nodeCount} 个节点（不经 node-agent）</div>
+      <div class="node-title"><span class="dot ok"></span>${esc(t('nodes.local.row'))} <span class="pill-mini">${esc(t('nodes.local.direct'))}</span> <span class="muted">· ${esc(platformLabel(m.os))}/${esc(m.arch)} · node ${esc(m.nodeVersion)}</span></div>
+      <div class="node-detail">${esc(t('nodes.local.detail', { hostname: m.hostname, deploy, count: m.nodeCount }))}</div>
     </div>
-    <div class="node-side"><button type="button" class="btn-quiet btn-sm" data-local-jump>看节点 ›</button></div>
+    <div class="node-side"><button type="button" class="btn-quiet btn-sm" data-local-jump>${esc(t('nodes.local.jump'))}</button></div>
   </div>`
 }

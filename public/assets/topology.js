@@ -4,14 +4,16 @@
 // 的远端机器 + 「本机（manager 宿主）」伪卡（C-P1.5：本机不经 node-agent，
 // 直管节点，边从本机卡出发）。卡片拼装与边配对是纯函数（topology.test.mjs
 // 可单测）；SVG 连线只在浏览器里按实测矩形画（drawTopoEdges，DOM 函数）。
-import { esc, platformLabel } from './ui.js'
+import { esc, platformLabel, t, loadI18n } from './ui.js'
+
+await loadI18n()
 import { machineMetricBits } from './machines.js'
 
 /** 节点形态 tag：host 派发 → agent 远端；有镜像 → 容器工蜂；其余看托管态。 */
 export const formTag = (n) => {
-  if (typeof n.host === 'string' && n.host !== '') return 'agent 远端'
-  if (typeof n.image === 'string' && n.image !== '') return '容器工蜂'
-  return n.managed === true ? '宿主机进程' : '外管'
+  if (typeof n.host === 'string' && n.host !== '') return t('topology.form.agentRemote')
+  if (typeof n.image === 'string' && n.image !== '') return t('nodes.local.deployDocker')
+  return n.managed === true ? t('nodes.local.deployProcess') : t('nodes.external')
 }
 
 /** 机器在线态决定边样式：在线绿实线 / 离线红虚线（revoked 也走虚线）。 */
@@ -32,13 +34,13 @@ export { platformLabel } from './ui.js'
  * @returns {string}
  */
 export const localMachineCardHtml = (m) => {
-  const deploy = m.containerForm ? '容器工蜂' : '宿主机进程'
-  return `<div class="topo-item" data-topo-machine="${LOCAL_MACHINE_ID}" title="manager 宿主机——本机节点不经 node-agent，由 manager 直接拉起">
+  const deploy = m.containerForm ? t('nodes.local.deployDocker') : t('nodes.local.deployProcess')
+  return `<div class="topo-item" data-topo-machine="${LOCAL_MACHINE_ID}" title="${esc(t('topology.local.title'))}">
     <div class="topo-item-head">
-      <span class="dot ok"></span><strong>本机（manager 宿主）</strong>
+      <span class="dot ok"></span><strong>${esc(t('nodes.local.row'))}</strong>
       <span class="pill-mini">${esc(deploy)}</span>
     </div>
-    <div class="topo-item-line muted small">${esc(platformLabel(m.os))}/${esc(m.arch)} · 直管 ${m.nodeCount} 个节点</div>
+    <div class="topo-item-line muted small">${esc(platformLabel(m.os))}/${esc(m.arch)} · ${esc(t('nodes.local.direct'))} ${m.nodeCount}</div>
   </div>`
 }
 
@@ -48,15 +50,15 @@ export const localMachineCardHtml = (m) => {
  * @returns {string}
  */
 export const managerCardHtml = (m) => {
-  const deploy = m.containerForm ? '容器部署' : '裸机部署'
+  const deploy = m.containerForm ? t('topology.manager.deployContainer') : t('topology.manager.deployBare')
   return `<div class="topo-item topo-manager-card" data-topo-manager>
     <div class="topo-item-head">
       <span class="dot ok"></span><strong>manager</strong>
       <span class="pill-mini">${esc(deploy)}</span>
     </div>
     <div class="topo-item-line muted small">v${esc(m.managerVersion)}</div>
-    <div class="topo-item-line muted small">监听 ${esc(m.origin)}</div>
-    <div class="topo-item-line muted small">${m.machineCount} 台机器 · ${m.nodeCount} 个节点</div>
+    <div class="topo-item-line muted small">${esc(t('topology.manager.listen', { origin: m.origin }))}</div>
+    <div class="topo-item-line muted small">${esc(t('topology.manager.counts', { machines: m.machineCount, nodes: m.nodeCount }))}</div>
   </div>`
 }
 
@@ -71,11 +73,11 @@ export const machineCardHtml = (m, managerVersion) => {
   const stale = typeof m.agentVersion === 'string' && m.agentVersion !== '' && typeof m.managerVersion === 'string' && m.agentVersion !== m.managerVersion
   const metrics = machineMetricBits(m.latestMetric)
   const meta = [m.os, m.arch, `node ${m.nodeVersion}`].filter((v) => typeof v === 'string' && v !== '').join(' · ')
-  return `<div class="topo-item ${alive ? '' : 'topo-item-off'}" data-topo-machine="${esc(m.id)}" title="点卡片跳到机器列表行">
+  return `<div class="topo-item ${alive ? '' : 'topo-item-off'}" data-topo-machine="${esc(m.id)}" title="${esc(t('topology.jump.machine'))}">
     <div class="topo-item-head">
       <span class="dot ${m.revoked ? 'muted' : alive ? 'ok' : 'err'}"></span><strong>${esc(m.hostname)}</strong>
-      ${stale ? '<span class="badge warn">待更新</span>' : ''}
-      ${m.revoked ? '<span class="pill-mini muted">已吊销</span>' : ''}
+      ${stale ? `<span class="badge warn">${esc(t('machines.stale'))}</span>` : ''}
+      ${m.revoked ? `<span class="pill-mini muted">${esc(t('machines.revoked'))}</span>` : ''}
     </div>
     <div class="topo-item-line muted small">${esc(meta)}${typeof m.agentVersion === 'string' && m.agentVersion !== '' ? ` · agent v${esc(m.agentVersion)}` : ''}</div>
     ${metrics.length > 0 ? `<div class="topo-item-line muted small">${metrics.map(esc).join(' · ')}</div>` : ''}
@@ -93,20 +95,20 @@ export const nodeCardHtml = (n, hostnameById) => {
   const agents = Array.isArray(n.agents) && n.agents.length > 0 ? n.agents.join(' / ') : '—'
   const versionWarn =
     typeof n.dshVersion === 'string' && n.dshVersion !== '' && n.dshCompatible === false
-      ? '<span class="pill-mini warn" title="DSH 版本与验证版本不符">版本告警</span>'
+      ? `<span class="pill-mini warn" title="${esc(t('nodes.versionWarnTitle', { version: n.dshVersion }))}">${esc(t('nodes.versionWarn'))}</span>`
       : ''
-  const driftWarn = n.dshDrift === true ? '<span class="pill-mini warn" title="profile 与配置钉版不一致">版本漂移</span>' : ''
+  const driftWarn = n.dshDrift === true ? `<span class="pill-mini warn" title="${esc(t('nodes.driftWarnTitle'))}">${esc(t('nodes.driftWarn'))}</span>` : ''
   const bits = []
   if (typeof n.image === 'string' && n.image !== '') bits.push(esc(n.image))
   if (typeof n.dshVersion === 'string' && n.dshVersion !== '') bits.push(`DSH ${esc(n.dshVersion)}`)
-  if (typeof n.configuredDshVersion === 'string' && n.configuredDshVersion !== '') bits.push(`钉 ${esc(n.configuredDshVersion)}`)
-  const hostBit = typeof n.host === 'string' && n.host !== '' ? ` · 主机 ${esc(hostnameById.get(n.host) ?? n.host)}` : ''
-  return `<div class="topo-item" data-topo-node="${esc(n.id)}" title="点卡片跳到节点列表行">
+  if (typeof n.configuredDshVersion === 'string' && n.configuredDshVersion !== '') bits.push(esc(t('nodes.pinned', { version: n.configuredDshVersion })))
+  const hostBit = typeof n.host === 'string' && n.host !== '' ? ` · ${esc(t('nodes.hostBit', { host: hostnameById.get(n.host) ?? n.host }))}` : ''
+  return `<div class="topo-item" data-topo-node="${esc(n.id)}" title="${esc(t('topology.jump.node'))}">
     <div class="topo-item-head">
       <span class="dot ${NODE_DOT[n.state] ?? 'muted'}"></span><strong>${esc(n.id)}</strong>
       <span class="pill-mini">${esc(formTag(n))}</span> ${versionWarn} ${driftWarn}
     </div>
-    <div class="topo-item-line muted small">工作区 ${esc(agents)}</div>
+    <div class="topo-item-line muted small">${esc(t('topology.node.workspace', { agents }))}</div>
     ${bits.length > 0 ? `<div class="topo-item-line muted small">${bits.join(' · ')}${hostBit}</div>` : ''}
   </div>`
 }
@@ -173,16 +175,16 @@ export const topologyHtml = (data) => {
       ${manager}
     </div>
     <div class="topo-col">
-      <div class="topo-col-head">机器</div>
+      <div class="topo-col-head">${esc(t('topology.col.machines'))}</div>
       ${localCard}
-      ${online.length === 0 && localCard === '' ? '<p class="muted small">没有在线机器</p>' : online.map((m) => machineCardHtml(m, managerVersion)).join('')}
+      ${online.length === 0 && localCard === '' ? `<p class="muted small">${esc(t('topology.empty.machines'))}</p>` : online.map((m) => machineCardHtml(m, managerVersion)).join('')}
       ${offline.length === 0
         ? ''
-        : `<details class="topo-fold"><summary class="muted small">离线/已吊销 ${offline.length} 台</summary>${offline.map((m) => machineCardHtml(m, managerVersion)).join('')}</details>`}
+        : `<details class="topo-fold"><summary class="muted small">${esc(t('topology.fold.offline', { count: offline.length }))}</summary>${offline.map((m) => machineCardHtml(m, managerVersion)).join('')}</details>`}
     </div>
     <div class="topo-col">
-      <div class="topo-col-head">节点（DSH）</div>
-      ${nodes.length === 0 ? '<p class="muted small">没有节点</p>' : nodes.map((n) => nodeCardHtml(n, hostnameById)).join('')}
+      <div class="topo-col-head">${esc(t('topology.col.nodes'))}</div>
+      ${nodes.length === 0 ? `<p class="muted small">${esc(t('topology.empty.nodes'))}</p>` : nodes.map((n) => nodeCardHtml(n, hostnameById)).join('')}
     </div>
   </div>`
 }
