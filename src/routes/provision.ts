@@ -348,7 +348,12 @@ export const registerProvisionRoutes = (
         : {
             id: body.agent.id ?? body.name,
             name: body.agent.name ?? body.name,
-            workspace: resolve(body.agent.workspace ?? workspaceDefault),
+            // 舰队 M2：选了主机 = 远端机器上的工作区路径——原样透传
+            // （Windows 上 resolve 会把 /root/... 拧成 C:\root\...，
+            // facade 拒收非绝对 cwd，跨机实测踩坑）。
+            workspace: wantAgent
+              ? body.agent.workspace ?? workspaceDefault
+              : resolve(body.agent.workspace ?? workspaceDefault),
             preset: body.agent.preset ?? 'standard',
             sandboxMode: body.agent.sandboxMode ?? 'workspace-write',
           }

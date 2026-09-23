@@ -261,6 +261,25 @@ test('能力四 M1-7: 向导建 agent 节点——runner=agent+host 落真相源
   assert.equal(conflict.statusCode, 400, 'host 与 docker 互斥')
 })
 
+test('舰队 M2 回归: agent 节点工作区 = 远端路径原样透传（不得被 Windows resolve 成 C:\\ 前缀）', async () => {
+  const { app, config, supervisors } = await boot()
+  const created = await app.inject({
+    method: 'POST',
+    url: '/api/nodes',
+    payload: {
+      name: 'ops33',
+      install: false,
+      host: 'agent-abc123',
+      url: 'http://10.0.0.7:3081',
+      agent: { id: 'ops33', workspace: '/root/ohdsh-workspaces/ops33', preset: 'standard', sandboxMode: 'workspace-write' },
+    },
+  })
+  assert.equal(created.statusCode, 201, JSON.stringify(created.body))
+  assert.equal(config.agents['ops33']?.workspacePath, '/root/ohdsh-workspaces/ops33', '远端工作区路径原样落真相源（实测被 resolve 成 C:\\root\\... → facade 拒 cwd）')
+  const supervisor = supervisors.get('ops33')!
+  stopped.push(supervisor)
+})
+
 test('舰队 M3-1: ops 节点第三档沙箱——agent.sandboxMode=danger-full-access 落真相源；非法档位 400', async () => {
   const { app, config, supervisors } = await boot()
   const created = await app.inject({
