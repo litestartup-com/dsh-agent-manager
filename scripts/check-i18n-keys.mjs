@@ -27,6 +27,10 @@ const walk = (dir) => {
 // 文档/注释里出现的示例键名（`{{t:key}}`、`{{t:...}}`）不是真实引用。
 const IGNORED = new Set(['key', '...'])
 
+// 模板里拼出来的键静态看不见（如 t(`runs.state.${state}`)、t(`lang.${tag}`)），
+// 列为动态前缀：它们出现在“未引用”清单里只会误导人。
+const DYNAMIC_PREFIXES = ['runs.state.', 'runs.trigger.', 'lang.', 'audit.kind.', 'chat.goal.']
+
 const files = [...walk(join(root, 'public')), ...walk(join(root, 'src'))]
 const used = new Map() // key -> 出现位置
 for (const file of files) {
@@ -44,7 +48,9 @@ for (const file of files) {
 const missing = [...used.entries()].filter(([key]) => !(key in dict))
 const zh = JSON.parse(readFileSync(join(localesDir, 'zh-CN.json'), 'utf8'))
 const missingZh = [...used.keys()].filter((key) => !(key in zh))
-const unused = Object.keys(dict).filter((key) => !used.has(key))
+const unused = Object.keys(dict).filter(
+  (key) => !used.has(key) && !DYNAMIC_PREFIXES.some((prefix) => key.startsWith(prefix)),
+)
 
 console.log(`i18n keys: 使用 ${used.size} 个 · 字典 ${Object.keys(dict).length} 个`)
 if (missing.length > 0) {
