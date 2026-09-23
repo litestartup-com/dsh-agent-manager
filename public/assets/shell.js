@@ -5,6 +5,12 @@
 
 import { $, ago, banner, esc, icon, setHtml, when, apiFetch, poll } from './ui.js'
 
+/**
+ * 品牌信息由 layout.html 从 src/brand.ts 注入（单一真相源），客户端不散写
+ * URL 与产品名。缺省回退保证 shell.js 被单独加载时也不炸。
+ */
+const brand = window.__DAC_BRAND__ ?? { name: 'DAC', full: 'Dispatched Agent Cluster', tagline: '', repo: '', site: '' }
+
 /** An agent is only as healthy as the endpoint it runs on. */
 const agentHealth = (agent, endpoints) => {
   const ep = endpoints.find((e) => e.id === agent.endpoint)
@@ -500,6 +506,12 @@ export const loadShell = async () => {
     if (notifications !== null) {
       setNotifyBadge(notifications.unread)
       if (!notifyPanel.hidden) renderNotifyPanel(notifications.items)
+    }
+
+    // 品牌页脚的运行时版本（⋮ 菜单里那行）；status 里带的是 manager 版本。
+    if (typeof status.managerVersion === 'string' && status.managerVersion !== '') {
+      const version = $('side-version')
+      if (version !== null) version.textContent = `v${status.managerVersion}`
     }
 
     if (threads !== null) {
@@ -1100,6 +1112,17 @@ moreMenu.innerHTML = `${MORE_NAV.map(
     </a>`,
 ).join('')}
   <div class="more-divider"></div>
+  <!-- 品牌页脚（DAC v1.0.0）：全称 + 口号 + 仓库入口 + 运行时版本（版本号
+       由 shell 的 /api/status 轮询回填，不在页面里写死）。 -->
+  <div class="more-brand">
+    <div class="more-brand-line"><strong>${esc(brand.name)}</strong> <span class="muted small">${esc(brand.full)}</span> <span id="side-version" class="muted small"></span></div>
+    ${brand.tagline === '' ? '' : `<div class="muted small">${esc(brand.tagline)}</div>`}
+    ${brand.repo === '' ? '' : `<a class="side-link" href="${esc(brand.repo)}" target="_blank" rel="noopener noreferrer" title="${esc(brand.name)} 源码（MIT）">
+      <svg width="14" height="14" aria-hidden="true"><use href="#i-github" /></svg>
+      <span class="grow">GitHub</span>
+      <span class="muted small">↗</span>
+    </a>`}
+  </div>
   <button id="logout" class="more-logout" type="button">
     <svg width="14" height="14" aria-hidden="true"><use href="#i-logout" /></svg>
     <span class="grow">退出登录</span>

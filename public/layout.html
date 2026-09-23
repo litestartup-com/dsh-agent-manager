@@ -70,6 +70,10 @@
           <circle cx="8" cy="8" r="1.5" />
           <circle cx="8" cy="13.1" r="1.5" />
         </g>
+        <!-- GitHub 标记（侧栏入口用）：实心字形，与线框图标区分开。 -->
+        <g id="i-github" fill="currentColor">
+          <path d="M8 1.2a6.8 6.8 0 0 0-2.15 13.25c.34.06.46-.15.46-.33v-1.16c-1.89.41-2.29-.91-2.29-.91-.31-.79-.76-.99-.76-.99-.62-.42.05-.41.05-.41.68.05 1.04.7 1.04.7.61 1.04 1.6.74 1.99.57.06-.44.24-.74.43-.91-1.51-.17-3.1-.76-3.1-3.36 0-.74.26-1.35.7-1.83-.07-.17-.3-.86.07-1.79 0 0 .56-.18 1.85.7a6.4 6.4 0 0 1 3.37 0c1.28-.88 1.85-.7 1.85-.7.37.93.14 1.62.07 1.79.44.48.7 1.09.7 1.83 0 2.61-1.6 3.19-3.11 3.36.25.21.46.62.46 1.26v1.86c0 .18.12.4.47.33A6.8 6.8 0 0 0 8 1.2z" />
+        </g>
         <!-- A gateway endpoint: a DSH process, drawn as the two-bay box that
              every ops UI uses for "a server". The shape says *what* the control
              reports on; the state dot layered over it says how it is doing. A
@@ -198,7 +202,7 @@
       >
         <svg width="18" height="18" aria-hidden="true"><use href="#i-menu" /></svg>
       </button>
-      <span id="topbar-title" class="topbar-title">Oh! dsh</span>
+      <span id="topbar-title" class="topbar-title">{{BRAND}}</span>
     </header>
 
     <!-- Dismisses the drawer. A real element rather than a pseudo-element so the
@@ -211,10 +215,10 @@
           <!-- The brand is the way home. Every page used to carry its own 返回
                button, which is a worse version of a frame that never leaves. -->
           <a class="brand" href="/">
-            <span class="brand-mark" aria-hidden="true">O</span>
+            <span class="brand-mark" aria-hidden="true">{{BRAND_MARK}}</span>
             <span class="brand-text">
-              Oh! dsh
-              <span class="brand-sub">agents manager</span>
+              {{BRAND}}
+              <span class="brand-sub">{{BRAND_SUB}}</span>
             </span>
           </a>
           <!-- Collapses the sidebar on a wide screen, closes the drawer on a
@@ -252,6 +256,12 @@
         <div class="side-foot">
           <span id="avatar" class="side-avatar" aria-hidden="true"></span>
           <span id="who" class="grow"></span>
+          <!-- 开源标识（DAC v1.0.0）：仓库地址来自 src/brand.ts 的 {{REPO_URL}}，
+               新标签页打开 + noopener（外链一律按此写）。 -->
+          <a id="github-link" class="icon-btn" href="{{REPO_URL}}" target="_blank" rel="noopener noreferrer"
+             aria-label="GitHub 仓库" title="{{BRAND}} on GitHub">
+            <svg width="15" height="15" aria-hidden="true"><use href="#i-github" /></svg>
+          </a>
           <button id="notify-bell" class="icon-btn" type="button" aria-label="通知" title="通知">
             <svg width="15" height="15" aria-hidden="true"><use href="#i-bell" /></svg>
             <span id="notify-badge" class="notify-badge" hidden></span>
@@ -283,6 +293,18 @@
       </aside>
     </div>
 
+    <!-- 品牌信息注入（DAC v1.0.0）：唯一真相源是 src/brand.ts，页面与客户端
+         脚本都从这里取；客户端不再散写产品名与仓库地址。 -->
+    <script>
+      window.__DAC_BRAND__ = {
+        name: '{{BRAND}}',
+        full: '{{BRAND_FULL}}',
+        sub: '{{BRAND_SUB}}',
+        tagline: '{{TAGLINE}}',
+        repo: '{{REPO_URL}}',
+        site: '{{HOMEPAGE}}',
+      }
+    </script>
     <script src="/assets/shell.js" type="module"></script>
     {{SCRIPT}}
   </body>

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { BRAND } from './brand.js'
 
 /**
  * Splices each page's body into one shared frame at boot.
@@ -41,19 +42,17 @@ export interface PageDef {
 }
 
 export const PAGES: Record<string, PageDef> = {
-  // Titles carry the product name, not the repository name: "Oh! dsh" is the
-  // brand (ohdsh.com), and `ohdsh` is its technical spelling wherever `!` is
-  // not a legal character -- package name, CLI, cookie prefix.
+  // 页面标题里的产品名来自 src/brand.ts（改品牌/域名只改一处）。
   // `wide` buys these a roomier column than the old home page's reading width:
-  // a month of daily bars and a cron's full prompt both need it.
-  spend: { file: 'spend.html', title: '花费 · Oh! dsh', css: ['spend.css'], script: 'spend.js', contentClass: 'wide' },
+  // a month of daily bars needs it.
+  spend: { file: 'spend.html', title: `花费 · ${BRAND.name}`, css: ['spend.css'], script: 'spend.js', contentClass: 'wide' },
   // 公开版精简（DAC v1.0.0）：定时任务页已下线——引擎与 /api/crons 保留
   // （内部 API 与未来的调度 UI 可回归），但不再是对外页面。
   // The other half of archiving: without a place to see what was archived, a
   // soft delete is indistinguishable from a real one.
   archive: {
     file: 'archive.html',
-    title: '已归档 · Oh! dsh',
+    title: `已归档 · ${BRAND.name}`,
     css: [],
     script: 'archive.js',
     contentClass: 'wide',
@@ -64,7 +63,7 @@ export const PAGES: Record<string, PageDef> = {
   // page owns its full height and cannot be inset by the standard content padding.
   chat: {
     file: 'chat.html',
-    title: '对话 · Oh! dsh',
+    title: `对话 · ${BRAND.name}`,
     // dsw-theme.css 先于 chat.css：DSH web 的整套主题 token（对齐基准）。
     css: ['dsw-theme.css', 'chat.css'],
     script: 'chat.js',
@@ -73,7 +72,7 @@ export const PAGES: Record<string, PageDef> = {
   // 蜂群 Q4：节点（fleet）总览——侧栏只留汇总与异常，完整列表在这里。
   nodes: {
     file: 'nodes.html',
-    title: '节点 · Oh! dsh',
+    title: `节点 · ${BRAND.name}`,
     css: [],
     script: 'nodes.js',
     contentClass: 'wide',
@@ -82,7 +81,7 @@ export const PAGES: Record<string, PageDef> = {
   // 筛选 + 分页）；主脑派活在这里留痕。
   runs: {
     file: 'runs.html',
-    title: '任务 · Oh! dsh',
+    title: `任务 · ${BRAND.name}`,
     css: [],
     script: 'runs.js',
     contentClass: 'wide',
@@ -90,7 +89,7 @@ export const PAGES: Record<string, PageDef> = {
   // 蜂群 P5.2：技能清单（v1 只读——文件即真相 + 版本对照）。
   skills: {
     file: 'skills.html',
-    title: '技能 · Oh! dsh',
+    title: `技能 · ${BRAND.name}`,
     css: [],
     script: 'skills.js',
     contentClass: 'wide',
@@ -98,21 +97,35 @@ export const PAGES: Record<string, PageDef> = {
   // 蜂群2计划 P3：首登强制改密 + 审计流水
   password: {
     file: 'password.html',
-    title: '修改密码 · Oh! dsh',
+    title: `修改密码 · ${BRAND.name}`,
     css: [],
     script: 'password.js',
     contentClass: '',
   },
   audit: {
     file: 'audit.html',
-    title: '审计 · Oh! dsh',
+    title: `审计 · ${BRAND.name}`,
     css: [],
     script: 'audit.js',
     contentClass: 'wide',
   },
 }
 
-const PLACEHOLDERS = ['{{TITLE}}', '{{HEAD}}', '{{CONTENT_CLASS}}', '{{CONTENT}}', '{{SCRIPT}}'] as const
+/** 布局里必须出现的占位符清单（buildPages 启动期校验；测试据此拼夹具布局）。 */
+export const PLACEHOLDERS = [
+  '{{TITLE}}',
+  '{{HEAD}}',
+  '{{CONTENT_CLASS}}',
+  '{{CONTENT}}',
+  '{{SCRIPT}}',
+  '{{BRAND}}',
+  '{{BRAND_MARK}}',
+  '{{BRAND_SUB}}',
+  '{{BRAND_FULL}}',
+  '{{TAGLINE}}',
+  '{{REPO_URL}}',
+  '{{HOMEPAGE}}',
+] as const
 
 /**
  * Content hash for every `/assets/...` URL in a page.
@@ -168,13 +181,24 @@ const render = (layout: string, def: PageDef, fragment: string): string => {
   const head = def.css.map((href) => `<link rel="stylesheet" href="/assets/${href}" />`).join('\n    ')
   const script = def.script === null ? '' : `<script src="/assets/${def.script}" type="module"></script>`
   return layout
-    .replace('{{TITLE}}', def.title)
-    .replace('{{HEAD}}', head)
-    .replace('{{CONTENT_CLASS}}', def.contentClass)
+    // replaceAll：品牌占位符在一个页面里可能出现多次（标题、侧栏、注入脚本），
+    // 用 replace 只会换掉第一处——2026-09-24 实测踩到（spend 页残留 {{BRAND}}）。
+    .replaceAll('{{TITLE}}', def.title)
+    .replaceAll('{{HEAD}}', head)
+    .replaceAll('{{CONTENT_CLASS}}', def.contentClass)
+    // 品牌占位符（DAC v1.0.0）：产品名/仓库/站点来自 src/brand.ts，页面里
+    // 不散写 URL（改域名只改一处）。
+    .replaceAll('{{BRAND}}', BRAND.name)
+    .replaceAll('{{BRAND_MARK}}', BRAND.mark)
+    .replaceAll('{{BRAND_SUB}}', BRAND.sub)
+    .replaceAll('{{BRAND_FULL}}', BRAND.fullName)
+    .replaceAll('{{TAGLINE}}', BRAND.tagline)
+    .replaceAll('{{REPO_URL}}', BRAND.repoUrl)
+    .replaceAll('{{HOMEPAGE}}', BRAND.homepage)
     // Last, and via a function: a fragment containing `$&` or `$1` would
     // otherwise be interpreted as a replacement pattern and silently mangled.
     .replace('{{CONTENT}}', () => fragment)
-    .replace('{{SCRIPT}}', script)
+    .replaceAll('{{SCRIPT}}', script)
 }
 
 /**

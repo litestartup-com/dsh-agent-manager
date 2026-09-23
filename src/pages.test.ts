@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os'
 import { test } from 'node:test'
 import fastifyStatic from '@fastify/static'
 import Fastify from 'fastify'
-import { assetCacheHeaders, buildPages, PAGES } from './pages.js'
+import { assetCacheHeaders, buildPages, PAGES, PLACEHOLDERS } from './pages.js'
+import { BRAND } from './brand.js'
 
 const publicDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'public')
 
@@ -34,7 +35,7 @@ test('every page composes against the real layout', () => {
 test('each page gets its own title, stylesheets and script', () => {
   const pages = buildPages(publicDir)
   const runs = pages.get('runs') ?? ''
-  assert.match(runs, /<title>任务 · Oh! dsh<\/title>/)
+  assert.match(runs, new RegExp(`<title>任务 · ${BRAND.name}</title>`))
   assert.match(runs, /assets\/runs\.js/)
 
   // The chat opts out of the standard content padding (composer pinned to the
@@ -101,7 +102,12 @@ test('a page body containing $& survives splicing intact', () => {
     join(dir, 'layout.html'),
     '<html><head><title>{{TITLE}}</title>{{HEAD}}</head>' +
       '<body><aside id="sidebar" class="sidebar"></aside><a class="brand" href="/app"></a>' +
-      '<main class="content {{CONTENT_CLASS}}">{{CONTENT}}</main>{{SCRIPT}}</body></html>',
+      '<main class="content {{CONTENT_CLASS}}">{{CONTENT}}</main>{{SCRIPT}}' +
+      // 其余占位符（品牌注入等）也要出现在布局里，否则 buildPages 会在启动期
+      // 报 "missing placeholder"；用导出的清单拼进来，新增占位符无需改本测试。
+      // {{CONTENT}} 已在上面出现过一次，不能重复（它按单次替换处理）。
+      PLACEHOLDERS.filter((token) => token !== '{{CONTENT}}').join('') +
+      '</body></html>',
     'utf8',
   )
   for (const def of Object.values(PAGES)) {

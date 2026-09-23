@@ -2303,6 +2303,28 @@ select.text-input {
   flex: 0 0 auto;
 }
 
+/* 品牌页脚（DAC v1.0.0）：产品全称 + 口号 + GitHub 入口；安静一行，不与
+   导航项抢注意力。 */
+.side-more-menu .more-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px 2px;
+}
+
+.side-more-menu .more-brand-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.side-more-menu .more-brand .side-link {
+  margin-top: 2px;
+}
+
 /* 退出登录：与导航视觉分离的危险操作（红线 hover，同仓库 danger 惯例）。 */
 .side-more-menu .more-logout {
   display: flex;
