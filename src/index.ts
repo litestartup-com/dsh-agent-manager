@@ -372,7 +372,7 @@ const main = async (): Promise<void> => {
       )
       app.log.info(`backup: ${result.snapshot.file} (${result.snapshot.bytes} bytes)${result.pruned.length > 0 ? `, pruned ${result.pruned.length}` : ''}`)
       // 蜂群2计划 P3：审计留痕（自动备份，actor = system）
-      recordAudit(db, { actor: 'system', kind: 'backup', detail: `快照 ${result.snapshot.file}` })
+      recordAudit(db, { actor: 'system', kind: 'backup', detail: `snapshot ${result.snapshot.file}` })
       // 蜂群2计划 P4：节点 home 一并打包加密（6 小时内已有归档则跳过）
       const nodeEntries = collectNodeHomes(config)
       if (nodeEntries.length > 0) {
@@ -390,9 +390,9 @@ const main = async (): Promise<void> => {
   if (config.backupAuto === true) {
     const intervalMs = config.backupIntervalMs ?? 15 * 60_000
     setInterval(() => void autoBackup(), intervalMs)
-    app.log.info(`自动备份：已开启（每 ${Math.round(intervalMs / 60_000)} 分钟）`)
+    app.log.info(`auto backup: on (every ${Math.round(intervalMs / 60_000)} minutes)`)
   } else {
-    app.log.info('自动备份：关闭（backup.auto=false）——手动备份 npm run backup；开启见 manager.config.yaml 的 backup.auto')
+    app.log.info('auto backup: off (backup.auto=false) — run npm run backup by hand, or turn it on via backup.auto in manager.config.yaml')
   }
 
   // 能力四（舰队 M3-3，§13 补丁提前）：fleet 看门狗——agent 掉线 / agent 节点
@@ -411,13 +411,13 @@ const main = async (): Promise<void> => {
   const watchdogTimer = setInterval(() => {
     try {
       const result = fleetWatchdog()
-      if (result.alerts > 0) app.log.info(`fleet watchdog: ${result.alerts} 条告警进铃铛`)
+      if (result.alerts > 0) app.log.info(`fleet watchdog: ${result.alerts} alerts sent to the bell`)
     } catch (error) {
       app.log.warn(`fleet watchdog failed: ${error instanceof Error ? error.message : String(error)}`)
     }
   }, 30_000)
   watchdogTimer.unref()
-  app.log.info('fleet watchdog: 已启动（agent 掉线/节点异常 → 站内铃铛，30s 一轮）')
+  app.log.info('fleet watchdog: started (agent offline / node abnormal → in-app bell, one sweep every 30s)')
 }
 
 main().catch((error: unknown) => {

@@ -245,13 +245,13 @@ export const registerInternalRoutes = (
     if (agent === undefined) {
       return reply
         .code(409)
-        .send({ error: 'agent_gone', detail: `这个会话属于 agent "${chat.agentId}"，但配置里已经没有它了` })
+        .send({ error: 'agent_gone', detail: `this session belongs to agent "${chat.agentId}", which is no longer in the config` })
     }
 
     const cap = config.brainDailyBudgetMicroUsd ?? null
     if (cap !== null && brainSpendToday() >= cap) {
-      const detail = `主脑今日派工预算已用完（${(brainSpendToday() / USD_TO_MICRO).toFixed(2)} / ${(cap / USD_TO_MICRO).toFixed(2)} USD），请明天再试或人工直接操作。`
-      notify(db, { kind: 'brain_budget', title: '主脑今日派工预算用完', body: detail, link: '/spend' })
+      const detail = `the brain's dispatch budget for today is used up (${(brainSpendToday() / USD_TO_MICRO).toFixed(2)} / ${(cap / USD_TO_MICRO).toFixed(2)} USD); try again tomorrow or act by hand.`
+      notify(db, { kind: 'brain_budget', title: "the brain's dispatch budget for today is used up", body: detail, link: '/spend' })
       return reply.code(409).send({ error: 'brain_budget_exhausted', detail })
     }
 
@@ -262,7 +262,7 @@ export const registerInternalRoutes = (
       .limit(1)
       .all()
     if (live.length > 0) {
-      return reply.code(409).send({ error: 'chat_busy', detail: '这个会话正在跑一个回合，等它完成后再续。' })
+      return reply.code(409).send({ error: 'chat_busy', detail: 'this session is running a turn — continue it once that finishes.' })
     }
 
     const driver = config.endpoints[agent.endpoint]?.driver ?? 'gateway'
@@ -322,8 +322,8 @@ export const registerInternalRoutes = (
     if (cap !== null) {
       const spent = brainSpendToday()
       if (spent >= cap) {
-        const detail = `主脑今日派工预算已用完（${(spent / USD_TO_MICRO).toFixed(2)} / ${(cap / USD_TO_MICRO).toFixed(2)} USD），请明天再试或人工直接操作。`
-        notify(db, { kind: 'brain_budget', title: '主脑今日派工预算用完', body: detail, link: '/spend' })
+        const detail = `the brain's dispatch budget for today is used up (${(spent / USD_TO_MICRO).toFixed(2)} / ${(cap / USD_TO_MICRO).toFixed(2)} USD); try again tomorrow or act by hand.`
+        notify(db, { kind: 'brain_budget', title: "the brain's dispatch budget for today is used up", body: detail, link: '/spend' })
         return reply.code(409).send({
           error: 'brain_budget_exhausted',
           detail,
@@ -374,8 +374,8 @@ export const registerInternalRoutes = (
         })
         notify(db, {
           kind: 'brain_done',
-          title: `主脑派工完成：${agent.name}`,
-          body: outcome.summary ?? '（没有输出文字）',
+          title: `brain dispatch finished: ${agent.name}`,
+          body: outcome.summary ?? '(no output text)',
           link: `/chat/${encodeURIComponent(body.sourceChatId)}`,
         })
       }
@@ -420,6 +420,6 @@ export const registerInternalRoutes = (
       throw error
     }
     scheduler.reload()
-    return reply.code(201).send({ id, enabled: false, note: '已起草，待你在定时任务页确认后启用' })
+    return reply.code(201).send({ id, enabled: false, note: 'drafted — enable it once you have confirmed it' })
   })
 }

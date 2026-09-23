@@ -79,8 +79,8 @@ export const registerSkillsRoutes = (app: FastifyInstance, config: AppConfig, re
       agents,
       repo,
       note:
-        '技能文件在各自工作区的 .skills/ 下（文件即真相）；版本 = 工作区 git HEAD。' +
-        '启停与分发将在配置写回机制（P5.5）上线后开放。',
+        'Skill files live under .skills/ in each workspace (files are the source of truth); version = workspace git HEAD. ' +
+        'Enabling and distribution arrive with the config write-back mechanism.',
     }
   })
 }

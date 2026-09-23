@@ -36,7 +36,7 @@ test('every page composes against the real layout', () => {
 test('each page gets its own title, stylesheets and script', () => {
   const pages = buildPages(publicDir)
   const runs = pages.get('runs') ?? ''
-  assert.match(runs, new RegExp(`<title>任务 · ${BRAND.name}</title>`))
+  assert.match(runs, new RegExp(`<title>Runs · ${BRAND.name}</title>`))
   assert.match(runs, /assets\/runs\.js/)
 
   // The chat opts out of the standard content padding (composer pinned to the

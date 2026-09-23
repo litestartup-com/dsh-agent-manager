@@ -161,12 +161,12 @@ export const restoreSnapshot = async (
   sessionSecret: string,
 ): Promise<RestoreResult> => {
   if (managerRunning()) {
-    return { ok: false, detail: 'manager 还在运行——先停掉它再恢复（恢复会覆盖数据库文件）。' }
+    return { ok: false, detail: 'the manager is still running — stop it before restoring (a restore overwrites the database file).' }
   }
   const snaps = listSnapshots(dir)
   const pick = name === 'latest' ? snaps[snaps.length - 1] : snaps.find((s) => s.file === name)
   if (pick === undefined) {
-    return { ok: false, detail: name === 'latest' ? '没有可恢复的快照。' : `找不到快照 ${name}。` }
+    return { ok: false, detail: name === 'latest' ? 'no snapshot to restore.' : `snapshot ${name} not found.` }
   }
   if (pick.file.endsWith('.enc')) {
     // 债务 R2：加密快照（GCM 认证）——篡改/密钥错在解密时显性抛错，绝不让
@@ -178,5 +178,5 @@ export const restoreSnapshot = async (
     // Windows 上 rename 覆盖与 unlink 都容易撞上句柄占用（EBUSY）。
     copyFileSync(join(dir, pick.file), dbPath)
   }
-  return { ok: true, detail: `已从 ${pick.file} 恢复（${new Date(pick.at).toLocaleString('zh-CN')}）。` }
+  return { ok: true, detail: `restored from ${pick.file} (${new Date(pick.at).toLocaleString('en-US')}).` }
 }

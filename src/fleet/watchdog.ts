@@ -71,8 +71,8 @@ export const createFleetWatchdog = (deps: FleetWatchdogDeps): (() => { alerts: n
         if (prev !== 'offline' && !hasUnreadAlert(db, 'agent_offline', `（${agent.id}）`)) {
           notify(db, {
             kind: 'agent_offline',
-            title: `机器 ${agent.hostname} 掉线`,
-            body: `机器 ${agent.hostname}（${agent.id}）超过 ${Math.round(AGENT_OFFLINE_MS / 1000)} 秒未上报心跳——该机器上的节点指令将无法下发`,
+            title: `machine ${agent.hostname} went offline`,
+            body: `machine ${agent.hostname} (${agent.id}) has not sent a heartbeat for over ${Math.round(AGENT_OFFLINE_MS / 1000)}s — commands for nodes on it cannot be delivered`,
             link: '/nodes',
           })
           alerts += 1
@@ -80,7 +80,7 @@ export const createFleetWatchdog = (deps: FleetWatchdogDeps): (() => { alerts: n
         last.set(key, 'offline')
       } else {
         if (prev === 'offline') {
-          notify(db, { kind: 'agent_recovered', title: `机器 ${agent.hostname} 恢复`, body: `机器 ${agent.hostname}（${agent.id}）心跳已恢复`, link: '/nodes' })
+          notify(db, { kind: 'agent_recovered', title: `machine ${agent.hostname} recovered`, body: `machine ${agent.hostname} (${agent.id}) is sending heartbeats again`, link: '/nodes' })
           alerts += 1
         }
         last.set(key, 'online')
@@ -93,11 +93,11 @@ export const createFleetWatchdog = (deps: FleetWatchdogDeps): (() => { alerts: n
       const key = `node:${node.id}`
       const prev = last.get(key)
       if (node.state === 'offline') {
-        if (prev !== 'offline' && !hasUnreadAlert(db, 'node_offline', `节点 ${node.id}`)) {
+        if (prev !== 'offline' && !hasUnreadAlert(db, 'node_offline', `node ${node.id}`)) {
           notify(db, {
             kind: 'node_offline',
-            title: `节点 ${node.id} 异常`,
-            body: `节点 ${node.id} 掉线${node.host !== null ? `（agent ${node.host}）` : ''}：${node.lastError ?? '探活失败'}`,
+            title: `node ${node.id} is abnormal`,
+            body: `node ${node.id} is down${node.host !== null ? ` (agent ${node.host})` : ''}: ${node.lastError ?? 'probe failed'}`,
             link: '/nodes',
           })
           alerts += 1
@@ -105,7 +105,7 @@ export const createFleetWatchdog = (deps: FleetWatchdogDeps): (() => { alerts: n
         last.set(key, 'offline')
       } else if (node.state === 'live') {
         if (prev === 'offline') {
-          notify(db, { kind: 'node_recovered', title: `节点 ${node.id} 恢复`, body: `节点 ${node.id} 已重新上线`, link: '/nodes' })
+          notify(db, { kind: 'node_recovered', title: `node ${node.id} recovered`, body: `node ${node.id} is online again`, link: '/nodes' })
           alerts += 1
         }
         last.set(key, 'live')

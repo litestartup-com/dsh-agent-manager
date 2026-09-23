@@ -187,10 +187,10 @@ export const registerNodesRoutes = (
     if (target.kind === 'unmanaged') {
       return reply
         .code(409)
-        .send({ error: 'not_managed', detail: `节点 ${request.params.id} 由外部管理，manager 无法启动它` })
+        .send({ error: 'not_managed', detail: `node ${request.params.id} is managed outside the manager, so it cannot be started here` })
     }
     target.supervisor.start(target.spawn)
-    audit?.(request.currentUser?.username ?? 'unknown', 'node_up', `节点 ${request.params.id} 启动`)
+    audit?.(request.currentUser?.username ?? 'unknown', 'node_up', `node ${request.params.id} started`)
     return reply.send({ ok: true, state: target.supervisor.current.state })
   })
 
@@ -200,10 +200,10 @@ export const registerNodesRoutes = (
     if (target.kind === 'unmanaged') {
       return reply
         .code(409)
-        .send({ error: 'not_managed', detail: `节点 ${request.params.id} 由外部管理，manager 无法停止它` })
+        .send({ error: 'not_managed', detail: `node ${request.params.id} is managed outside the manager, so it cannot be stopped here` })
     }
     target.supervisor.stop()
-    audit?.(request.currentUser?.username ?? 'unknown', 'node_down', `节点 ${request.params.id} 停止`)
+    audit?.(request.currentUser?.username ?? 'unknown', 'node_down', `node ${request.params.id} stopped`)
     return reply.send({ ok: true, state: target.supervisor.current.state })
   })
 
@@ -213,10 +213,10 @@ export const registerNodesRoutes = (
     if (target.kind === 'unmanaged') {
       return reply
         .code(409)
-        .send({ error: 'not_managed', detail: `节点 ${request.params.id} 由外部管理，manager 无法重启它` })
+        .send({ error: 'not_managed', detail: `node ${request.params.id} is managed outside the manager, so it cannot be restarted here` })
     }
     target.supervisor.restart(target.spawn)
-    audit?.(request.currentUser?.username ?? 'unknown', 'node_restart', `节点 ${request.params.id} 重启`)
+    audit?.(request.currentUser?.username ?? 'unknown', 'node_restart', `node ${request.params.id} restarted`)
     return reply.send({ ok: true, state: target.supervisor.current.state })
   })
 
@@ -238,12 +238,12 @@ export const registerNodesRoutes = (
           // 而真相是权限/IO 错误)——记日志并把原因带回给前端展示。
           const message = error instanceof Error ? error.message : String(error)
           app.log.warn(`node ${request.params.id}: reading log file failed: ${message}`)
-          return reply.send({ logs: '', source: 'file', error: `读取日志失败: ${message}` })
+          return reply.send({ logs: '', source: 'file', error: `could not read the log: ${message}` })
         }
       }
       const supervisor = supervisors.get(request.params.id)
       if (supervisor === undefined) {
-        return reply.code(409).send({ error: 'not_managed', detail: '外部管理的节点没有日志可供读取' })
+        return reply.code(409).send({ error: 'not_managed', detail: 'a node managed outside the manager has no log to read' })
       }
       // 蜂群2计划 P2b：docker runner 的节点日志走 docker logs（缓冲里没有进程输出）
       if (ep.spawn?.runner === 'docker') {
@@ -290,14 +290,14 @@ export const registerNodesRoutes = (
         if (body.clear === true) {
           await withConfigLock(() => mutateYamlFile(configPath, (doc) => doc.deleteIn(['endpoints', request.params.id, 'access'])))
           ep.access = null
-          audit?.(request.currentUser?.username ?? 'unknown', 'node_access_update', `节点 ${request.params.id} 移除原生访问配置`)
+          audit?.(request.currentUser?.username ?? 'unknown', 'node_access_update', `node ${request.params.id}: native access config removed`)
           return reply.send({ ok: true, access: null })
         }
         const sshUser = body.ssh_user
         const sshHost = body.ssh_host
         const localPort = body.local_port
         if (sshUser === undefined || sshHost === undefined || localPort === undefined) {
-          return reply.code(400).send({ error: 'missing_fields', detail: 'ssh_user / ssh_host / local_port 必填（clear=true 表示移除）' })
+          return reply.code(400).send({ error: 'missing_fields', detail: 'ssh_user / ssh_host / local_port are required (clear=true removes the config)' })
         }
         const access = {
           ssh_user: sshUser,
@@ -316,7 +316,7 @@ export const registerNodesRoutes = (
           localPort: access.local_port,
           sshKey: body.ssh_key ?? null,
         }
-        audit?.(request.currentUser?.username ?? 'unknown', 'node_access_update', `节点 ${request.params.id} 原生访问 → ${access.ssh_user}@${access.ssh_host}:${access.ssh_port} gui=${access.gui_port} local=${access.local_port}`)
+        audit?.(request.currentUser?.username ?? 'unknown', 'node_access_update', `node ${request.params.id} native access → ${access.ssh_user}@${access.ssh_host}:${access.ssh_port} gui=${access.gui_port} local=${access.local_port}`)
         return reply.send({ ok: true, access: ep.access })
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
@@ -340,9 +340,9 @@ export const registerNodesRoutes = (
     opts: { version: string; gatewayRef: string; auditKind: AuditKind; auditDetail: string },
   ): unknown => {
     const spawn = ep.spawn
-    if (spawn === null) return reply.code(409).send({ error: 'not_managed', detail: '外部管理的节点无法对齐' })
+    if (spawn === null) return reply.code(409).send({ error: 'not_managed', detail: 'a node managed outside the manager cannot be aligned' })
     const { profileDir } = pinnedOf(ep)
-    if (profileDir === null) return reply.code(400).send({ error: 'no_dsh_home', detail: '节点的 spawn.env 缺 DSH_HOME，无法定位 profile 目录' })
+    if (profileDir === null) return reply.code(400).send({ error: 'no_dsh_home', detail: "the node's spawn.env has no DSH_HOME, so its profile directory cannot be located" })
 
     const port = Number(new URL(ep.url).port || 3080)
     try {
@@ -385,16 +385,16 @@ export const registerNodesRoutes = (
       if (ep === undefined) return reply.code(404).send({ error: 'unknown_node' })
       const spawn = ep.spawn
       if (spawn === null || spawn.runner !== 'process') {
-        return reply.code(409).send({ error: 'not_host_process', detail: '只有宿主机进程节点支持版本对齐；容器节点请用「切换版本」（POST /api/nodes/:id/version）' })
+        return reply.code(409).send({ error: 'not_host_process', detail: 'only host-process nodes support version alignment; for a container node use "switch version" (POST /api/nodes/:id/version)' })
       }
       const supervisor = supervisors.get(request.params.id)
-      if (supervisor === undefined) return reply.code(409).send({ error: 'not_managed', detail: '外部管理的节点无法对齐' })
+      if (supervisor === undefined) return reply.code(409).send({ error: 'not_managed', detail: 'a node managed outside the manager cannot be aligned' })
       const { version, gatewayRef } = pinnedOf(ep)
       return alignProcessNode(request.params.id, request.currentUser?.username ?? 'unknown', reply, ep, supervisor, {
         version,
         gatewayRef,
         auditKind: 'node_align_version',
-        auditDetail: `节点 ${request.params.id} 对齐到 DSH ${version}（facade ${gatewayRef}）`,
+        auditDetail: `node ${request.params.id} aligned to DSH ${version} (facade ${gatewayRef})`,
       })
     },
   )
@@ -414,16 +414,16 @@ export const registerNodesRoutes = (
       const ep = config.endpoints[id]
       if (ep === undefined) return reply.code(404).send({ error: 'unknown_node' })
       const parsed = versionBody.safeParse(request.body)
-      if (!parsed.success) return reply.code(400).send({ error: 'invalid_body', detail: 'dsh_version 必填（矩阵内版本）' })
+      if (!parsed.success) return reply.code(400).send({ error: 'invalid_body', detail: 'dsh_version is required (a version from the support matrix)' })
       const pair = resolvePair(parsed.data.dsh_version)
       if (pair === null) {
-        return reply.code(400).send({ error: 'unknown_dsh_version', detail: `DSH 版本 ${parsed.data.dsh_version} 不在版本矩阵里（支持：${SUPPORTED_DSH.map((p) => p.dsh).join(' / ')}）` })
+        return reply.code(400).send({ error: 'unknown_dsh_version', detail: `DSH version ${parsed.data.dsh_version} is not in the support matrix (supported: ${SUPPORTED_DSH.map((p) => p.dsh).join(' / ')})` })
       }
       const target = pair.dsh
       const spawn = ep.spawn
-      if (spawn === null) return reply.code(409).send({ error: 'not_managed', detail: '外部管理的节点无法切换版本' })
+      if (spawn === null) return reply.code(409).send({ error: 'not_managed', detail: 'a node managed outside the manager cannot switch versions' })
       const supervisor = supervisors.get(id)
-      if (supervisor === undefined) return reply.code(409).send({ error: 'not_managed', detail: '外部管理的节点无法切换版本' })
+      if (supervisor === undefined) return reply.code(409).send({ error: 'not_managed', detail: 'a node managed outside the manager cannot switch versions' })
 
       const configPath = config.configPath ?? resolve('manager.config.yaml')
       const actor = request.currentUser?.username ?? 'unknown'
@@ -437,7 +437,7 @@ export const registerNodesRoutes = (
 
       if (spawn.runner === 'docker') {
         const dockerSpec = spawn.docker
-        if (dockerSpec === null) return reply.code(409).send({ error: 'invalid_spawn', detail: 'docker runner 缺 docker 段，无法切换镜像' })
+        if (dockerSpec === null) return reply.code(409).send({ error: 'invalid_spawn', detail: 'this docker runner has no docker section, so its image cannot be switched' })
         const image = `ohdsh/dsh-node:${target}`
         try {
           await withConfigLock(() => mutateYamlFile(configPath, (doc) => doc.setIn(['endpoints', id, 'spawn', 'docker', 'image'], image)))
@@ -448,7 +448,7 @@ export const registerNodesRoutes = (
         const oldImage = dockerSpec.image
         const next = { ...spawn, dshVersion: target, docker: { ...dockerSpec, image } }
         ep.spawn = next
-        audit?.(actor, 'node_version_change', `节点 ${id} 切换 DSH → ${target}（容器镜像 ${oldImage} → ${image}）`)
+        audit?.(actor, 'node_version_change', `node ${id} switched DSH → ${target} (container image ${oldImage} → ${image})`)
         // 立即重建：停旧容器 → ensureImage → 起新镜像（不等对账周期）
         supervisor.restart(next)
         return reply.code(202).send({ ok: true, switching: true, version: target, image })
@@ -459,7 +459,7 @@ export const registerNodesRoutes = (
         version: target,
         gatewayRef: pair.gateway,
         auditKind: 'node_version_change',
-        auditDetail: `节点 ${id} 切换 DSH → ${target}（facade ${pair.gateway}）`,
+        auditDetail: `node ${id} switched DSH → ${target} (facade ${pair.gateway})`,
       })
     },
   )

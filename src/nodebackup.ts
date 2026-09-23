@@ -141,10 +141,10 @@ export const packNodeHome = async (
   const tarball = join(backupDir, `tmp-${entry.nodeId}-${stamp(now)}.tar.gz`)
   try {
     if (entry.kind === 'dir') {
-      if (!existsSync(entry.home)) throw new Error(`节点 home 目录不存在：${entry.home}`)
+      if (!existsSync(entry.home)) throw new Error(`node home directory does not exist: ${entry.home}`)
       execFileSync('tar', ['-czf', tarball, '--exclude=profiles/*/node_modules', '--exclude=*.pid', '-C', entry.home, '.'], { stdio: ['ignore', 'ignore', 'pipe'] })
     } else {
-      if (dockerRunner === undefined) throw new Error('docker 卷备份需要 docker.sock（manager 未挂载？）')
+      if (dockerRunner === undefined) throw new Error('backing up a docker volume needs docker.sock (is it mounted into the manager?)')
       // 债务 R10：tar 打 stdout（-），manager 经 attach 流收下写 tarball——
       // 只绑命名卷，不把 manager 容器内的备份目录当宿主路径 bind（ENOENT 根因）。
       await dockerRunner.runToolIo(
@@ -187,12 +187,12 @@ export const packNodeHomes = async (
 const assertSafeRestoreTarget = (target: string, backupDir: string): void => {
   const abs = resolve(target)
   const backup = resolve(backupDir)
-  if (!isAbsolute(target)) throw new Error(`拒绝恢复：节点 home 不是绝对路径（${target}）`)
+  if (!isAbsolute(target)) throw new Error(`refusing to restore: node home is not an absolute path (${target})`)
   if (abs === resolve(sep) || abs === resolve('.') || abs === resolve(process.env.USERPROFILE ?? process.env.HOME ?? '/')) {
-    throw new Error(`拒绝恢复：目标是根/当前/家目录（${abs}）——配置里的 DSH_HOME 可能被误配`)
+    throw new Error(`refusing to restore: the target is the root, cwd or home directory (${abs}) — DSH_HOME in the config may be wrong`)
   }
   if (abs === backup || abs.startsWith(backup + sep)) {
-    throw new Error(`拒绝恢复：目标在备份目录内（${abs}）——会毁掉备份本身`)
+    throw new Error(`refusing to restore: the target sits inside the backup directory (${abs}) — that would destroy the backup itself`)
   }
 }
 
@@ -210,7 +210,7 @@ export const restoreNodeHome = async (
   // 评审 B4：先守卫后动刀——目标路径危险时在解密/删除任何东西之前就拒绝
   if (entry.kind === 'dir') assertSafeRestoreTarget(entry.home, backupDir)
   const archive = join(backupDir, archiveFile)
-  if (!existsSync(archive)) throw new Error(`找不到节点 home 归档：${archiveFile}`)
+  if (!existsSync(archive)) throw new Error(`node home archive not found: ${archiveFile}`)
   const tarball = join(backupDir, `restore-${entry.nodeId}-${Date.now()}.tar.gz`)
   try {
     await decryptFile(archive, tarball, sessionSecret)
@@ -219,7 +219,7 @@ export const restoreNodeHome = async (
       mkdirSync(entry.home, { recursive: true })
       execFileSync('tar', ['-xzf', tarball, '-C', entry.home], { stdio: ['ignore', 'ignore', 'pipe'] })
     } else {
-      if (dockerRunner === undefined) throw new Error('docker 卷恢复需要 docker.sock')
+      if (dockerRunner === undefined) throw new Error('restoring a docker volume needs docker.sock')
       // 债务 R10：tarball 经 stdin 流喂给容器内 tar（反向流，同样不 bind 备份目录）。
       await dockerRunner.runToolIo(
         'alpine:3.20',

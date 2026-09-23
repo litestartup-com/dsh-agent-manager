@@ -100,7 +100,7 @@ export const registerBoardRoutes = (
     const agent = agentOr404(request.params.id, reply)
     if (agent === null) return reply
 
-    const board = readBoard(agent.workspacePath, `${agent.name}大盘`)
+    const board = readBoard(agent.workspacePath, `${agent.name} board`)
     return reply.header('cache-control', 'no-store').send({
       agent: { id: agent.id, name: agent.name, preset: agent.preset },
       // Distinguishes "never set up" from "set up but empty", which need

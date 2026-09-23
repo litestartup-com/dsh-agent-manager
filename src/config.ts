@@ -67,7 +67,7 @@ const spawnSchema = z
     if (v.runner === 'agent') return v.host !== undefined
     return v.command !== undefined && v.host === undefined
   }, {
-    message: 'spawn: runner=docker 需要 docker 段；runner=agent 需要 host（agent id）；runner=process 需要 command；host 只允许 runner=agent 使用',
+    message: 'spawn: runner=docker needs a docker section; runner=agent needs host (an agent id); runner=process needs command; host is only valid with runner=agent',
   })
 
 /**
@@ -420,7 +420,7 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
     const spawnRaw = ep.spawn
     // 能力二：按节点钉版必须在矩阵内可解析，fail-loud（未知版本绝不悄悄装）。
     if (spawnRaw?.dsh_version !== undefined && resolvePair(spawnRaw.dsh_version) === null) {
-      throw new Error(`endpoint "${id}": spawn.dsh_version "${spawnRaw.dsh_version}" 不在版本矩阵 SUPPORTED_DSH 里`)
+      throw new Error(`endpoint "${id}": spawn.dsh_version "${spawnRaw.dsh_version}" is not in SUPPORTED_DSH`)
     }
     const spawn: ResolvedSpawnSpec | null =
       spawnRaw === undefined
@@ -606,8 +606,8 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
   const trustProxyRaw = (process.env.TRUST_PROXY ?? '').trim()
   if (/^\d+$/.test(trustProxyRaw)) {
     warnings.push(
-      `TRUST_PROXY=${trustProxyRaw} 不支持“跳数”写法（会被当成 IP 字串）；已按“不信任转发头”处理。` +
-        '请写具体地址或网段，如 TRUST_PROXY=127.0.0.1',
+      `TRUST_PROXY=${trustProxyRaw} does not support a hop count (it would be read as an IP string); treating proxy headers as untrusted. ` +
+        'Write an address or CIDR instead, e.g. TRUST_PROXY=127.0.0.1',
     )
   }
 

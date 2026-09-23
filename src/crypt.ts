@@ -35,7 +35,7 @@ const envKey = (): Buffer | null => {
   if (raw === '') return null
   const buf = Buffer.from(raw, 'hex')
   if (buf.length !== 32 || buf.toString('hex') !== raw.toLowerCase()) {
-    throw new Error('BACKUP_KEY 必须是 64 位 hex(32 字节);删除该变量则回退 SESSION_SECRET 派生')
+    throw new Error('BACKUP_KEY must be 64 hex characters (32 bytes); remove it to fall back to a SESSION_SECRET-derived key')
   }
   return buf
 }
@@ -85,7 +85,7 @@ export const decryptFile = async (encPath: string, outPath: string, sessionSecre
   try {
     if (versionOf(encPath) === 'v2') {
       const size = statSync(encPath).size
-      if (size < HEADER_LEN + V2_TAG_LEN) throw new Error(`归档损坏:长度不足(${size} 字节)`)
+      if (size < HEADER_LEN + V2_TAG_LEN) throw new Error(`archive is corrupt: too short (${size} bytes)`)
       const fd = openSync(encPath, 'r')
       const iv = Buffer.alloc(V2_IV_LEN)
       readSync(fd, iv, 0, iv.length, V2_MAGIC.length)

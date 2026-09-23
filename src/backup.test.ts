@@ -138,7 +138,7 @@ test('蜂群 P6: restoreSnapshot refuses while the manager runs and recovers by 
     // 运行中拒绝
     const refused = await restoreSnapshot(dbPath, backups, 'latest', () => true, SECRET)
     assert.equal(refused.ok, false)
-    assert.match(refused.detail, /运行/)
+    assert.match(refused.detail, /still running/)
 
     const readSentinel = (): string => {
       const db = new Database(dbPath, { readonly: true })

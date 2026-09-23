@@ -172,7 +172,7 @@ test('蜂群 P5.1: unmanaged nodes get a friendly 409, unknown nodes a 404', asy
 
   const up = await app.inject({ method: 'POST', url: '/api/nodes/A/up' })
   assert.equal(up.statusCode, 409)
-  assert.match(String((up.json()).detail), /外部管理/)
+  assert.match(String((up.json()).detail), /managed outside the manager/)
 
   const logs = await app.inject({ method: 'GET', url: '/api/nodes/A/logs' })
   assert.equal(logs.statusCode, 409)

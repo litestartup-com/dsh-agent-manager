@@ -159,7 +159,7 @@ export const convergeNodes = async (
     }
     if (spec.runner === 'docker') {
       if (docker === null) {
-        log(`node ${id}: runner=docker 但 docker.sock 不可用，跳过拉起`)
+        log(`node ${id}: runner=docker but docker.sock is unavailable — skipping the start`)
         continue
       }
       try {
@@ -171,7 +171,7 @@ export const convergeNodes = async (
           const expectedKey = config.endpoints[id]?.sandboxKey ?? ''
           const matches = facts !== null && DockerRunner.matchesSpec(facts, expectedKey, expectedImageId)
           if (!matches) {
-            log(`node ${id}: container ${existing.name} 与当前配置不符（GW_KEY/镜像 ID），重建`)
+            log(`node ${id}: container ${existing.name} does not match the current config (GW_KEY/image id) — recreating`)
             await docker.stop(existing.id).catch(() => undefined)
             supervisor.start(spec)
             continue
@@ -183,7 +183,7 @@ export const convergeNodes = async (
           supervisor.start(spec)
         }
       } catch (error) {
-        log(`node ${id}: docker 对账失败：${error instanceof Error ? error.message : String(error)}`)
+        log(`node ${id}: docker reconcile failed: ${error instanceof Error ? error.message : String(error)}`)
       }
       continue
     }

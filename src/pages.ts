@@ -46,14 +46,14 @@ export const PAGES: Record<string, PageDef> = {
   // 页面标题里的产品名来自 src/brand.ts（改品牌/域名只改一处）。
   // `wide` buys these a roomier column than the old home page's reading width:
   // a month of daily bars needs it.
-  spend: { file: 'spend.html', title: `花费 · ${BRAND.name}`, css: ['spend.css'], script: 'spend.js', contentClass: 'wide' },
+  spend: { file: 'spend.html', title: `{{t:spend.title}} · ${BRAND.name}`, css: ['spend.css'], script: 'spend.js', contentClass: 'wide' },
   // 公开版精简（DAC v1.0.0）：定时任务页已下线——引擎与 /api/crons 保留
   // （内部 API 与未来的调度 UI 可回归），但不再是对外页面。
   // The other half of archiving: without a place to see what was archived, a
   // soft delete is indistinguishable from a real one.
   archive: {
     file: 'archive.html',
-    title: `已归档 · ${BRAND.name}`,
+    title: `{{t:archive.title}} · ${BRAND.name}`,
     css: [],
     script: 'archive.js',
     contentClass: 'wide',
@@ -64,7 +64,7 @@ export const PAGES: Record<string, PageDef> = {
   // page owns its full height and cannot be inset by the standard content padding.
   chat: {
     file: 'chat.html',
-    title: `对话 · ${BRAND.name}`,
+    title: `{{t:topbar.chat}} · ${BRAND.name}`,
     // dsw-theme.css 先于 chat.css：DSH web 的整套主题 token（对齐基准）。
     css: ['dsw-theme.css', 'chat.css'],
     script: 'chat.js',
@@ -73,7 +73,7 @@ export const PAGES: Record<string, PageDef> = {
   // 蜂群 Q4：节点（fleet）总览——侧栏只留汇总与异常，完整列表在这里。
   nodes: {
     file: 'nodes.html',
-    title: `节点 · ${BRAND.name}`,
+    title: `{{t:nodes.title}} · ${BRAND.name}`,
     css: [],
     script: 'nodes.js',
     contentClass: 'wide',
@@ -82,7 +82,7 @@ export const PAGES: Record<string, PageDef> = {
   // 筛选 + 分页）；主脑派活在这里留痕。
   runs: {
     file: 'runs.html',
-    title: `任务 · ${BRAND.name}`,
+    title: `{{t:runs.title}} · ${BRAND.name}`,
     css: [],
     script: 'runs.js',
     contentClass: 'wide',
@@ -90,7 +90,7 @@ export const PAGES: Record<string, PageDef> = {
   // 蜂群 P5.2：技能清单（v1 只读——文件即真相 + 版本对照）。
   skills: {
     file: 'skills.html',
-    title: `技能 · ${BRAND.name}`,
+    title: `{{t:skills.title}} · ${BRAND.name}`,
     css: [],
     script: 'skills.js',
     contentClass: 'wide',
@@ -98,14 +98,14 @@ export const PAGES: Record<string, PageDef> = {
   // 蜂群2计划 P3：首登强制改密 + 审计流水
   password: {
     file: 'password.html',
-    title: `修改密码 · ${BRAND.name}`,
+    title: `{{t:password.title}} · ${BRAND.name}`,
     css: [],
     script: 'password.js',
     contentClass: '',
   },
   audit: {
     file: 'audit.html',
-    title: `审计 · ${BRAND.name}`,
+    title: `{{t:audit.title}} · ${BRAND.name}`,
     css: [],
     script: 'audit.js',
     contentClass: 'wide',

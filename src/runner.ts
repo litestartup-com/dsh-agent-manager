@@ -704,7 +704,7 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
     const post = await withCommitLock(agent.id, async () => {
       const headNow = await currentHead(agent.workspacePath)
       if (baseline !== null && headNow !== null && baseline !== headNow) {
-        const conflict = `并发修改：运行期间工作区被另一个回合提交（HEAD ${baseline.slice(0, 8)} → ${headNow.slice(0, 8)}），本回合基于旧状态工作`
+        const conflict = `concurrent change: the workspace was committed by another turn while this one ran (HEAD ${baseline.slice(0, 8)} → ${headNow.slice(0, 8)}); this turn worked from the older state`
         deps.db.update(schema.run).set({ conflict }).where(eq(schema.run.id, runId)).run()
         log?.warn(`run ${runId}: ${conflict}`)
       }

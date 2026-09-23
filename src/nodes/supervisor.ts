@@ -211,7 +211,7 @@ export class NodeSupervisor {
           this.deps.log?.(`node ${this.id}: stopped (docker)`)
         })
         .catch((error: unknown) => {
-          this.deps.log?.(`node ${this.id}: docker stop 失败: ${error instanceof Error ? error.message : String(error)}`)
+          this.deps.log?.(`node ${this.id}: docker stop failed: ${error instanceof Error ? error.message : String(error)}`)
         })
       return
     }
@@ -277,7 +277,7 @@ export class NodeSupervisor {
     try {
       return await this.deps.docker.logs(this.containerId, 500)
     } catch (error) {
-      this.deps.log?.(`node ${this.id}: docker logs 失败: ${error instanceof Error ? error.message : String(error)}`)
+      this.deps.log?.(`node ${this.id}: docker logs failed: ${error instanceof Error ? error.message : String(error)}`)
       return null
     }
   }
@@ -391,7 +391,7 @@ export class NodeSupervisor {
   private startDocker(spec: ResolvedSpawnSpec): void {
     const runner = this.deps.docker
     if (runner === undefined || spec.docker === null) {
-      this.lastError = 'docker runner 未接线（manager 未挂载 docker.sock？）'
+      this.lastError = 'docker runner is not wired up (is docker.sock mounted into the manager?)'
       this.deps.log?.(`node ${this.id}: ${this.lastError}`)
       this.status = { ...this.status, state: 'offline', lastError: this.lastError, stateSince: Date.now() }
       return
@@ -415,7 +415,7 @@ export class NodeSupervisor {
       .catch((error: unknown) => {
         if (gen !== this.launchGen) return // 过期链的失败不是失败
         this.lastError = error instanceof Error ? error.message : String(error)
-        this.deps.log?.(`node ${this.id}: docker 启动失败: ${this.lastError}`)
+        this.deps.log?.(`node ${this.id}: docker start failed: ${this.lastError}`)
         if (this.status.state !== 'starting') return
         this.afterDockerFailure(spec)
       })
@@ -423,12 +423,12 @@ export class NodeSupervisor {
 
   /** docker 启动失败后的重试/停用决策（复用 process 模式的同一策略函数）。 */
   private afterDockerFailure(spec: ResolvedSpawnSpec): void {
-    this.failAndRetry(spec, 'docker 启动失败', () => this.startDocker(spec))
+    this.failAndRetry(spec, 'docker start failed', () => this.startDocker(spec))
   }
 
   /** 能力四：agent 启动失败后的重试/停用决策（与 docker 同策略，重试走 startAgent）。 */
   private afterAgentFailure(spec: ResolvedSpawnSpec): void {
-    this.failAndRetry(spec, 'agent 启动失败', () => this.startAgent(spec))
+    this.failAndRetry(spec, 'agent start failed', () => this.startAgent(spec))
   }
 
   private failAndRetry(spec: ResolvedSpawnSpec, defaultError: string, retry: () => void): void {
@@ -464,7 +464,7 @@ export class NodeSupervisor {
   private startAgent(spec: ResolvedSpawnSpec): void {
     const enqueue = this.deps.agentCommand
     if (enqueue === undefined || spec.host === null) {
-      this.lastError = 'agent runner 未接线（缺 agentCommand 注入或 spawn.host 为空）'
+      this.lastError = 'agent runner is not wired up (no agentCommand injected, or spawn.host is empty)'
       this.deps.log?.(`node ${this.id}: ${this.lastError}`)
       this.status = { ...this.status, state: 'offline', lastError: this.lastError, stateSince: Date.now() }
       return
@@ -495,18 +495,18 @@ export class NodeSupervisor {
       profile: { dir: `profiles/${profileName}`, files: profileFilesPayload },
       ...(fleetMd === null ? {} : { fleetMd }),
     })
-    this.deps.log?.(`node ${this.id}: agent ${spec.host} spawn 指令 #${commandId} 已入队（profile + keys 随载荷下发）`)
+    this.deps.log?.(`node ${this.id}: spawn command #${commandId} queued for agent ${spec.host} (profile and keys travel with the payload)`)
     this.deps.agentResult?.(commandId, (ok: boolean) => {
       if (gen !== this.launchGen || this.status.state !== 'starting') return
       if (!ok) {
-        this.lastError = `agent 报告 spawn 失败（指令 #${commandId}）`
+        this.lastError = `the agent reported a failed spawn (command #${commandId})`
         this.deps.log?.(`node ${this.id}: ${this.lastError}`)
         this.afterAgentFailure(spec)
         return
       }
       // M2 回归：就绪探活从 spawn 结果后才开始——远端冷安装可能几分钟，
       // 立即探活会在安装期间把窗口烧穿（误杀 stop + 重试风暴）。
-      this.deps.log?.(`node ${this.id}: agent 报告 spawn 完成（指令 #${commandId}）——开始就绪探活`)
+      this.deps.log?.(`node ${this.id}: the agent reported a finished spawn (command #${commandId}) — probing readiness`)
       this.armReadyProbe(spec)
     })
   }

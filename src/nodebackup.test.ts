@@ -161,9 +161,9 @@ test('P6 评审 B4: 恢复目标守卫——非绝对/根/家目录/备份目录
   mkdirSync(backupDir, { recursive: true })
   writeFileSync(join(backupDir, 'dummy.tar.gz.enc'), 'x', 'utf8')
   const cases: Array<{ home: string; match: RegExp }> = [
-    { home: 'relative/home', match: /不是绝对路径/ },
-    { home: process.env.USERPROFILE ?? process.env.HOME ?? '/', match: /根\/当前\/家目录/ },
-    { home: backupDir, match: /备份目录内/ },
+    { home: 'relative/home', match: /not an absolute path/ },
+    { home: process.env.USERPROFILE ?? process.env.HOME ?? '/', match: /the target is the root, cwd or home directory/ },
+    { home: backupDir, match: /sits inside the backup directory/ },
   ]
   try {
     for (const c of cases) {

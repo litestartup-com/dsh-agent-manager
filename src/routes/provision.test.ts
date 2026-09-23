@@ -85,7 +85,7 @@ test('蜂群 P5.5: provision creates a node (profile/key/config write-back/hot-l
   assert.equal(dup.statusCode, 409)
   const port = await app.inject({ method: 'POST', url: '/api/nodes', payload: { name: 'other', port: 3090, install: false } })
   assert.equal(port.statusCode, 409)
-  assert.match(String((port.json() as { detail: string }).detail), /端口/)
+  assert.match(String((port.json() as { detail: string }).detail), /already taken/)
 
   // 删除（无 agent 绑定）
   const supervisor = supervisors.get('product')!

@@ -169,7 +169,7 @@ export const registerAgentsRoutes = (
         usedAt: null,
         createdAt: Date.now(),
       }).run()
-      audit?.(request.currentUser?.username ?? 'unknown', 'agent_join_issued', `join token 签发（${Math.round(JOIN_TOKEN_TTL_MS / 60_000)} 分钟有效）`)
+      audit?.(request.currentUser?.username ?? 'unknown', 'agent_join_issued', `join token issued (valid for ${Math.round(JOIN_TOKEN_TTL_MS / 60_000)} minutes)`)
       return reply.send({ token, expiresAt })
     },
   )
@@ -180,12 +180,12 @@ export const registerAgentsRoutes = (
     { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
     async (request, reply) => {
       const parsed = registerBody.safeParse(request.body)
-      if (!parsed.success) return reply.code(400).send({ error: 'invalid_body', detail: 'joinToken/hostname/os/arch/nodeVersion 必填' })
+      if (!parsed.success) return reply.code(400).send({ error: 'invalid_body', detail: 'joinToken/hostname/os/arch/nodeVersion are required' })
       const { joinToken, hostname, os, arch, nodeVersion, agentVersion } = parsed.data
 
       const joinRow = db.select().from(schema.agentJoinToken).where(eq(schema.agentJoinToken.tokenHash, hashToken(joinToken))).all()[0]
       if (joinRow === undefined || joinRow.usedAt !== null || joinRow.expiresAt <= Date.now()) {
-        return reply.code(401).send({ error: 'join_token_invalid', hint: 'join token 无效、已使用或已过期——在 manager 重新签发一次性 join token' })
+        return reply.code(401).send({ error: 'join_token_invalid', hint: 'the join token is invalid, already used or expired — issue a fresh one-time join token in the manager' })
       }
       db.update(schema.agentJoinToken).set({ usedAt: Date.now() }).where(eq(schema.agentJoinToken.tokenHash, hashToken(joinToken))).run()
 
@@ -272,7 +272,7 @@ export const registerAgentsRoutes = (
       db.update(schema.agentMachine).set({ lastSeenAt: Date.now() }).where(eq(schema.agentMachine.id, agentId)).run()
 
       const parsed = eventsBody.safeParse(request.body)
-      if (!parsed.success) return reply.code(400).send({ error: 'invalid_body', detail: 'events 数组（command_result/heartbeat/log_chunk）' })
+      if (!parsed.success) return reply.code(400).send({ error: 'invalid_body', detail: 'an events array (command_result/heartbeat/log_chunk)' })
 
       for (const event of parsed.data.events) {
         if (event.type === 'command_result') {
@@ -410,7 +410,7 @@ export const registerAgentsRoutes = (
       const row = db.select().from(schema.agentMachine).where(eq(schema.agentMachine.id, request.params.id)).all()[0]
       if (row === undefined) return reply.code(404).send({ error: 'unknown_agent' })
       db.update(schema.agentMachine).set({ revokedAt: Date.now() }).where(eq(schema.agentMachine.id, request.params.id)).run()
-      audit?.(request.currentUser?.username ?? 'unknown', 'agent_revoked', `agent ${request.params.id}（${row.hostname}）已吊销`)
+      audit?.(request.currentUser?.username ?? 'unknown', 'agent_revoked', `agent ${request.params.id} (${row.hostname}) revoked`)
       return reply.send({ ok: true })
     },
   )
@@ -427,7 +427,7 @@ export const registerAgentsRoutes = (
       if (row.revokedAt !== null) return reply.code(409).send({ error: 'agent_revoked' })
       const online = row.lastSeenAt !== null && Date.now() - row.lastSeenAt <= AGENT_OFFLINE_MS
       if (!online) {
-        return reply.code(409).send({ error: 'agent_offline', detail: '机器离线——轮换可能把 agent 打砖（旧 token 无法续命），请先让 agent 上线再轮换' })
+        return reply.code(409).send({ error: 'agent_offline', detail: 'machine is offline — rotating now could brick the agent (the old token could not keep it alive); bring the agent online first' })
       }
       const agentToken = randomBytes(32).toString('base64url')
       db.update(schema.agentMachine)
@@ -435,7 +435,7 @@ export const registerAgentsRoutes = (
         .where(eq(schema.agentMachine.id, row.id))
         .run()
       const commandId = enqueueAgentCommand(db, row.id, 'config.deliver', { kind: 'identity', agentToken })
-      audit?.(request.currentUser?.username ?? 'unknown', 'agent_token_rotated', `agent ${row.id}（${row.hostname}）密钥轮换，deliver 指令 #${commandId}`)
+      audit?.(request.currentUser?.username ?? 'unknown', 'agent_token_rotated', `agent ${row.id} (${row.hostname}) key rotated via deliver command #${commandId}`)
       return reply.send({ ok: true, commandId })
     },
   )
@@ -450,11 +450,11 @@ export const registerAgentsRoutes = (
       const row = db.select().from(schema.agentMachine).where(eq(schema.agentMachine.id, request.params.id)).all()[0]
       if (row === undefined) return reply.code(404).send({ error: 'unknown_agent' })
       if (row.revokedAt === null) {
-        return reply.code(409).send({ error: 'agent_not_revoked', detail: '机器仍在册——先吊销（token 立即失效）再删除记录' })
+        return reply.code(409).send({ error: 'agent_not_revoked', detail: 'the machine is still registered — revoke it first (the token dies immediately), then delete the record' })
       }
       db.delete(schema.agentCommand).where(eq(schema.agentCommand.agentId, row.id)).run()
       db.delete(schema.agentMachine).where(eq(schema.agentMachine.id, row.id)).run()
-      audit?.(request.currentUser?.username ?? 'unknown', 'agent_deleted', `agent ${row.id}（${row.hostname}）记录已删除（含指令历史）`)
+      audit?.(request.currentUser?.username ?? 'unknown', 'agent_deleted', `agent ${row.id} (${row.hostname}) record deleted (command history included)`)
       return reply.send({ ok: true })
     },
   )
@@ -471,7 +471,7 @@ export const registerAgentsRoutes = (
       if (row.revokedAt !== null) return reply.code(409).send({ error: 'agent_revoked' })
       const online = row.lastSeenAt !== null && Date.now() - row.lastSeenAt <= AGENT_OFFLINE_MS
       if (!online) {
-        return reply.code(409).send({ error: 'agent_offline', detail: '机器离线——指令投递不到，先让 agent 上线再更新' })
+        return reply.code(409).send({ error: 'agent_offline', detail: 'machine is offline — commands cannot be delivered; bring the agent online before updating' })
       }
       const agentDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'public', 'assets', 'agent')
       const files = Object.fromEntries(
@@ -486,7 +486,7 @@ export const registerAgentsRoutes = (
         sha256,
         managerVersion: MANAGER_VERSION,
       })
-      audit?.(request.currentUser?.username ?? 'unknown', 'agent_update_requested', `agent ${row.id}（${row.hostname}）自更新下发 → ${MANAGER_VERSION}（指令 #${commandId}）`)
+      audit?.(request.currentUser?.username ?? 'unknown', 'agent_update_requested', `agent ${row.id} (${row.hostname}) self-update dispatched → ${MANAGER_VERSION} (command #${commandId})`)
       return reply.send({ ok: true, commandId, managerVersion: MANAGER_VERSION })
     },
   )

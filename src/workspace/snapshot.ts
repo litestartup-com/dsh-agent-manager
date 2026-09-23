@@ -131,9 +131,9 @@ export const currentHead = async (workspacePath: string): Promise<string | null>
  * indistinguishable from it.
  */
 export const snapshotBefore = async (workspacePath: string, label: RunLabel): Promise<SnapshotResult> =>
-  commitAll(workspacePath, 'chore: 运行前的未提交改动', [
-    `这些改动在 ${label.agentName} 开始运行之前就已存在，不是 agent 做的。`,
-    '单独提交，是为了让下一个 commit 只包含 agent 自己的改动，可以安全回退。',
+  commitAll(workspacePath, 'chore: uncommitted changes before the run', [
+    `These changes existed before ${label.agentName} started, so the agent did not make them.`,
+    "They are committed separately so the next commit contains only the agent's own work and can be reverted safely.",
     '',
     `Run: ${label.runId}`,
   ])
@@ -153,7 +153,7 @@ export const snapshotAfter = async (workspacePath: string, options: AfterOptions
     `Trigger: ${options.trigger}`,
     // Worth saying out loud: these files are what an unfinished turn left
     // behind, so they may be half-written.
-    ...(failed ? [`State: ${options.state} -- 这次运行没有正常完成，改动可能不完整`] : []),
+    ...(failed ? [`State: ${options.state} -- the run did not finish cleanly, so the changes may be incomplete`] : []),
     '',
     'Instruction:',
     ...oneLine(options.prompt)

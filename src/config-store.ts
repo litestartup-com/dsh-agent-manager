@@ -66,8 +66,8 @@ export const writeFileAtomic = (path: string, content: string, mode?: number, io
         return
       } catch (fallbackError) {
         throw new Error(
-          `原子写失败（rename: ${renameError instanceof Error ? renameError.message : String(renameError)}）` +
-            `且回落原地写也失败（${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}）`,
+          `atomic write failed (rename: ${renameError instanceof Error ? renameError.message : String(renameError)}) ` +
+            `and the in-place fallback failed too (${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)})`
         )
       }
     }

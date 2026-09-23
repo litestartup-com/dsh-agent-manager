@@ -166,7 +166,7 @@ test('2026-09-05: adopting an outer repo warns about the missing audit trail', (
   const result = initWorkspace({ workspacePath: sub, preset: 'personal' })
 
   assert.ok(
-    result.warnings.some((w) => w.includes('被外层仓库收养')),
+    result.warnings.some((w) => w.includes('adopted by an outer repository')),
     `warnings should name the nesting problem, got: ${result.warnings.join(' | ')}`,
   )
 })

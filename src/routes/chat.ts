@@ -80,7 +80,7 @@ export const registerChatRoutes = (
     if (agent === undefined) {
       void reply.code(409).send({
         error: 'agent_gone',
-        detail: `这个会话属于 agent "${chat.agentId}"，但配置里已经没有它了`,
+        detail: `this session belongs to agent "${chat.agentId}", which is no longer in the config`,
       })
       return null
     }
@@ -455,7 +455,7 @@ export const registerChatRoutes = (
       } else {
         const client = agent === undefined ? undefined : clients.get(agent.endpoint)
         if (client === undefined) {
-          releaseFailure = `agent "${chat.agentId}" 已不在配置里，无法归还 DSH 会话名额`
+          releaseFailure = `agent "${chat.agentId}" is no longer in the config, so the DSH session slot cannot be released`
         } else {
           try {
             const result = await client.release(chat.dshSessionId)
@@ -474,12 +474,12 @@ export const registerChatRoutes = (
 
     const detail =
       chat.dshSessionId === null
-        ? '会话已归档，可在【已归档】里恢复'
+        ? 'session archived — restore it under Archived'
         : releaseFailure !== null
-          ? `会话已归档，但 DSH 会话名额没能归还，仍占用网关上限：${releaseFailure}`
+          ? `session archived, but the DSH session slot could not be released and still counts against the gateway limit: ${releaseFailure}`
           : slotReleased
-            ? '会话已归档，DSH 会话名额已归还。历史记录保留，可恢复。'
-            : '会话已归档。网关已经不持有这个会话，无名额需要归还。历史记录保留，可恢复。'
+            ? 'session archived and its DSH slot released. The transcript is kept and can be restored.'
+            : 'session archived. The gateway no longer holds it, so no slot had to be released. The transcript is kept and can be restored.'
 
     return reply.send({
       ok: true,
@@ -511,7 +511,7 @@ export const registerChatRoutes = (
     if ((turns[0]?.n ?? 0) > 0 || (chat.title ?? '') !== '') {
       return reply.code(409).send({
         error: 'chat_not_empty',
-        detail: '这个会话有内容，只能归档，不会自动删除',
+        detail: 'this session has content: it can only be archived, never deleted automatically',
       })
     }
 
@@ -530,17 +530,17 @@ export const registerChatRoutes = (
   app.post<{ Params: { id: string } }>('/api/chats/:id/restore', { preHandler: requireUser }, async (request, reply) => {
     const chat = getChat(db, request.params.id)
     if (chat === null) return reply.code(404).send({ error: 'unknown_chat' })
-    if (chat.removedAt === null) return reply.send({ ok: true, chat, detail: '这个会话本来就在列表里' })
+    if (chat.removedAt === null) return reply.send({ ok: true, chat, detail: 'this session was already in the list' })
     if (agentOf(chat.agentId) === undefined) {
       // Restoring it would put a row in a tree that has no branch for it: the
       // sidebar groups by configured agents, so it would come back invisible.
       return reply.code(409).send({
         error: 'agent_gone',
-        detail: `这个会话属于 agent "${chat.agentId}"，配置里已经没有它了，恢复后不会出现在任何 agent 下`,
+        detail: `this session belongs to agent "${chat.agentId}", which is no longer in the config; once restored it will not appear under any agent`,
       })
     }
     restoreChat(db, chat.id)
-    return reply.send({ ok: true, chat: getChat(db, chat.id), detail: '会话已恢复' })
+    return reply.send({ ok: true, chat: getChat(db, chat.id), detail: 'session restored' })
   })
 
   // ---- turns（债务 E2:回合编排在 chat/turn-runner.ts） ----------------------
@@ -682,7 +682,7 @@ export const registerChatRoutes = (
     const found = resolve(request.params.id, reply)
     if (found === null) return reply
     if (found.chat.dshSessionId === null) return reply.code(409).send({ error: 'no_session' })
-    if (turns.hasRunningTurn(found.chat.id)) return reply.code(409).send({ error: 'chat_busy', detail: '这个会话正在运行，等当前回合结束后再切换模型。' })
+    if (turns.hasRunningTurn(found.chat.id)) return reply.code(409).send({ error: 'chat_busy', detail: 'this session is running — switch the model after the current turn ends.' })
     if (found.upstream?.selectModel === undefined) return reply.code(501).send({ error: 'model_selection_unsupported' })
     const parsed = modelBody.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_body' })
@@ -704,7 +704,7 @@ export const registerChatRoutes = (
     const found = resolve(request.params.id, reply)
     if (found === null) return reply
     if (found.chat.dshSessionId === null) return reply.code(409).send({ error: 'no_session' })
-    if (turns.hasRunningTurn(found.chat.id)) return reply.code(409).send({ error: 'chat_busy', detail: '这个会话正在运行，等当前回合结束后再切换访问模式。' })
+    if (turns.hasRunningTurn(found.chat.id)) return reply.code(409).send({ error: 'chat_busy', detail: 'this session is running — switch the access mode after the current turn ends.' })
     if (found.upstream?.canSetSandboxMode?.() !== true || found.upstream.setSandboxMode === undefined) return reply.code(501).send({ error: 'access_mode_unsupported' })
     const parsed = sandboxModeBody.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_body' })
@@ -716,7 +716,7 @@ export const registerChatRoutes = (
       db.update(schema.chat).set({ accessModeOverride: null, accessMode: parsed.data.mode }).where(eq(schema.chat.id, found.chat.id)).run()
       // 全量沙箱切换留痕：用户决策 + 事后可追溯（2026-09-11 拍板）。
       if (parsed.data.mode === 'danger-full-access') {
-        audit?.(request.currentUser?.username ?? 'unknown', 'sandbox_mode', `会话 ${found.chat.id} 开启全量沙箱（danger-full-access）`)
+        audit?.(request.currentUser?.username ?? 'unknown', 'sandbox_mode', `session ${found.chat.id} enabled the full-access sandbox (danger-full-access)`)
       }
       return reply.send({ accessMode: parsed.data.mode })
     } catch (error) {
@@ -726,7 +726,7 @@ export const registerChatRoutes = (
         db.update(schema.chat).set({ accessModeOverride: parsed.data.mode, accessMode: parsed.data.mode }).where(eq(schema.chat.id, found.chat.id)).run()
         publish(found.chat.id, { kind: 'composer_state', accessMode: parsed.data.mode })
         if (parsed.data.mode === 'danger-full-access') {
-          audit?.(request.currentUser?.username ?? 'unknown', 'sandbox_mode', `会话 ${found.chat.id} 请求全量沙箱（danger-full-access，延迟到下回合生效）`)
+          audit?.(request.currentUser?.username ?? 'unknown', 'sandbox_mode', `session ${found.chat.id} requested the full-access sandbox (danger-full-access, effective next turn)`)
         }
         return reply.send({ accessMode: parsed.data.mode, deferred: true })
       }

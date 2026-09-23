@@ -156,7 +156,7 @@ export const installNodeDepsAsync = (
     })
   })
 }
-const nodeNameSchema = z.string().regex(/^[a-z0-9][a-z0-9_-]{0,30}$/, '节点名只能是小写字母/数字/下划线/连字符')
+const nodeNameSchema = z.string().regex(/^[a-z0-9][a-z0-9_-]{0,30}$/, 'a node name may contain lowercase letters, digits, underscore and hyphen only')
 const provisionBody = z.object({
   name: nodeNameSchema,
   port: z.number().int().positive().optional(),
@@ -300,7 +300,7 @@ export const registerProvisionRoutes = (
     const body = parsed.data
 
     if (config.endpoints[body.name] !== undefined) {
-      return reply.code(409).send({ error: 'duplicate_node', detail: `节点 ${body.name} 已存在` })
+      return reply.code(409).send({ error: 'duplicate_node', detail: `node ${body.name} already exists` })
     }
     // 归一化工作区规格：缺省值全部由节点名推导（与向导展示的默认一致）。
     // 能力一（2026-09-20）：形态判定 = 显式 runner 覆盖 > 自动（部署里有 docker
@@ -311,7 +311,7 @@ export const registerProvisionRoutes = (
     // 显式点选 docker 但部署没接 docker.sock = 用户误配，显性拒绝；
     // 自动判定的 docker 分支不动（存量部署的判定语义不变）。
     if (body.runner === 'docker' && deps.docker === undefined) {
-      return reply.code(400).send({ error: 'docker_unavailable', detail: '本部署没有 docker runner（manager 未挂 docker.sock）——请选宿主机进程形态' })
+      return reply.code(400).send({ error: 'docker_unavailable', detail: 'this deployment has no docker runner (the manager has no docker.sock mounted) — pick the host-process runtime' })
     }
     // 容器形态部署不支持宿主机进程节点（线上实测：manager 在容器内，拉不起
     // 宿主进程、容器镜像里也没有全局 DSH bin——用户选 process 得到的是
@@ -319,22 +319,22 @@ export const registerProvisionRoutes = (
     // （images/manager/Dockerfile ENV OHDSH_DEPLOY_FORM=container）；裸机
     // 部署（含挂 docker.sock 的混合部署）无此标记，显式 process 照常放行。
     if (body.runner === 'process' && process.env.OHDSH_DEPLOY_FORM === 'container') {
-      return reply.code(400).send({ error: 'host_process_unavailable', detail: '容器形态部署不支持宿主机进程节点（manager 在容器内，无法拉起宿主进程）——请选「容器工蜂」形态' })
+      return reply.code(400).send({ error: 'host_process_unavailable', detail: 'a container deployment cannot host a host-process node (the manager runs in a container and cannot spawn host processes) — pick the container runtime' })
     }
     // 能力四（舰队 M1-7）：选了主机 = agent 远端宿主机进程形态；与 docker 互斥，
     // 必须给出 manager 可达的 facade 地址（探活真相源）。
     const wantAgent = body.host !== undefined
     if (wantAgent && body.runner === 'docker') {
-      return reply.code(400).send({ error: 'host_conflict', detail: '选了主机就不能用容器形态——agent 节点 = 远端宿主机进程' })
+      return reply.code(400).send({ error: 'host_conflict', detail: 'a machine was selected, so the container runtime is unavailable — agent nodes are remote host processes' })
     }
     if (wantAgent && body.url === undefined) {
-      return reply.code(400).send({ error: 'agent_url_required', detail: 'agent 节点需要 url（manager 可达的节点 facade 地址，如 http://10.0.0.7:3081）' })
+      return reply.code(400).send({ error: 'agent_url_required', detail: 'an agent node needs url (a facade address the manager can reach, e.g. http://10.0.0.7:3081)' })
     }
     // 能力二：按节点钉 DSH 版本——矩阵内解析 + pending 黄字；未知版本显性拒绝。
     const pinnedDsh = body.dsh_version
     const pair = pinnedDsh === undefined ? null : resolvePair(pinnedDsh)
     if (pinnedDsh !== undefined && pair === null) {
-      return reply.code(400).send({ error: 'unknown_dsh_version', detail: `DSH 版本 ${pinnedDsh} 不在版本矩阵 SUPPORTED_DSH 里（支持：${SUPPORTED_DSH.map((p) => p.dsh).join(' / ')}）` })
+      return reply.code(400).send({ error: 'unknown_dsh_version', detail: `DSH version ${pinnedDsh} is not in SUPPORTED_DSH (supported: ${SUPPORTED_DSH.map((p) => p.dsh).join(' / ')})` })
     }
     const dshVersion = pair?.dsh ?? defaultDshVersion()
     const gatewayRef = pair?.gateway ?? GATEWAY_REF
@@ -358,11 +358,11 @@ export const registerProvisionRoutes = (
             sandboxMode: body.agent.sandboxMode ?? 'workspace-write',
           }
     if (agentSpec !== null && config.agents[agentSpec.id] !== undefined) {
-      return reply.code(409).send({ error: 'duplicate_agent', detail: `工作区 "${agentSpec.id}" 已存在` })
+      return reply.code(409).send({ error: 'duplicate_agent', detail: `workspace "${agentSpec.id}" already exists` })
     }
     const port = body.port ?? suggestPort(config)
     if (usedPorts(config).has(port)) {
-      return reply.code(409).send({ error: 'port_taken', detail: `端口 ${port} 已被占用（manager 或现有节点）` })
+      return reply.code(409).send({ error: 'port_taken', detail: `port ${port} is already taken (by the manager or an existing node)` })
     }
 
     const nodeHomePath = join(nodesHome(), body.name)
@@ -404,7 +404,7 @@ export const registerProvisionRoutes = (
 
         // 流水线 2:DB 先行(债务 H2/R9)
         dbRowInserted = markDbFirst(db, agentSpec)
-        recordAudit(db, { actor: request.currentUser?.username ?? 'unknown', kind: 'node_create', detail: `节点 ${body.name}（docker 工蜂，端口 ${port}，工作区 ${agentSpec?.workspace ?? '—'}）` })
+        recordAudit(db, { actor: request.currentUser?.username ?? 'unknown', kind: 'node_create', detail: `node ${body.name} (docker node, port ${port}, workspace ${agentSpec?.workspace ?? '—'})` })
 
         // 流水线 3:真相文件(带快照,失败可还原;债务 A3 原子写 + R6 锁入口)
         const snaps = await writeNodeTruth(
@@ -508,7 +508,7 @@ export const registerProvisionRoutes = (
         recordAudit(db, {
           actor: request.currentUser?.username ?? 'unknown',
           kind: 'node_create_host',
-          detail: `节点 ${body.name}（agent 远端宿主机进程，host=${body.host}，端口 ${port}，工作区 ${agentSpec?.workspace ?? '—'}）`,
+          detail: `node ${body.name} (agent remote host process, host=${body.host}, port ${port}, workspace ${agentSpec?.workspace ?? '—'})`,
         })
 
         const snaps = await writeNodeTruth(
@@ -614,7 +614,7 @@ export const registerProvisionRoutes = (
       recordAudit(db, {
         actor: request.currentUser?.username ?? 'unknown',
         kind: body.runner === 'process' ? 'node_create_host' : 'node_create',
-        detail: `节点 ${body.name}（${body.runner === 'process' ? '宿主机进程' : '进程'}，端口 ${port}，工作区 ${agentSpec?.workspace ?? '—'}）`,
+        detail: `node ${body.name} (${body.runner === 'process' ? 'host process' : 'process'}, port ${port}, workspace ${agentSpec?.workspace ?? '—'})`,
       })
 
       // 流水线 3:真相文件（带快照，失败可还原;债务 A3 原子写 + R6 锁入口）
@@ -685,7 +685,7 @@ export const registerProvisionRoutes = (
       installPromise.then(startAfterInstall).catch((installError: unknown) => {
         if (rolledBack) return
         const message = installError instanceof Error ? installError.message : String(installError)
-        recordAudit(db, { actor: request.currentUser?.username ?? 'unknown', kind: 'node_create', detail: `失败:节点 ${body.name} 依赖安装失败: ${message}` })
+        recordAudit(db, { actor: request.currentUser?.username ?? 'unknown', kind: 'node_create', detail: `failed: dependency install for node ${body.name} failed: ${message}` })
         app.log.error(`node ${body.name}: dependency install failed: ${message}`)
         startAfterInstall() // 仍拉起:缺依赖时节点崩溃,supervisor 状态机显性 offline
       })
@@ -763,7 +763,7 @@ export const registerProvisionRoutes = (
         app.log.warn(`provision rollback: reconcile failed: ${(rollbackError as Error).message}`)
       }
       try {
-        recordAudit(db, { actor: request.currentUser?.username ?? 'unknown', kind: 'node_create', detail: `失败：${(error as Error).message}` })
+        recordAudit(db, { actor: request.currentUser?.username ?? 'unknown', kind: 'node_create', detail: `failed: ${(error as Error).message}` })
       } catch {
         // 审计失败不影响回滚结果
       }
@@ -780,7 +780,7 @@ export const registerProvisionRoutes = (
     const endpoint = config.endpoints[request.params.id]
     if (endpoint === undefined) return reply.code(404).send({ error: 'unknown_node' })
     if (endpoint.spawn === null || !supervisors.has(request.params.id)) {
-      return reply.code(409).send({ error: 'not_managed', detail: `节点 ${request.params.id} 由外部管理，manager 无法删除它` })
+      return reply.code(409).send({ error: 'not_managed', detail: `node ${request.params.id} is managed outside the manager, so it cannot be deleted here` })
     }
 
     const bound = Object.values(config.agents).filter((a) => a.endpoint === request.params.id)
@@ -808,7 +808,7 @@ export const registerProvisionRoutes = (
       `node ${request.params.id}: unmanaged (${bound.length} workspace binding(s) removed from config; files on disk kept)`,
     )
     // 蜂群2计划 P3：审计留痕（删除节点）
-    recordAudit(db, { actor: request.currentUser?.username ?? 'unknown', kind: 'node_delete', detail: `节点 ${request.params.id} 删除（磁盘目录保留）` })
+    recordAudit(db, { actor: request.currentUser?.username ?? 'unknown', kind: 'node_delete', detail: `node ${request.params.id} deleted (files on disk are kept)` })
     // 债务 R9:镜像与 fleet 的收敛统一走 reconcile(空节点集 = 不动节点生命周期;
     // removeStaleAgents=false = agent 行在进程存活期内保留,账单/审计不丢)。
     await reconcile(new Set())

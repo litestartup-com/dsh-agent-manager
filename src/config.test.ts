@@ -372,7 +372,7 @@ test('蜂群2计划 P2: runner=docker without docker block fails loud', () => {
         },
       },
     })),
-    /runner=docker 需要 docker 段/,
+    /runner=docker needs a docker section/,
   )
 })
 

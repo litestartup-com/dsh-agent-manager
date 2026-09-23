@@ -119,10 +119,10 @@ export const registerAuthRoutes = (
       const ok = found === undefined ? false : await verifyPassword(found.passwordHash, password)
       if (!ok || found === undefined) {
         // 蜂群2计划 P3：审计留痕（失败也留，actor = 尝试的用户名）
-        recordAudit(db, { actor: username, kind: 'login_failed', detail: '登录失败' })
+        recordAudit(db, { actor: username, kind: 'login_failed', detail: 'sign-in failed' })
         return reply.code(401).send({ error: 'invalid_credentials' })
       }
-      recordAudit(db, { actor: username, kind: 'login_success', detail: '登录成功' })
+      recordAudit(db, { actor: username, kind: 'login_success', detail: 'signed in' })
 
       const { token, expiresAt } = issueSession(db, found.id)
       const csrf = randomBytes(24).toString('base64url')
@@ -166,7 +166,7 @@ export const registerAuthRoutes = (
     const parsed = passwordBody.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'bad_request' })
     if (parsed.data.newPassword.length < 10) {
-      recordAudit(db, { actor: user.username, kind: 'password_change', detail: '失败：新密码长度不足 10' })
+      recordAudit(db, { actor: user.username, kind: 'password_change', detail: 'failed: the new password is shorter than 10 characters' })
       return reply.code(400).send({ error: 'password_too_short' })
     }
     const rows = db.select().from(schema.user).where(eq(schema.user.id, user.id)).all()
@@ -174,7 +174,7 @@ export const registerAuthRoutes = (
     if (found === undefined) return reply.code(401).send({ error: 'unauthorized' })
     const ok = await verifyPassword(found.passwordHash, parsed.data.currentPassword)
     if (!ok) {
-      recordAudit(db, { actor: user.username, kind: 'password_change', detail: '失败：当前密码不对' })
+      recordAudit(db, { actor: user.username, kind: 'password_change', detail: 'failed: the current password is wrong' })
       return reply.code(403).send({ error: 'invalid_current_password' })
     }
     db.update(schema.user)
@@ -197,7 +197,7 @@ export const registerAuthRoutes = (
       expires: new Date(expiresAt),
     })
 
-    recordAudit(db, { actor: user.username, kind: 'password_change', detail: '成功（已吊销其它会话）' })
+    recordAudit(db, { actor: user.username, kind: 'password_change', detail: 'succeeded (other sessions were revoked)' })
 
     if (envPath !== undefined) {
       // 抹初始口令是"顺手清理"，不是改密的前提：只读挂载/权限不足时只警告。

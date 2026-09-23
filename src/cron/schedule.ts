@@ -302,8 +302,8 @@ export class Scheduler {
         this.deps.log.info(`cron ${row.name}: done (${outcome.runId})`)
         notify(this.deps.db, {
           kind: 'cron_done',
-          title: `定时任务完成：${row.name}`,
-          body: outcome.summary ?? '（没有输出文字）',
+          title: `scheduled task finished: ${row.name}`,
+          body: outcome.summary ?? '(no output text)',
           // 公开版精简（DAC v1.0.0）：定时任务页已下线，通知改指任务页看这次运行。
           link: '/runs',
         })
@@ -330,7 +330,7 @@ export class Scheduler {
     const disable = failures >= ceiling
     notify(this.deps.db, {
       kind: 'cron_failed',
-      title: `定时任务失败：${row.name}${disable ? '（已自动停用）' : ''}`,
+      title: `scheduled task failed: ${row.name}${disable ? ' (disabled automatically)' : ''}`,
       body: message,
       // 同上：/crons 页已下线，失败详情去任务页看这一次运行。
       link: '/runs',
