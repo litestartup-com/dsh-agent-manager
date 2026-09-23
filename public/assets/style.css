@@ -1730,6 +1730,11 @@ button:disabled {
   border-bottom: 1px solid var(--border);
 }
 
+/* 宽抽屉（DAC v1.0.0）：节点向导与访问配置表单字段多，420px 太挤。 */
+.panel-body.panel-wide {
+  width: min(640px, 96vw);
+}
+
 .panel-head h2 {
   flex: 1 1 auto;
   margin: 0;
@@ -1852,12 +1857,13 @@ button:disabled {
 
 /* ---- 集群拓扑（UI 收尾 C）：三列 manager→机器→节点 + SVG 边线 ---- */
 
-.topo-toggle {
+/* 三视图切换（DAC v1.0.0）：与 ⋮ 菜单同语言的分段控件。 */
+.view-switch {
   display: inline-flex;
   gap: 4px;
 }
 
-.topo-toggle .on {
+.view-switch .on {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-fg);

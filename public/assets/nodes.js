@@ -529,50 +529,69 @@ const renderTopo = () => {
   redrawTopo()
 }
 
+// ── 三视图（DAC v1.0.0）：拓扑 / 节点 / 机器 ────────────────────────
+const VIEWS = ['topo', 'nodes', 'machines']
+const VIEW_PANELS = { topo: 'topology-section', nodes: 'nodes-view', machines: 'machines-view' }
+const VIEW_BUTTONS = { topo: 'view-topo', nodes: 'view-nodes', machines: 'view-machines' }
+
 const setView = (view) => {
-  const topo = view === 'topo'
-  $('topology-section').hidden = !topo
-  $('list-view').hidden = topo
-  $('view-topo').classList.toggle('on', topo)
-  $('view-list').classList.toggle('on', !topo)
+  // 旧偏好（'list'）映射到节点视图，避免升级后落在空视图上。
+  const active = VIEWS.includes(view) ? view : view === 'list' ? 'nodes' : 'topo'
+  for (const name of VIEWS) {
+    $(VIEW_PANELS[name]).hidden = name !== active
+    $(VIEW_BUTTONS[name]).classList.toggle('on', name === active)
+  }
   try {
-    localStorage.setItem(VIEW_KEY, view)
+    localStorage.setItem(VIEW_KEY, active)
   } catch {
     // 隐私模式等存储失败忽略——只是记不住偏好，不影响使用。
   }
-  if (topo) redrawTopo()
+  if (active === 'topo') redrawTopo()
+  return active
 }
 
-$('view-topo').addEventListener('click', () => setView('topo'))
-$('view-list').addEventListener('click', () => setView('list'))
+for (const name of VIEWS) $(VIEW_BUTTONS[name]).addEventListener('click', () => setView(name))
 
-// 点卡片跳到列表对应行；机器行若在已吊销折叠区里，先展开再定位。
+// 点拓扑卡片 → 跳对应视图并定位到那一行（吊销折叠区先展开再定位）。
+const jumpTo = (view, selector) => {
+  setView(view)
+  const row = document.querySelector(selector)
+  if (row === null) return
+  const fold = row.closest('#machines-revoked')
+  if (fold !== null && fold.hidden) setRevokedFold(true)
+  row.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
+
 $('topology').addEventListener('click', (event) => {
   const mach = event.target.closest('[data-topo-machine]')
   if (mach !== null) {
-    setView('list')
-    const row = document.querySelector(`[data-machine-row="${CSS.escape(mach.dataset.topoMachine)}"]`)
-    if (row !== null) {
-      const fold = row.closest('#machines-revoked')
-      if (fold !== null && fold.hidden) setRevokedFold(true)
-      row.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }
+    jumpTo('machines', `[data-machine-row="${CSS.escape(mach.dataset.topoMachine)}"]`)
     return
   }
   const nd = event.target.closest('[data-topo-node]')
-  if (nd !== null) {
-    setView('list')
-    document.querySelector(`[data-node-row="${CSS.escape(nd.dataset.topoNode)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  }
+  if (nd !== null) jumpTo('nodes', `[data-node-row="${CSS.escape(nd.dataset.topoNode)}"]`)
+})
+
+// ── 抽屉（新增节点向导 / 原生访问配置）：背景点击与 Esc 关闭 ─────────
+const DRAWERS = ['node-editor', 'node-access-editor']
+for (const id of DRAWERS) {
+  $(id).addEventListener('click', (event) => {
+    if (event.target.closest('[data-close]') !== null) $(id).hidden = true
+  })
+}
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return
+  for (const id of DRAWERS) if (!$(id).hidden) $(id).hidden = true
 })
 
 window.addEventListener('resize', redrawTopo)
 
-let savedView = 'list'
+// 默认落在拓扑视图（舰队全貌最有信息量）；用户切换后记住偏好。
+let savedView = 'topo'
 try {
-  savedView = localStorage.getItem(VIEW_KEY) === 'topo' ? 'topo' : 'list'
+  savedView = localStorage.getItem(VIEW_KEY) ?? 'topo'
 } catch {
-  savedView = 'list'
+  savedView = 'topo'
 }
 setView(savedView)
 

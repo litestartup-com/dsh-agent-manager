@@ -1,9 +1,12 @@
 <div class="wrap">
   <div class="page-head">
     <h1 class="grow">节点</h1>
-    <div class="topo-toggle" role="group" aria-label="视图切换">
+    <!-- 三视图（DAC v1.0.0）：拓扑看全局、节点管个体、机器管接入。
+         以前一页堆两个列表 + 向导 + 访问编辑器 + 日志抽屉，读起来像文档。 -->
+    <div class="view-switch" role="group" aria-label="视图切换">
       <button id="view-topo" class="btn-quiet btn-sm" type="button">拓扑</button>
-      <button id="view-list" class="btn-quiet btn-sm" type="button">列表</button>
+      <button id="view-nodes" class="btn-quiet btn-sm" type="button">节点</button>
+      <button id="view-machines" class="btn-quiet btn-sm" type="button">机器</button>
     </div>
     <button id="new-node" class="btn btn-sm" type="button">
       <svg width="14" height="14"><use href="#i-add" /></svg>
@@ -12,159 +15,39 @@
     <span id="nodes-refresh" class="muted small"></span>
   </div>
 
-  <!-- 蜂群 P5.5：新增节点向导（默认隐藏）。节点 = 一个 DSH agent 进程，
-       创建时自动配一个工作区绑定；高级设置只是把自动生成的值亮出来改。 -->
-  <section id="node-editor" class="section" hidden>
-    <div class="card">
-      <form id="node-form" novalidate>
-        <div class="field-row">
-          <label class="field">
-            <span class="field-label">节点名</span>
-            <input id="f-node-name" class="text-input mono" maxlength="32" placeholder="product" required />
-            <span class="field-hint muted small">小写字母/数字/下划线；会成为 ~/.dsh-ohdsh 下的目录名，也是默认的工作区 id。</span>
-          </label>
-          <label class="field">
-            <span class="field-label">端口（留空自动分配）</span>
-            <input id="f-node-port" class="text-input mono" type="number" min="1024" max="65535" placeholder="自动" />
-          </label>
-          <label class="field">
-            <span class="field-label">形态</span>
-            <select id="f-node-runner" class="text-input pill-select">
-              <option value="auto">自动（跟随部署形态）</option>
-              <option value="docker">容器工蜂（隔离）</option>
-              <option value="process">宿主机进程（可操作整台机器 ⚠️）</option>
-            </select>
-          </label>
-          <label class="field">
-            <span class="field-label">DSH 版本（留空 = 跟随默认）</span>
-            <select id="f-node-version" class="text-input pill-select">
-              <option value="">默认（矩阵首行）</option>
-            </select>
-            <span class="field-hint muted small">选项来自版本矩阵；未知版本会被后端显性拒绝。</span>
-          </label>
-          <label class="field">
-            <span class="field-label">主机（留空 = 本机；舰队模式）</span>
-            <select id="f-node-host" class="text-input pill-select">
-              <option value="">本机</option>
-            </select>
-            <span class="field-hint muted small">选了主机 = 远端宿主机进程节点（经该机的 node-agent 拉起）。</span>
-          </label>
-          <label class="field">
-            <span class="field-label">节点地址（选了主机必填）</span>
-            <input id="f-node-url" class="text-input mono" maxlength="128" placeholder="http://10.0.0.7:3081" />
-            <span class="field-hint muted small">manager 可达的节点 facade 地址（服务器内网 IP:端口）。</span>
-          </label>
-        </div>
-
-        <details class="node-advanced">
-          <summary>高级设置</summary>
-          <div class="node-advanced-body">
-            <div class="field-row">
-              <label class="field">
-                <span class="field-label">工作区 id</span>
-                <input id="f-agent-id" class="text-input mono" maxlength="32" placeholder="自动 = 节点名" />
-              </label>
-              <label class="field">
-                <span class="field-label">工作区名称</span>
-                <input id="f-agent-name" class="text-input" maxlength="80" placeholder="自动 = 节点名" />
-              </label>
-            </div>
-            <label class="field">
-              <span class="field-label">工作区路径</span>
-              <input id="f-agent-workspace" class="text-input mono" placeholder="自动 = ~/.dsh-ohdsh/workspaces/&lt;节点名&gt;" />
-              <span class="field-hint muted small">创建时自动 git init + 通用 AGENTS.md（审计留痕）；目录不存在会自动创建。</span>
-            </label>
-            <div class="field-row">
-              <label class="field">
-                <span class="field-label">preset</span>
-                <input id="f-agent-preset" class="text-input mono" placeholder="standard" />
-              </label>
-              <label class="field">
-                <span class="field-label">沙箱模式</span>
-                <select id="f-agent-sandbox" class="text-input pill-select">
-                  <option value="workspace-write">workspace-write（可写工作区）</option>
-                  <option value="read-only">read-only（只读）</option>
-                  <option value="danger-full-access">danger-full-access（整机全量 · 高危，需审批卡片）</option>
-                </select>
-              </label>
-            </div>
-          </div>
-        </details>
-
-        <div id="f-warn"></div>
-        <div class="form-actions">
-          <span class="muted small">创建会安装 gateway 依赖，可能需要一两分钟</span>
-          <button type="button" id="f-cancel" class="btn-quiet btn-sm">取消</button>
-          <button type="submit" id="f-save" class="btn btn-sm">创建</button>
-        </div>
-      </form>
-    </div>
-  </section>
-
   <div id="banners" role="alert"></div>
 
-  <!-- UI 收尾 C-P1：集群拓扑（manager → 机器 → 节点），与列表视图可切换；
-       纯前端聚合 /api/nodes + /api/agents，边在线绿实线/离线红虚线。 -->
-  <section id="topology-section" class="section" hidden>
-    <div class="section-head">
-      <h2>集群拓扑</h2>
-      <span class="muted small">manager → 机器 → DSH 节点 · 本机直管不经 node-agent · 点卡片跳到对应列表行</span>
-    </div>
+  <!-- ── 拓扑视图：manager → 机器 → 节点，点卡片跳对应视图 ───────────── -->
+  <section id="topology-section" class="section">
     <div class="card topo-card">
       <div id="topology"><p class="muted small">加载中…</p></div>
     </div>
   </section>
 
-  <div id="list-view">
-
-  <!-- 能力三 v1：节点原生访问配置（SSH 隧道元数据）。私钥永不进 manager。 -->
-  <section id="node-access-editor" class="section" hidden>
+  <!-- ── 节点视图：全部节点 + 日志抽屉 ─────────────────────────────── -->
+  <section id="nodes-view" class="section" hidden>
+    <div class="section-head">
+      <h2>全部节点</h2>
+      <span id="nodes-count" class="muted small"></span>
+    </div>
     <div class="card">
-      <form id="node-access-form" novalidate>
-        <h3 id="f-acc-title">配置原生访问</h3>
-        <div class="field-row">
-          <label class="field">
-            <span class="field-label">SSH 账号</span>
-            <input id="f-acc-user" class="text-input mono" maxlength="64" placeholder="ubuntu" />
-          </label>
-          <label class="field">
-            <span class="field-label">SSH 主机</span>
-            <input id="f-acc-host" class="text-input mono" maxlength="128" placeholder="10.0.0.5" />
-          </label>
-        </div>
-        <div class="field-row">
-          <label class="field">
-            <span class="field-label">SSH 端口（默认 22）</span>
-            <input id="f-acc-sshport" class="text-input mono" type="number" min="1" max="65535" placeholder="22" />
-          </label>
-          <label class="field">
-            <span class="field-label">节点 GUI 端口（宿主机侧，默认 3080）</span>
-            <input id="f-acc-gui" class="text-input mono" type="number" min="1" max="65535" placeholder="3080" />
-          </label>
-          <label class="field">
-            <span class="field-label">本机映射端口</span>
-            <input id="f-acc-local" class="text-input mono" type="number" min="1024" max="65535" placeholder="3088" />
-          </label>
-          <label class="field">
-            <span class="field-label">SSH 私钥路径（可选，默认密钥则留空）</span>
-            <input id="f-acc-key" class="text-input mono" maxlength="256" placeholder="C:\Users\you\.ssh\id_ed25519" />
-          </label>
-        </div>
-        <div class="field-hint muted small">浏览器开 http://127.0.0.1:&lt;本机端口&gt;；隧道命令由 manager 生成，SSH 密钥只在你自己的电脑上。</div>
-        <div id="f-acc-warn"></div>
-        <div class="form-actions">
-          <button type="button" id="f-acc-cancel" class="btn-quiet btn-sm">取消</button>
-          <button type="button" id="f-acc-clear" class="btn-quiet btn-sm">清除配置</button>
-          <button type="submit" id="f-acc-save" class="btn btn-sm">保存</button>
-        </div>
-      </form>
+      <div id="nodes-list" class="nodes-list"><p class="muted small">加载中…</p></div>
+    </div>
+    <div id="node-logs" class="node-logs-wrap" hidden>
+      <div class="node-logs-head">
+        <span id="node-logs-title" class="grow"></span>
+        <button type="button" class="btn-quiet btn-sm" id="node-logs-refresh">刷新</button>
+        <button type="button" class="btn-quiet btn-sm" id="node-logs-close" aria-label="关闭日志">×</button>
+      </div>
+      <pre id="node-logs-body" class="node-logs-body">加载中…</pre>
     </div>
   </section>
 
-  <!-- 能力四（舰队 M1-7）：机器目录 + join 流程 -->
-  <section class="section">
+  <!-- ── 机器视图：node-agent 接入目录 ─────────────────────────────── -->
+  <section id="machines-view" class="section" hidden>
     <div class="section-head">
-      <h2>机器（舰队）</h2>
+      <h2>机器</h2>
+      <span class="muted small">远端主机经 node-agent 接入</span>
       <button id="add-machine" class="btn btn-sm" type="button">添加机器</button>
     </div>
     <div class="card">
@@ -180,23 +63,155 @@
     </div>
   </section>
 
-  <section class="section">
-    <div class="section-head">
-      <h2>全部节点</h2>
-      <span id="nodes-count" class="muted small"></span>
-    </div>
-    <div class="card">
-      <div id="nodes-list" class="nodes-list"><p class="muted small">加载中…</p></div>
-    </div>
-    <!-- 蜂群 P5.1：日志抽屉——点节点行的「日志」打开，跟随节点输出。 -->
-    <div id="node-logs" class="node-logs-wrap" hidden>
-      <div class="node-logs-head">
-        <span id="node-logs-title" class="grow"></span>
-        <button type="button" class="btn-quiet btn-sm" id="node-logs-refresh">刷新</button>
-        <button type="button" class="btn-quiet btn-sm" id="node-logs-close" aria-label="关闭日志">×</button>
+  <!-- ── 抽屉：新增节点向导 ────────────────────────────────────────── -->
+  <div id="node-editor" class="panel" hidden>
+    <div class="panel-backdrop" data-close="1"></div>
+    <aside class="panel-body panel-wide" role="dialog" aria-modal="true" aria-labelledby="node-editor-title">
+      <header class="panel-head">
+        <h2 id="node-editor-title">新增节点</h2>
+        <button class="icon-btn" type="button" data-close="1" aria-label="关闭">
+          <svg width="16" height="16" aria-hidden="true"><use href="#i-close" /></svg>
+        </button>
+      </header>
+      <div class="panel-content">
+        <form id="node-form" novalidate>
+          <div class="field-row">
+            <label class="field">
+              <span class="field-label">节点名</span>
+              <input id="f-node-name" class="text-input mono" maxlength="32" placeholder="product" required />
+              <span class="field-hint muted small">小写字母/数字/下划线 · 目录名 · 默认工作区 id</span>
+            </label>
+            <label class="field">
+              <span class="field-label">端口</span>
+              <input id="f-node-port" class="text-input mono" type="number" min="1024" max="65535" placeholder="自动分配" />
+            </label>
+          </div>
+          <div class="field-row">
+            <label class="field">
+              <span class="field-label">形态</span>
+              <select id="f-node-runner" class="text-input pill-select">
+                <option value="auto">自动（跟随部署形态）</option>
+                <option value="docker">容器工蜂（隔离）</option>
+                <option value="process">宿主机进程（可操作整台机器 ⚠️）</option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="field-label">DSH 版本</span>
+              <select id="f-node-version" class="text-input pill-select">
+                <option value="">默认</option>
+              </select>
+            </label>
+          </div>
+          <div class="field-row">
+            <label class="field">
+              <span class="field-label">主机</span>
+              <select id="f-node-host" class="text-input pill-select">
+                <option value="">本机</option>
+              </select>
+              <span class="field-hint muted small">选主机 = 远端宿主机进程节点</span>
+            </label>
+            <label class="field">
+              <span class="field-label">节点地址</span>
+              <input id="f-node-url" class="text-input mono" maxlength="128" placeholder="http://10.0.0.7:3081" />
+              <span class="field-hint muted small">manager 可达的 facade 地址</span>
+            </label>
+          </div>
+
+          <details class="node-advanced">
+            <summary>高级设置</summary>
+            <div class="node-advanced-body">
+              <div class="field-row">
+                <label class="field">
+                  <span class="field-label">工作区 id</span>
+                  <input id="f-agent-id" class="text-input mono" maxlength="32" placeholder="自动 = 节点名" />
+                </label>
+                <label class="field">
+                  <span class="field-label">工作区名称</span>
+                  <input id="f-agent-name" class="text-input" maxlength="80" placeholder="自动 = 节点名" />
+                </label>
+              </div>
+              <label class="field">
+                <span class="field-label">工作区路径</span>
+                <input id="f-agent-workspace" class="text-input mono" placeholder="自动" />
+                <span class="field-hint muted small">创建时自动 git init + AGENTS.md</span>
+              </label>
+              <div class="field-row">
+                <label class="field">
+                  <span class="field-label">preset</span>
+                  <input id="f-agent-preset" class="text-input mono" placeholder="standard" />
+                </label>
+                <label class="field">
+                  <span class="field-label">沙箱模式</span>
+                  <select id="f-agent-sandbox" class="text-input pill-select">
+                    <option value="workspace-write">workspace-write（可写工作区）</option>
+                    <option value="read-only">read-only（只读）</option>
+                    <option value="danger-full-access">danger-full-access（整机全量 · 高危，需审批卡片）</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+          </details>
+
+          <div id="f-warn"></div>
+          <div class="form-actions">
+            <span class="muted small">创建会安装 gateway 依赖，约一两分钟</span>
+            <button type="button" id="f-cancel" class="btn-quiet btn-sm">取消</button>
+            <button type="submit" id="f-save" class="btn btn-sm">创建</button>
+          </div>
+        </form>
       </div>
-      <pre id="node-logs-body" class="node-logs-body">加载中…</pre>
-    </div>
-  </section>
+    </aside>
+  </div>
+
+  <!-- ── 抽屉：节点原生访问配置（SSH 隧道元数据；私钥永不进 manager） ── -->
+  <div id="node-access-editor" class="panel" hidden>
+    <div class="panel-backdrop" data-close="1"></div>
+    <aside class="panel-body panel-wide" role="dialog" aria-modal="true" aria-labelledby="f-acc-title">
+      <header class="panel-head">
+        <h2 id="f-acc-title">配置原生访问</h2>
+        <button class="icon-btn" type="button" data-close="1" aria-label="关闭">
+          <svg width="16" height="16" aria-hidden="true"><use href="#i-close" /></svg>
+        </button>
+      </header>
+      <div class="panel-content">
+        <form id="node-access-form" novalidate>
+          <div class="field-row">
+            <label class="field">
+              <span class="field-label">SSH 账号</span>
+              <input id="f-acc-user" class="text-input mono" maxlength="64" placeholder="ubuntu" />
+            </label>
+            <label class="field">
+              <span class="field-label">SSH 主机</span>
+              <input id="f-acc-host" class="text-input mono" maxlength="128" placeholder="10.0.0.5" />
+            </label>
+          </div>
+          <div class="field-row">
+            <label class="field">
+              <span class="field-label">SSH 端口</span>
+              <input id="f-acc-sshport" class="text-input mono" type="number" min="1" max="65535" placeholder="22" />
+            </label>
+            <label class="field">
+              <span class="field-label">节点 GUI 端口</span>
+              <input id="f-acc-gui" class="text-input mono" type="number" min="1" max="65535" placeholder="3080" />
+            </label>
+            <label class="field">
+              <span class="field-label">本机映射端口</span>
+              <input id="f-acc-local" class="text-input mono" type="number" min="1024" max="65535" placeholder="3088" />
+            </label>
+          </div>
+          <label class="field">
+            <span class="field-label">SSH 私钥路径（可选）</span>
+            <input id="f-acc-key" class="text-input mono" maxlength="256" placeholder="C:\Users\you\.ssh\id_ed25519" />
+          </label>
+          <p class="muted small">浏览器开 http://127.0.0.1:&lt;本机端口&gt;；密钥只在你自己的电脑上。</p>
+          <div id="f-acc-warn"></div>
+          <div class="form-actions">
+            <button type="button" id="f-acc-cancel" class="btn-quiet btn-sm">取消</button>
+            <button type="button" id="f-acc-clear" class="btn-quiet btn-sm">清除配置</button>
+            <button type="submit" id="f-acc-save" class="btn btn-sm">保存</button>
+          </div>
+        </form>
+      </div>
+    </aside>
   </div>
 </div>

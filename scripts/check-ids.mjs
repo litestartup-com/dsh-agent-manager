@@ -63,7 +63,7 @@ const refsOf = (script) => {
 
 /** ids created by the script's own runtime markup, per script. */
 const DYNAMIC = {
-  'shell.js': ['nodes-link', 'nodes-hint', 'spend-hint', 'archive-hint', 'logout'],
+  'shell.js': ['nodes-link', 'nodes-hint', 'spend-hint', 'archive-hint', 'logout', 'side-version'],
   'nodes.js': ['machines-revoked', 'machines-revoked-toggle'],
 }
 
