@@ -17,14 +17,19 @@ const read = (p) => readFileSync(join(root, p), 'utf8')
 
 // layout + every fragment, then splice, so the check runs against what
 // buildPages() actually serves.
+//
+// 公开版精简（DAC v1.0.0）：页面清单已同步（board/crons 页下线，runs 页新增）；
+// 本脚本仍不在 CI 里（`npm run lint` = eslint），是开发者手动跑的守卫。
 const layout = read('public/layout.html')
 const fragments = {
-  home: read('public/pages/home.html'),
   chat: read('public/pages/chat.html'),
-  board: read('public/pages/board.html'),
-  crons: read('public/pages/crons.html'),
+  nodes: read('public/pages/nodes.html'),
+  runs: read('public/pages/runs.html'),
+  skills: read('public/pages/skills.html'),
   spend: read('public/pages/spend.html'),
   archive: read('public/pages/archive.html'),
+  audit: read('public/pages/audit.html'),
+  password: read('public/pages/password.html'),
 }
 const pages = Object.fromEntries(
   Object.entries(fragments).map(([name, frag]) => [name, layout.replace('{{CONTENT}}', () => frag)]),
@@ -33,12 +38,14 @@ const pages = Object.fromEntries(
 // shell.js runs on every page; the page scripts run on their own page.
 const targets = [
   { script: 'shell.js', pages: Object.keys(pages) },
-  { script: 'app.js', pages: ['home'] },
   { script: 'chat.js', pages: ['chat'] },
-  { script: 'board.js', pages: ['board'] },
-  { script: 'crons.js', pages: ['crons'] },
+  { script: 'nodes.js', pages: ['nodes'] },
+  { script: 'runs.js', pages: ['runs'] },
+  { script: 'skills.js', pages: ['skills'] },
   { script: 'spend.js', pages: ['spend'] },
   { script: 'archive.js', pages: ['archive'] },
+  { script: 'audit.js', pages: ['audit'] },
+  { script: 'password.js', pages: ['password'] },
 ]
 
 const refsOf = (script) => {
@@ -46,7 +53,18 @@ const refsOf = (script) => {
   const ids = new Set()
   for (const match of text.matchAll(/\$\(\s*'([^']+)'\s*\)/g)) ids.add(match[1])
   for (const match of text.matchAll(/getElementById\(\s*'([^']+)'\s*\)/g)) ids.add(match[1])
+  // Ids the script builds itself at runtime (the ⋮ menu markup, the injected
+  // revoked fold) never appear in the static fragment, so they are listed here
+  // rather than left as permanent false positives that train people to ignore
+  // this check.
+  for (const id of DYNAMIC[script] ?? []) ids.delete(id)
   return ids
+}
+
+/** ids created by the script's own runtime markup, per script. */
+const DYNAMIC = {
+  'shell.js': ['nodes-link', 'nodes-hint', 'spend-hint', 'archive-hint', 'logout'],
+  'nodes.js': ['machines-revoked', 'machines-revoked-toggle'],
 }
 
 const idsOf = (html) => {

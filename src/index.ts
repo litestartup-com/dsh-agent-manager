@@ -207,17 +207,17 @@ const main = async (): Promise<void> => {
   // The only page outside the shell, on purpose: the sidebar is agent data, and
   // there is no session yet to fetch it with.
   app.get('/login', async (_request, reply) => noCache(reply.type('text/html').sendFile('login.html', publicDir)))
-  // One page for every agent; which board to draw comes from the path, and the
-  // data comes from /api/board/:id.
-  app.get<{ Params: { id: string } }>('/board/:id', { preHandler: requirePage }, page('board'))
-  // Same shape as the board: one page, and which conversation to draw comes from
-  // the path. `/chat` without an id is the empty state, which is what the "new
+  // One page for every agent, and which conversation to draw comes from the
+  // path. `/chat` without an id is the empty state, which is what the "new
   // conversation" action navigates to before a chat row exists.
+  //
+  // 公开版精简（DAC v1.0.0）：/board/:id 页面与 /crons 页面已下线；两者的
+  // 后端 API（/api/board/*、/api/crons/*、/api/internal/*）全部保留——主脑
+  // 按大盘文件产出、调度引擎仍在跑，删的只是对外页面。
   app.get('/chat', { preHandler: requirePage }, page('chat'))
   app.get<{ Params: { id: string } }>('/chat/:id', { preHandler: requirePage }, page('chat'))
   app.get('/archive', { preHandler: requirePage }, page('archive'))
   app.get('/spend', { preHandler: requirePage }, page('spend'))
-  app.get('/crons', { preHandler: requirePage }, page('crons'))
   app.get('/nodes', { preHandler: requirePage }, page('nodes'))
   app.get('/runs', { preHandler: requirePage }, page('runs'))
   app.get('/skills', { preHandler: requirePage }, page('skills'))

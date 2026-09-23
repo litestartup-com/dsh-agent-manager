@@ -73,25 +73,11 @@ export const makeRenderer = ({ getState, openTools, openContext, mdCache: inject
   }
 
   /**
-   * A board file, as a link to the page it feeds.
-   *
-   * Only `board/*.json` becomes a link. The mapping needs no guessing -- the board
-   * takes a page's key from the file's basename -- and every other path stays
-   * plain text, because a local file has no view to open and a link that goes
-   * nowhere is worse than no link (UI.md §5).
+   * 公开版精简（DAC v1.0.0）：大盘页已下线，所以 `board/*.json` 不再变成链接
+   * ——指向不存在视图的链接比没有链接更糟（UI.md §5），一律纯文本渲染。
    */
-  const boardHref = (path) => {
-    const normalized = path.replace(/\\/g, '/').replace(/^\.\//, '')
-    const match = /^board\/([^/]+)\.json$/.exec(normalized)
-    const state = getState()
-    if (match === null || state === null) return null
-    return `/board/${encodeURIComponent(state.agent.id)}?page=${encodeURIComponent(match[1])}`
-  }
-
   const writeRow = (tool) => {
-    const href = boardHref(tool.path)
-    const label = esc(tool.path)
-    const inner = href === null ? label : `<a href="${esc(href)}">${label}</a>`
+    const inner = esc(tool.path)
     return `<div class="write-row">
     <span class="pen" aria-hidden="true">✎</span>
     <span>已更新 ${inner}</span>
@@ -282,7 +268,7 @@ export const makeRenderer = ({ getState, openTools, openContext, mdCache: inject
   }
 
   return {
-    boardHref, writeRow, toolsBlock, tokens, footer,
+    writeRow, toolsBlock, tokens, footer,
     mdOnce, agentTurn, userTurn, contextFold,
     optionRow, questionCard, approvalCard,
     readFeedback, setFeedback, feedbackOf,

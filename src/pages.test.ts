@@ -33,13 +33,13 @@ test('every page composes against the real layout', () => {
 
 test('each page gets its own title, stylesheets and script', () => {
   const pages = buildPages(publicDir)
-  const crons = pages.get('crons') ?? ''
-  assert.match(crons, /<title>定时任务 · Oh! dsh<\/title>/)
-  assert.match(crons, /assets\/crons\.css/)
-  assert.match(crons, /assets\/crons\.js/)
+  const runs = pages.get('runs') ?? ''
+  assert.match(runs, /<title>任务 · Oh! dsh<\/title>/)
+  assert.match(runs, /assets\/runs\.js/)
 
-  // The board opts out of the standard content padding; the others keep it.
-  assert.match(pages.get('board') ?? '', /<main class="content content-flush">/)
+  // The chat opts out of the standard content padding (composer pinned to the
+  // bottom); the wide pages keep the roomier column.
+  assert.match(pages.get('chat') ?? '', /<main class="content content-flush">/)
   assert.match(pages.get('nodes') ?? '', /<main class="content wide">/)
 })
 

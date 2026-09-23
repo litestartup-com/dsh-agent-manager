@@ -255,8 +255,9 @@ export const showError = (r, title) => {
 }
 
 /**
- * 债务 F3：SSE 自动重连 helper——board.js 与 chat.js 两份逐字相同的
+ * 债务 F3：SSE 自动重连 helper——原先 board.js 与 chat.js 两份逐字相同的
  * retryTimer/retryDelay 机制收敛到此（3s → ×2 → 30s 封顶）。
+ * 公开版精简（DAC v1.0.0）：board 页已下线，当前调用方只剩 chat.js。
  *
  * `open()` 由调用方实现：创建 EventSource、挂 message 监听，返回实例。
  * 纪律（两页注释合并）：

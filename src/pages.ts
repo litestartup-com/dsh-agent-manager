@@ -47,13 +47,8 @@ export const PAGES: Record<string, PageDef> = {
   // `wide` buys these a roomier column than the old home page's reading width:
   // a month of daily bars and a cron's full prompt both need it.
   spend: { file: 'spend.html', title: '花费 · Oh! dsh', css: ['spend.css'], script: 'spend.js', contentClass: 'wide' },
-  crons: {
-    file: 'crons.html',
-    title: '定时任务 · Oh! dsh',
-    css: ['spend.css', 'crons.css'],
-    script: 'crons.js',
-    contentClass: 'wide',
-  },
+  // 公开版精简（DAC v1.0.0）：定时任务页已下线——引擎与 /api/crons 保留
+  // （内部 API 与未来的调度 UI 可回归），但不再是对外页面。
   // The other half of archiving: without a place to see what was archived, a
   // soft delete is indistinguishable from a real one.
   archive: {
@@ -63,16 +58,10 @@ export const PAGES: Record<string, PageDef> = {
     script: 'archive.js',
     contentClass: 'wide',
   },
-  board: {
-    file: 'board.html',
-    title: '大盘 · Oh! dsh',
-    css: ['board.css'],
-    script: 'board.js',
-    contentClass: 'content-flush',
-  },
-  // `content-flush` for the same reason as the board, plus one of its own: the
-  // composer is pinned to the bottom of the column, so the page owns its full
-  // height and cannot be inset by the standard content padding.
+  // 公开版精简（DAC v1.0.0）：大盘页已下线（UI 删除，后端 src/board/* 与
+  // /api/board/*、/api/internal/agents/:id/board 保留——主脑按大盘文件产出）。
+  // `content-flush`：the composer is pinned to the bottom of the column, so the
+  // page owns its full height and cannot be inset by the standard content padding.
   chat: {
     file: 'chat.html',
     title: '对话 · Oh! dsh',

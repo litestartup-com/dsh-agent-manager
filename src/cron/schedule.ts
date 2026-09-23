@@ -304,7 +304,8 @@ export class Scheduler {
           kind: 'cron_done',
           title: `定时任务完成：${row.name}`,
           body: outcome.summary ?? '（没有输出文字）',
-          link: '/crons',
+          // 公开版精简（DAC v1.0.0）：定时任务页已下线，通知改指任务页看这次运行。
+          link: '/runs',
         })
         return { cronId, ran: true, skipped: null, runId: outcome.runId, state: 'done', message: null }
       }
@@ -331,7 +332,8 @@ export class Scheduler {
       kind: 'cron_failed',
       title: `定时任务失败：${row.name}${disable ? '（已自动停用）' : ''}`,
       body: message,
-      link: '/crons',
+      // 同上：/crons 页已下线，失败详情去任务页看这一次运行。
+      link: '/runs',
     })
     this.deps.db
       .update(schema.cron)

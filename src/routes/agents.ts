@@ -387,14 +387,17 @@ export const registerAgentsRoutes = (
         .limit(limit)
         .all()
         .reverse()
+      // .reverse() 之后末条 = 最新一次采样；用 at(-1) 取值，避免非空断言
+      // （eslint no-non-null-assertion 在 CI 里是 error 级）。
+      const newest = metrics.at(-1) ?? null
       return {
         metrics: metrics.map((m) => ({
           at: m.at, cpuPercent: m.cpuPercent, memTotal: m.memTotal, memUsed: m.memUsed,
           diskTotal: m.diskTotal, diskFree: m.diskFree, uptime: m.uptime,
         })),
-        latest: metrics.length > 0
-          ? { at: metrics[metrics.length - 1]!.at, cpuPercent: metrics[metrics.length - 1]!.cpuPercent, memTotal: metrics[metrics.length - 1]!.memTotal, memUsed: metrics[metrics.length - 1]!.memUsed, diskTotal: metrics[metrics.length - 1]!.diskTotal, diskFree: metrics[metrics.length - 1]!.diskFree, uptime: metrics[metrics.length - 1]!.uptime }
-          : null,
+        latest: newest === null
+          ? null
+          : { at: newest.at, cpuPercent: newest.cpuPercent, memTotal: newest.memTotal, memUsed: newest.memUsed, diskTotal: newest.diskTotal, diskFree: newest.diskFree, uptime: newest.uptime },
       }
     },
   )

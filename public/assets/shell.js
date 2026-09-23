@@ -226,8 +226,7 @@ const renderNodes = (nodesData) => {
 const segments = window.location.pathname.split('/').filter(Boolean)
 const pathId = (prefix) => (window.location.pathname.startsWith(`/${prefix}/`) ? decodeURIComponent(segments[1] ?? '') : '')
 
-/** The board currently open, so its agent can be marked active in the list. */
-const openBoardId = pathId('board')
+/** 公开版精简（DAC v1.0.0）：大盘页已下线，树行不再有「当前大盘」高亮。 */
 /** The conversation currently open, so its row can be marked active. */
 const openChatId = pathId('chat')
 
@@ -379,7 +378,7 @@ const agentNav = (status) => {
       const rest = chats.length - shown.length
 
       return `<div class="tree-group${open ? ' open' : ''}" data-agent="${esc(agent.id)}">
-      <div class="tree-item${agent.id === openBoardId ? ' active' : ''}">
+      <div class="tree-item">
         <button class="tree-toggle" type="button" data-toggle="${esc(agent.id)}"
                 aria-expanded="${open}" title="${esc(agent.name)} · ${esc(agent.workspacePath)}">
           <span class="chev">${icon('chev', 12)}</span>
@@ -390,8 +389,8 @@ const agentNav = (status) => {
         </button>
         ${busy !== null ? `<span class="dot busy" title="${activeByAgent.get(agent.id) ?? 1} 个回合进行中"></span>` : ''}
         ${agent.public ? `<span class="meta" title="这个 agent 对外可调">${icon('alert', 12)}</span>` : ''}
-        <!-- The row's action area: endpoint health first, then the board, then
-             new chat last -- the "+" owns the far end of the row. -->
+        <!-- The row's action area: endpoint health first, then new chat last --
+             the "+" owns the far end of the row. (DAC v1.0.0：大盘入口已下线。) -->
         <!-- The dot is a button, because what it reports is not self-explanatory:
              it is the *endpoint's* health, so agents sharing one DSH process all
              go red together. Clicking says which endpoint and who else is on
@@ -402,9 +401,6 @@ const agentNav = (status) => {
           ${icon('endpoint', 15)}
           <span class="dot ${health}"></span>
         </button>
-        <a class="tree-side" href="/board/${encodeURIComponent(agent.id)}" title="${esc(agent.name)} 的大盘">
-          ${icon('board', 14)}
-        </a>
         <button class="tree-side" type="button" data-new="${esc(agent.id)}"
                 title="${esc(agent.name)} 新会话" aria-label="${esc(agent.name)} 新会话">
           ${icon('add', 14)}
@@ -553,30 +549,8 @@ const loadSpendHint = async () => {
   }
 }
 
-/**
- * Schedule health, in the sidebar.
- *
- * The count is the small part. The part that matters is a schedule the manager
- * switched off by itself: nothing else would ever mention it, and the only
- * symptom would be work that quietly stopped arriving.
- */
-const loadCronHint = async () => {
-  try {
-    const response = await apiFetch('/api/crons')
-    if (!response.ok) return
-    const { crons } = await response.json()
-    const hint = $('cron-hint')
-    if (crons.length === 0) {
-      hint.textContent = ''
-      return
-    }
-    const wrong = crons.filter((c) => c.disabledReason !== null || c.problem !== null).length
-    hint.textContent = wrong > 0 ? `${wrong} 个有问题` : String(crons.filter((c) => c.enabled).length)
-    hint.classList.toggle('error', wrong > 0)
-  } catch {
-    // Same rule as spend.
-  }
-}
+// 公开版精简（DAC v1.0.0）：侧栏「定时任务」提示随页面一并下线——调度健康度
+// 改由任务页/审计页承载（调度引擎未动，/api/crons 与内部 API 保留）。
 
 // ---------------------------------------------------------------------------
 // navigation: one sidebar, two presentations
@@ -736,8 +710,6 @@ try {
 const SECTION_TITLES = {
   app: '首页',
   chat: '对话',
-  board: '大盘',
-  crons: '定时任务',
   archive: '已归档',
   spend: '花费',
 }
@@ -978,9 +950,7 @@ const panelBody = (data) => {
     <h3 class="panel-sub">最近运行</h3>
     ${runList}
     <div class="panel-actions">
-      <a class="btn-quiet btn-sm" href="/board/${encodeURIComponent(agent.id)}">打开大盘</a>
       <a class="btn-quiet btn-sm" href="/spend">花费明细</a>
-      <a class="btn-quiet btn-sm" href="/crons">定时任务</a>
     </div>`
 }
 
@@ -1111,7 +1081,6 @@ const MORE_NAV = [
   { href: '/nodes', nav: 'nodes', icon: 'server', label: '节点', hint: 'nodes-hint', id: 'nodes-link' },
   { href: '/runs', nav: 'runs', icon: 'history', label: '任务', hint: null },
   { href: '/skills', nav: 'skills', icon: 'spark', label: '技能', hint: null },
-  { href: '/crons', nav: 'crons', icon: 'clock', label: '定时任务', hint: 'cron-hint' },
   { href: '/archive', nav: 'archive', icon: 'archive', label: '已归档', hint: 'archive-hint' },
   { href: '/spend', nav: 'spend', icon: 'coin', label: '花费', hint: 'spend-hint' },
   { href: '/audit', nav: 'audit', icon: 'shield', label: '审计', hint: null },
@@ -1269,7 +1238,6 @@ markActive()
 syncNavControls()
 void loadShell()
 void loadSpendHint()
-void loadCronHint()
 void loadArchiveHint()
 
 // Endpoint health changes on its own (DSH restarts, key rotation). The hints
@@ -1283,7 +1251,6 @@ void loadArchiveHint()
 
 poll(loadShell, 15_000)
 poll(loadSpendHint, 60_000)
-poll(loadCronHint, 60_000)
 // Slower still: this count only changes when you change it.
 poll(loadArchiveHint, 300_000)
 

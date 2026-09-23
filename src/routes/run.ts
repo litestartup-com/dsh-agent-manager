@@ -153,8 +153,11 @@ export const registerRunRoutes = (
         .all()
       const hasMore = rows.length > limit
       const page = hasMore ? rows.slice(0, limit) : rows
+      // 游标 = 本页末条 startedAt（无末条 = 没有下一页）；用 at(-1) 取值，
+      // 避免非空断言（lint 里 no-non-null-assertion 是 error 级）。
+      const last = page.at(-1) ?? null
       return reply.header('cache-control', 'no-store').send({
-        next: hasMore && page.length > 0 ? page[page.length - 1]!.startedAt : null,
+        next: hasMore && last !== null ? last.startedAt : null,
         runs: page.map((r) => ({
           id: r.id,
           agentId: r.agentId,
