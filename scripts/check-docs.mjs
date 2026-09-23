@@ -199,6 +199,10 @@ try {
   const joinSh = readFileSync(join(root, 'public/assets/agent/join.sh'), 'utf8')
   if (!joinPs1.includes('update.mjs')) failures.push('scripts/join.ps1: 未下载 update.mjs（agent 入口依赖，缺 = 装完即崩）')
   if (!joinSh.includes('update.mjs')) failures.push('public/assets/agent/join.sh: 未下载 update.mjs（agent 入口依赖，缺 = 装完即崩）')
+  // M2 实测：DSH 0.1.5 启动器依赖 import.meta.main（Node ≥22.18），22.17 静默
+  // 退出 0——join 脚本必须有真实版本门禁（不是只查 node 存在）。
+  if (!joinSh.includes('22.18')) failures.push('public/assets/agent/join.sh: 缺 Node ≥22.18 版本门禁（import.meta.main 静默退出实证）')
+  if (!joinPs1.includes('22.18')) failures.push('scripts/join.ps1: 缺 Node ≥22.18 版本门禁（import.meta.main 静默退出实证）')
   if (!/\/api\/agents\/:id\/rotate/.test(readFileSync(join(root, 'src/routes/agents.ts'), 'utf8'))) {
     failures.push('src/routes/agents.ts: 缺 /api/agents/:id/rotate 轮换端点（M4-1）')
   }

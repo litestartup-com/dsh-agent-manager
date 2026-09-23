@@ -8,7 +8,13 @@ $joinToken  = $env:AGENT_JOIN_TOKEN
 if (-not $managerUrl -or -not $joinToken) { Write-Error '需要 MANAGER_URL 与 AGENT_JOIN_TOKEN 环境变量'; exit 1 }
 $agentDir = if ($env:AGENT_DIR) { $env:AGENT_DIR } else { Join-Path $env:LOCALAPPDATA 'OhdshAgent' }
 $nodeBin = (Get-Command node -ErrorAction SilentlyContinue).Source
-if (-not $nodeBin) { Write-Error '需要 Node ≥20（node 不在 PATH）'; exit 1 }
+if (-not $nodeBin) { Write-Error '需要 Node ≥22.18（node 不在 PATH）'; exit 1 }
+# M2 实测：DSH 0.1.5 启动器依赖 import.meta.main（Node ≥22.18），22.17 上
+# 启动器静默退出 0（节点拉起来即死、日志空）——版本门禁必须真实校验。
+$nodeVer = ((& node --version 2>$null) -replace '^v', '').Trim()
+$verParts = $nodeVer -split '\.'
+$nodeOk = $verParts.Length -ge 2 -and ([int]$verParts[0] -gt 22 -or ([int]$verParts[0] -eq 22 -and [int]$verParts[1] -ge 18))
+if (-not $nodeOk) { Write-Error "需要 Node ≥22.18（DSH 0.1.5 启动器依赖 import.meta.main）——当前 $nodeVer"; exit 1 }
 
 New-Item -ItemType Directory -Force -Path $agentDir | Out-Null
 Invoke-WebRequest -Uri "$managerUrl/assets/agent/runtime.mjs" -OutFile (Join-Path $agentDir 'runtime.mjs') -UseBasicParsing

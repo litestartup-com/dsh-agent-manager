@@ -11,7 +11,15 @@ AGENT_DIR="${AGENT_DIR:-$HOME/.ohdsh-agent}"
 NODE_BIN="$(command -v node || true)"
 
 if [ -z "$NODE_BIN" ]; then
-  echo "join.sh: 需要 Node ≥20（node 不在 PATH）——先安装 node 再重跑。" >&2
+  echo "join.sh: 需要 Node ≥22.18（node 不在 PATH）——先安装 node 再重跑。" >&2
+  exit 1
+fi
+# M2 实测：DSH 0.1.5 启动器依赖 import.meta.main（Node ≥22.18），22.17 上
+# 启动器静默退出 0（节点拉起来即死、日志空）——版本门禁必须真实校验。
+NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
+NODE_MINOR="$(node -p 'process.versions.node.split(".")[1]' 2>/dev/null || echo 0)"
+if [ "$NODE_MAJOR" -lt 22 ] || { [ "$NODE_MAJOR" -eq 22 ] && [ "$NODE_MINOR" -lt 18 ]; }; then
+  echo "join.sh: 需要 Node ≥22.18（DSH 0.1.5 启动器依赖 import.meta.main）——当前 $(node -v 2>/dev/null || echo 无)" >&2
   exit 1
 fi
 
