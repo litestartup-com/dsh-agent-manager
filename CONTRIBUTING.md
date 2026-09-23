@@ -19,6 +19,10 @@ your machine into `master` without surprises.
    node scripts/check-docs.mjs
    ```
 
+   All of the above in one command, plus the release-only static checks
+   (required files, license holder, locale parity, image locks, landing page, CHANGELOG entry,
+   leftover old brand names): `npm run release:check` (`-- --quick` skips the two test suites).
+
 3. **Commits are in Chinese, and so are the internal docs.** Code comments follow the file
    they live in (this repository's internal language is Chinese). The public README exists in
    both languages: `README.md` (English) and `README.zh.md` (Chinese) must stay in sync.

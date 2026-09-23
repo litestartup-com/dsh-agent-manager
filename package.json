@@ -29,7 +29,8 @@
     "service": "tsx src/cli/service.ts",
     "update": "tsx src/cli/update.ts",
     "i18n:check": "node scripts/check-i18n-keys.mjs",
-    "lock:profile": "node images/node/gen-node-profile.mjs --lock-only"
+    "lock:profile": "node images/node/gen-node-profile.mjs --lock-only",
+    "release:check": "node scripts/release-check.mjs"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.4.0",
