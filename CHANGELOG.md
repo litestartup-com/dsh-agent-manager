@@ -50,6 +50,12 @@
   成功才清宽限、报失败自动回滚；迁移 18（prev_token_hash/prev_set_at）+
   审计 `agent_token_rotated`。本地 E2E：轮换 → agent 身份落盘换新 → ack
   收敛 → 新 token 心跳续命。
+- **能力四 · 舰队 M3 ops 节点开锁（2026-09-23）**：danger-full-access 工作区
+  → spawn 载荷带 `ALLOW_FULL_ACCESS` → agent 写 facade settings
+  `allowFullAccess: true`（facade 侧风险告警日志兜底）。192.168.33.11 实测：
+  ops33 节点 host.describe 报 `allowFullAccess: true`，聊天能力面
+  fullAccess 解锁（composer accessMode=danger-full-access）。审批卡片链路为
+  facade 既有机制；真实卡片回合待该机放置模型凭据（凭据口径属 M3 验收）。
 - **能力四 · 舰队 M2 跨机试点（2026-09-23，192.168.33.11 实测）**：Linux
   机器经 join.sh（systemd user unit）接入本机 manager——跨机节点 spike02
   （0.1.5-rc.2）创建/探活 live/日志流/起停/断连恢复（agent 停起 → 铃铛
