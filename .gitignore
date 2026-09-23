@@ -46,3 +46,6 @@ deploy/nginx/default.conf
 *.pre-012.bak
 
 *.pre-mig.bak
+
+# M1 试点残留（工作区 + 生成物，绝不入库）
+.m1-pilot/

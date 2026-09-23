@@ -1,6 +1,6 @@
 // 蜂群2计划 P2：构建期生成容器内节点 profile（与 src/cli/setup.ts 的 profileFiles
 // 同构，但 webserver 绑 0.0.0.0 —— 容器网络隔离下端口不发布，manager 走 hive 内网）。
-// 版本钉死值由 Dockerfile 的 ARG 注入，默认与 src/dsh-version.ts 一致。
+// 版本钉死值由 Dockerfile 的 ARG 注入，默认与 src/dsh-matrix.ts 的 SUPPORTED_DSH 首行一致。
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'

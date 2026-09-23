@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 ARG NPM_REGISTRY=https://registry.npmjs.org
-# 与 src/dsh-version.ts 保持一致的钉死版本（官方出新版时一起 bump）
+# 钉死版本与 src/dsh-matrix.ts 的 SUPPORTED_DSH 首行一致（check-docs 常驻断言；官方出新版时一起 bump）
 ARG DSH_VERSION=0.1.2-rc.1
 ARG GATEWAY_REF=github:litestartup-com/dsh-api-gateway#b592b4f
 # pnpm 钉到确定版本（不写 pnpm@9 这种浮动区间：同一 tag 会装出不同的构建工具）。
