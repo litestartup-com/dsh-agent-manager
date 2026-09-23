@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { hostname } from 'node:os'
 import { join, resolve } from 'node:path'
 import { z } from 'zod'
 import type { FastifyInstance, preHandlerHookHandler } from 'fastify'
@@ -153,11 +154,13 @@ export const registerNodesRoutes = (
     const supportedDsh = SUPPORTED_DSH.map((p) => ({ dsh: p.dsh, status: p.status }))
     // 部署形态标记（镜像 ENV OHDSH_DEPLOY_FORM）：容器形态前端禁用「宿主机进程」
     const containerForm = process.env.OHDSH_DEPLOY_FORM === 'container'
-    // UI 收尾 C-P1.5：本机平台信息（拓扑「本机卡」数据源；manager 宿主不经
-    // node-agent，机器目录里没有它，这里显式给出）。
+    // UI 收尾 C-P1.5：本机信息（拓扑「本机卡」+ 机器列表「本机行」数据源；
+    // manager 宿主不经 node-agent，机器目录里没有它，这里显式给出）。
     const hostOs = process.platform
     const hostArch = process.arch
-    return { nodes, dockerMode, supportedDsh, containerForm, hostOs, hostArch }
+    const hostName = hostname()
+    const hostNodeVersion = process.version
+    return { nodes, dockerMode, supportedDsh, containerForm, hostOs, hostArch, hostName, hostNodeVersion }
   })
 
   /**

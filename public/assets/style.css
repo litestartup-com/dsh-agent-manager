@@ -1980,6 +1980,15 @@ button:disabled {
   box-shadow: var(--sh-1);
 }
 
+/* 本机行（UI 收尾 C-P1.5）：整行可点（跳「全部节点」）。 */
+.node-row[data-local-machine-row] {
+  cursor: pointer;
+}
+
+.node-row[data-local-machine-row]:hover {
+  box-shadow: var(--sh-2);
+}
+
 .node-main {
   flex: 1 1 auto;
   min-width: 0;

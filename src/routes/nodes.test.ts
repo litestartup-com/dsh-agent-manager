@@ -69,6 +69,9 @@ test('an unmanaged node reports the probe result as its state', async () => {
   // UI 收尾 C-P1.5：本机平台信息（拓扑「本机卡」数据源）
   assert.equal(typeof body.hostOs, 'string', 'hostOs 必须随 /api/nodes 返回')
   assert.equal(typeof body.hostArch, 'string', 'hostArch 必须随 /api/nodes 返回')
+  // UI 收尾 C-P1.5：本机行数据源（机器列表首行的主机名与 node 版本）
+  assert.equal(typeof body.hostName, 'string', 'hostName 必须随 /api/nodes 返回')
+  assert.equal(typeof body.hostNodeVersion, 'string', 'hostNodeVersion 必须随 /api/nodes 返回')
 })
 
 test('a managed node reports the supervisor state machine', async () => {

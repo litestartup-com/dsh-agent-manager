@@ -1,7 +1,7 @@
 // @ts-check
 // 能力四（舰队 M1-7）：机器页纯函数层——agent 列表行与 join 命令拼装。
 // DOM 装配在 nodes.js；可单测（machines.test.mjs）。
-import { esc } from './ui.js'
+import { esc, platformLabel } from './ui.js'
 
 /**
  * M4-4：最新指标快照徽标文案（CPU % / 内存 % / 磁盘 %）；无快照返回空数组。
@@ -60,3 +60,22 @@ export const machineRowHtml = (m) => {
  */
 export const joinCommand = (origin, token) =>
   `curl -fsSL ${origin}/assets/agent/join.sh | MANAGER_URL=${origin} AGENT_JOIN_TOKEN=${token} bash`
+
+/**
+ * 本机行（UI 收尾 C-P1.5）：manager 宿主不是 node-agent 注册机器（机器目录
+ * 语义 = 受管远端主机），但列表首行显式画出——纯 UI 投影，不写 agent_machine
+ * 表。无 agent 专属动作（轮换/吊销/删除对本机无意义）、无待更新徽标、无指标
+ * （本机指标不经 agent 上报）。点行跳「全部节点」区块。
+ * @param {{ hostname: string, os: string, arch: string, nodeVersion: string, containerForm: boolean, nodeCount: number }} m
+ * @returns {string}
+ */
+export const localMachineRowHtml = (m) => {
+  const deploy = m.containerForm ? '容器工蜂' : '宿主机进程'
+  return `<div class="node-row" data-local-machine-row title="manager 宿主机——本机节点不经 node-agent，由 manager 直接拉起">
+    <div class="node-main">
+      <div class="node-title"><span class="dot ok"></span>本机（manager 宿主） <span class="pill-mini">直管</span> <span class="muted">· ${esc(platformLabel(m.os))}/${esc(m.arch)} · node ${esc(m.nodeVersion)}</span></div>
+      <div class="node-detail">${esc(m.hostname)} · ${esc(deploy)} · 直管 ${m.nodeCount} 个节点（不经 node-agent）</div>
+    </div>
+    <div class="node-side"><button type="button" class="btn-quiet btn-sm" data-local-jump>看节点 ›</button></div>
+  </div>`
+}

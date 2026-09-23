@@ -4,7 +4,7 @@
 // 的远端机器 + 「本机（manager 宿主）」伪卡（C-P1.5：本机不经 node-agent，
 // 直管节点，边从本机卡出发）。卡片拼装与边配对是纯函数（topology.test.mjs
 // 可单测）；SVG 连线只在浏览器里按实测矩形画（drawTopoEdges，DOM 函数）。
-import { esc } from './ui.js'
+import { esc, platformLabel } from './ui.js'
 import { machineMetricBits } from './machines.js'
 
 /** 节点形态 tag：host 派发 → agent 远端；有镜像 → 容器工蜂；其余看托管态。 */
@@ -20,8 +20,9 @@ export const machineAlive = (m) => m.online === true && m.revoked !== true
 /** 本机（manager 宿主）在拓扑里的伪机器 id；与 agent-* 注册 id 不冲突。 */
 export const LOCAL_MACHINE_ID = 'local'
 
-/** manager 宿主机平台名映射（process.platform → 可读文案）。 */
-export const platformLabel = (os) => ({ win32: 'Windows', linux: 'Linux', darwin: 'macOS' }[os] ?? os)
+// 平台名映射搬到 ui.js（机器列表本机行与拓扑本机卡共用）；此处再导出
+// 保持 topology.test.mjs 既有导入面不变。
+export { platformLabel } from './ui.js'
 
 /**
  * 本机卡（C-P1.5）：manager 宿主机不是 node-agent 注册机器（机器目录语义 =

@@ -1,6 +1,24 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { machineRowHtml, joinCommand } from './machines.js'
+import { machineRowHtml, joinCommand, localMachineRowHtml } from './machines.js'
+
+test('UI 收尾 C-P1.5: 本机行——直管标注/平台信息/无 agent 专属动作', () => {
+  const html = localMachineRowHtml({ hostname: 'WIN-PC', os: 'win32', arch: 'x64', nodeVersion: '22.23.2', containerForm: false, nodeCount: 3 })
+  assert.ok(html.includes('本机（manager 宿主）'), '行首标注本机身份')
+  assert.ok(html.includes('直管'), '直管 pill')
+  assert.ok(html.includes('Windows/x64'), '平台名映射 + 架构')
+  assert.ok(html.includes('node 22.23.2'))
+  assert.ok(html.includes('WIN-PC'))
+  assert.ok(html.includes('3 个节点'), '直管节点数')
+  assert.ok(html.includes('不经 node-agent'), '标注不经 agent')
+  assert.ok(!html.includes('data-agent-revoke'), '本机行不渲染吊销按钮')
+  assert.ok(!html.includes('data-agent-rotate'), '本机行不渲染轮换按钮')
+  assert.ok(!html.includes('data-agent-delete'), '本机行不渲染删除按钮')
+  assert.ok(!html.includes('待更新'), '本机行无待更新徽标')
+  assert.ok(!html.includes('CPU'), '本机行无指标徽标')
+  const docker = localMachineRowHtml({ hostname: 'srv', os: 'linux', arch: 'arm64', nodeVersion: '22.23.2', containerForm: true, nodeCount: 1 })
+  assert.ok(docker.includes('容器工蜂'), '容器部署形态标注')
+})
 
 test('能力四 M1-7: 机器行——在线/离线/吊销/待执行指令各态渲染', () => {
   const base = { id: 'agent-abc123', hostname: 'srv-b', os: 'linux', arch: 'amd64', nodeVersion: '22.23.2', joinedAt: Date.now(), online: true, revoked: false, pendingCommands: 0 }

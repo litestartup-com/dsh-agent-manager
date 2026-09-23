@@ -7,7 +7,7 @@
 import { $, esc, setHtml, apiJson, poll } from './ui.js'
 import { guiCardHtml, guiDirectCardHtml, guiSetupButton } from './gui-access.js'
 import { nodeCreatePayload, hostRunnerConfirmText, dangerSandboxConfirmText, versionOptionsHtml } from './node-form.js'
-import { machineRowHtml, joinCommand } from './machines.js'
+import { machineRowHtml, joinCommand, localMachineRowHtml } from './machines.js'
 import { topologyHtml, edgePairs, drawTopoEdges } from './topology.js'
 
 const NODE_STATE_DOT = { live: 'ok', cold: 'muted', starting: 'warn', restarting: 'warn', offline: 'bad' }
@@ -447,6 +447,12 @@ $('join-close').addEventListener('click', () => {
 })
 
 $('machines-list').addEventListener('click', (event) => {
+  // UI 收尾 C-P1.5：点本机行跳「全部节点」区块（本机没有 agent 专属动作）。
+  if (event.target.closest('[data-local-machine-row]') !== null) {
+    const list = $('nodes-list')
+    if (list !== null) list.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    return
+  }
   const toggle = event.target.closest('#machines-revoked-toggle')
   if (toggle !== null) {
     const box = $('machines-revoked')
@@ -575,7 +581,7 @@ const load = async () => {
     // 债务 F6:统一 Result 层。
     const [nodesResult, agentsResult] = await Promise.all([apiJson('/api/nodes'), apiJson('/api/agents')])
     if (!nodesResult.ok) return
-    const { nodes, dockerMode: isDocker, supportedDsh, containerForm, hostOs, hostArch } = nodesResult.data
+    const { nodes, dockerMode: isDocker, supportedDsh, containerForm, hostOs, hostArch, hostName, hostNodeVersion } = nodesResult.data
     dockerMode = isDocker === true
     if (Array.isArray(supportedDsh)) versionList = supportedDsh
     // 能力四（M1-7/M4-3/UI 收尾 B）：机器目录 + 主机下拉 + 节点行主机名映射 +
@@ -586,14 +592,27 @@ const load = async () => {
       agentHostnames = new Map(machines.map((m) => [m.id, m.hostname]))
       const active = machines.filter((m) => !m.revoked)
       const revoked = machines.filter((m) => m.revoked)
-      setHtml('machines-list', machines.length === 0
-        ? '<p class="muted small">还没有接入的机器——点「添加机器」拿到 join 命令。</p>'
-        : [
-            ...active.map((m) => machineRowHtml({ ...m, managerVersion })),
-            revoked.length > 0
-              ? `<div class="muted small" style="margin-top:8px"><button type="button" id="machines-revoked-toggle" class="btn-quiet btn-sm">显示已吊销 ${revoked.length} 台</button><div id="machines-revoked" hidden>${revoked.map((m) => machineRowHtml({ ...m, managerVersion })).join('')}</div></div>`
-              : '',
-          ].join(''))
+      // UI 收尾 C-P1.5：机器列表首行 = 本机（纯 UI 投影，不进 agent_machine）。
+      const localNodes = nodes.filter((n) => typeof n.host !== 'string' || n.host === '')
+      const localRow = localMachineRowHtml({
+        hostname: typeof hostName === 'string' ? hostName : '本机',
+        os: typeof hostOs === 'string' ? hostOs : 'unknown',
+        arch: typeof hostArch === 'string' ? hostArch : 'unknown',
+        nodeVersion: typeof hostNodeVersion === 'string' ? hostNodeVersion.replace(/^v/, '') : '—',
+        containerForm: containerForm === true,
+        nodeCount: localNodes.length,
+      })
+      setHtml('machines-list', [
+        localRow,
+        machines.length === 0
+          ? '<p class="muted small">还没有接入的远端机器——点「添加机器」拿到 join 命令。</p>'
+          : `<div class="muted small" style="margin-top:6px">远端机器（node-agent）</div>${[
+              ...active.map((m) => machineRowHtml({ ...m, managerVersion })),
+              revoked.length > 0
+                ? `<div class="muted small" style="margin-top:8px"><button type="button" id="machines-revoked-toggle" class="btn-quiet btn-sm">显示已吊销 ${revoked.length} 台</button><div id="machines-revoked" hidden>${revoked.map((m) => machineRowHtml({ ...m, managerVersion })).join('')}</div></div>`
+                : '',
+            ].join('')}`,
+      ].join(''))
       const hostSel = $('f-node-host')
       const online = machines.filter((m) => !m.revoked && m.online)
       while (hostSel.options.length > 1) hostSel.remove(1)

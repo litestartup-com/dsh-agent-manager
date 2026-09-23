@@ -28,6 +28,14 @@ export const esc = (value) =>
 export const $ = (id) => document.getElementById(id)
 
 /**
+ * process.platform → 可读平台名（未知平台回退原文）。机器行/本机卡共用，
+ * 避免 machines 与 topology 各写一份映射漂移。
+ * @param {string} os
+ * @returns {string}
+ */
+export const platformLabel = (os) => ({ win32: 'Windows', linux: 'Linux', darwin: 'macOS' }[os] ?? os)
+
+/**
  * @template T
  * @param {T[]} frames
  * @returns {T[]}
