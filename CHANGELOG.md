@@ -50,6 +50,17 @@
   成功才清宽限、报失败自动回滚；迁移 18（prev_token_hash/prev_set_at）+
   审计 `agent_token_rotated`。本地 E2E：轮换 → agent 身份落盘换新 → ack
   收敛 → 新 token 心跳续命。
+- **能力四 · 舰队 M2 跨机试点（2026-09-23，192.168.33.11 实测）**：Linux
+  机器经 join.sh（systemd user unit）接入本机 manager——跨机节点 spike02
+  （0.1.5-rc.2）创建/探活 live/日志流/起停/断连恢复（agent 停起 → 铃铛
+  掉线恢复 + 节点存活 + 对账收敛）/facade 防火墙白名单（ufw 只放行 manager
+  出口 IP，非白名单源实测拒绝）。过程中修复 4 个真 bug：① 就绪探活延后到
+  spawn 结果后（冷安装不被 120s 窗误杀，此前会 stop+重试风暴）；② agent
+  安装完成标记（.installed-ok）跳过 warm 重装（慢盘重装分钟级）；③ join
+  脚本 Node 门禁 ≥22.18（DSH 0.1.5 启动器依赖 import.meta.main，22.17 上
+  节点拉起即死、日志空——静默退出 0 实证）；④ agent 节点远端工作区路径
+  原样透传（Windows resolve 把 /root/... 拧成 C:\root\...，facade 拒收
+  非绝对 cwd）。聊天回合链到模型层（凭据缺失为设计预期，凭据口径属 M3）。
 - **能力四 · 舰队 M4-4 指标采集（2026-09-23）**：agent 每 60s 随心跳上报
   主机指标（CPU 忙占比 ×10 整数、内存/磁盘总量与用量、运行时长、平台）——
   CPU 用两次采样间差值（`os.cpus()` 时间片），磁盘走 `fs.statfs`；manager 落库
