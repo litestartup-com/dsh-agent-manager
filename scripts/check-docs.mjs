@@ -263,6 +263,16 @@ try {
       if (Number(m[1]) >= current) failures.push(`src/config/migrations.ts: 迁移 {from:${m[1]},to:${m[2]}} 起点不在 0..${current - 1} 范围`)
     }
   }
+
+  // CSRF cookie 名一致性守卫（为更名/重命名而设）：compose-e2e 在登录流程里
+  // 硬编码了这个 cookie 名，源码里改名而脚本没跟上 = CI 的 compose-e2e 在登录
+  // 步骤挂掉，且症状（401/无 CSRF）离真因很远。
+  const csrfName = /export const CSRF_COOKIE = '([^']+)'/.exec(readFileSync(join(root, 'src/routes/auth.ts'), 'utf8'))?.[1]
+  if (csrfName === undefined) {
+    failures.push('src/routes/auth.ts: 缺 CSRF_COOKIE 声明（compose-e2e 依赖它）')
+  } else if (!readFileSync(join(root, 'scripts/compose-e2e.mjs'), 'utf8').includes(`startsWith('${csrfName}=')`)) {
+    failures.push(`scripts/compose-e2e.mjs: CSRF cookie 名与该常量（${csrfName}）不一致——compose-e2e 会在登录步骤失败`)
+  }
 } catch (error) {
   failures.push(`钉版同步守卫失败: ${error instanceof Error ? error.message : String(error)}`)
 }
