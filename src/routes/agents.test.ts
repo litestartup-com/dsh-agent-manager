@@ -111,6 +111,37 @@ test('能力四 M1-2: revoke 吊销 agent（requireUser 门内；未知 id 404�
   assert.equal(missing.statusCode, 404)
 })
 
+test('舰队 UI 收尾 B: 删除机器记录——仅已吊销可删；machine+commands 随删、账单不受影响；审计留痕', async () => {
+  const { db } = openDb(':memory:')
+  const audits: string[] = []
+  const app = buildApp(db, async () => {}, audits)
+  const join = ((await app.inject({ method: 'POST', url: '/api/agents/join' })).json() as { token: string }).token
+  const registered = await app.inject({
+    method: 'POST',
+    url: '/api/internal/agents/register',
+    payload: { joinToken: join, hostname: 'old-box', os: 'windows', arch: 'x64', nodeVersion: '22.23.2' },
+  })
+  const agentId = (registered.json() as { agentId: string }).agentId
+  // 塞一条指令历史
+  db.insert(schema.agentCommand).values({ agentId, type: 'node.spawn', payload: '{}', state: 'done', result: '{}', createdAt: Date.now() }).run()
+
+  // 未吊销 → 409
+  const notRevoked = await app.inject({ method: 'POST', url: `/api/agents/${agentId}/delete` })
+  assert.equal(notRevoked.statusCode, 409, JSON.stringify(notRevoked.body))
+  assert.equal((notRevoked.json() as { error: string }).error, 'agent_not_revoked', '在线身份不可误删')
+
+  // 吊销后 → 删除成功，machine 行与指令历史随删
+  await app.inject({ method: 'POST', url: `/api/agents/${agentId}/revoke` })
+  const del = await app.inject({ method: 'POST', url: `/api/agents/${agentId}/delete` })
+  assert.equal(del.statusCode, 200, JSON.stringify(del.body))
+  assert.equal(db.select().from(schema.agentMachine).all().length, 0, 'machine 行已删')
+  assert.equal(db.select().from(schema.agentCommand).all().length, 0, '指令历史随删')
+  assert.ok(audits.includes('agent_deleted'), '删除留痕')
+
+  const again = await app.inject({ method: 'POST', url: `/api/agents/${agentId}/delete` })
+  assert.equal(again.statusCode, 404, '二次删除 404')
+})
+
 test('能力四 M4-3: 版本协商——注册带 agentVersion 落库；心跳刷新；列表暴露 agentVersion + managerVersion', async () => {
   const { db } = openDb(':memory:')
   const app = buildApp(db)

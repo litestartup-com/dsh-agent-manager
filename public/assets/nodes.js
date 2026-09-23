@@ -475,6 +475,27 @@ $('join-close').addEventListener('click', () => {
 })
 
 $('machines-list').addEventListener('click', (event) => {
+  const toggle = event.target.closest('#machines-revoked-toggle')
+  if (toggle !== null) {
+    const box = $('machines-revoked')
+    if (box !== null) {
+      box.hidden = !box.hidden
+      toggle.textContent = box.hidden ? toggle.textContent.replace('隐藏', '显示') : toggle.textContent.replace('显示', '隐藏')
+    }
+    return
+  }
+  const del = event.target.closest('[data-agent-delete]')
+  if (del !== null) {
+    const id = del.dataset.agentDelete
+    if (!window.confirm(`删除机器「${agentHostnames.get(id) ?? id}」的记录？\n\n机器行与指令历史将被永久删除（账单与审计不受影响），不可恢复。`)) return
+    void apiJson(`/api/agents/${encodeURIComponent(id)}/delete`, { method: 'POST' })
+      .then((r) => {
+        if (!r.ok) alert(r.detail)
+        return load()
+      })
+      .catch((error) => alert(`删除失败：${error.message}`))
+    return
+  }
   const rotate = event.target.closest('[data-agent-rotate]')
   if (rotate !== null) {
     const id = rotate.dataset.agentRotate
@@ -507,14 +528,22 @@ const load = async () => {
     const { nodes, dockerMode: isDocker, supportedDsh, containerForm } = nodesResult.data
     dockerMode = isDocker === true
     if (Array.isArray(supportedDsh)) versionList = supportedDsh
-    // 能力四（M1-7/M4-3）：机器目录 + 主机下拉 + 节点行主机名映射 + 待更新徽标
+    // 能力四（M1-7/M4-3/UI 收尾 B）：机器目录 + 主机下拉 + 节点行主机名映射 +
+    // 待更新徽标；已吊销机器默认折叠（可展开 + 删除记录）。
     if (agentsResult.ok && Array.isArray(agentsResult.data.agents)) {
       const machines = agentsResult.data.agents
       const managerVersion = agentsResult.data.managerVersion
       agentHostnames = new Map(machines.map((m) => [m.id, m.hostname]))
+      const active = machines.filter((m) => !m.revoked)
+      const revoked = machines.filter((m) => m.revoked)
       setHtml('machines-list', machines.length === 0
         ? '<p class="muted small">还没有接入的机器——点「添加机器」拿到 join 命令。</p>'
-        : machines.map((m) => machineRowHtml({ ...m, managerVersion })).join(''))
+        : [
+            ...active.map((m) => machineRowHtml({ ...m, managerVersion })),
+            revoked.length > 0
+              ? `<div class="muted small" style="margin-top:8px"><button type="button" id="machines-revoked-toggle" class="btn-quiet btn-sm">显示已吊销 ${revoked.length} 台</button><div id="machines-revoked" hidden>${revoked.map((m) => machineRowHtml({ ...m, managerVersion })).join('')}</div></div>`
+              : '',
+          ].join(''))
       const hostSel = $('f-node-host')
       const online = machines.filter((m) => !m.revoked && m.online)
       while (hostSel.options.length > 1) hostSel.remove(1)

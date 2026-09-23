@@ -437,6 +437,25 @@ export const registerAgentsRoutes = (
     },
   )
 
+  // ---- 用户面：删除机器记录（舰队 UI 收尾 B）----
+  // 仅已吊销机器可删（在线身份误删 = 集群打砖）；machine 行 + 指令历史随删；
+  // 账单（run/usage_record）与 machine 无外键不受影响。
+  app.post<{ Params: { id: string } }>(
+    '/api/agents/:id/delete',
+    { preHandler: requireUser, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      const row = db.select().from(schema.agentMachine).where(eq(schema.agentMachine.id, request.params.id)).all()[0]
+      if (row === undefined) return reply.code(404).send({ error: 'unknown_agent' })
+      if (row.revokedAt === null) {
+        return reply.code(409).send({ error: 'agent_not_revoked', detail: '机器仍在册——先吊销（token 立即失效）再删除记录' })
+      }
+      db.delete(schema.agentCommand).where(eq(schema.agentCommand.agentId, row.id)).run()
+      db.delete(schema.agentMachine).where(eq(schema.agentMachine.id, row.id)).run()
+      audit?.(request.currentUser?.username ?? 'unknown', 'agent_deleted', `agent ${row.id}（${row.hostname}）记录已删除（含指令历史）`)
+      return reply.send({ ok: true })
+    },
+  )
+
   // ---- 用户面：下发 agent 自更新（M4-3）----
   // 载荷 = manager 当前静态面的 agent.mjs + runtime.mjs + 双文件拼接摘要；
   // agent 侧校验后原子换装并退出，由服务管理器重启加载新代码。

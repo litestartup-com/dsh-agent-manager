@@ -36,7 +36,9 @@ export const machineRowHtml = (m) => {
       <div class="node-detail">${esc(detail)}</div>
     </div>
     <div class="node-actions">
-      ${m.revoked ? '' : `<button type="button" class="btn-quiet btn-sm" data-agent-rotate="${esc(m.id)}">轮换密钥</button>`}
+      ${m.revoked
+        ? `<button type="button" class="btn-quiet btn-sm" data-agent-delete="${esc(m.id)}">删除记录</button>`
+        : `<button type="button" class="btn-quiet btn-sm" data-agent-rotate="${esc(m.id)}">轮换密钥</button>`}
       ${m.revoked ? '' : `<button type="button" class="btn-quiet btn-sm" data-agent-revoke="${esc(m.id)}">吊销</button>`}
     </div>
   </div>`
