@@ -197,6 +197,20 @@ npm run build
 npm start              # start manager, auto-spawns managed nodes
 ```
 
+### Refreshing the container node's dependency lock
+
+The node image installs its profile from a committed lock so that the same image tag always
+contains the same dependency tree (without it, a registry change silently rewrites the image).
+When you bump `SUPPORTED_DSH` in `src/dsh-matrix.ts`, refresh the lock for each version:
+
+```bash
+DSH_VERSION=0.1.5-rc.2 npm run lock:profile   # writes images/node/profile-lock/<version>.package-lock.json
+npm test                                     # profile-lock.test.ts checks lock vs matrix
+```
+
+Commit the lock together with the version bump; the image build uses `npm ci` when a lock is
+present and warns (falling back to `npm install`) when it is not.
+
 ## CLI overview
 
 | Command | Purpose |

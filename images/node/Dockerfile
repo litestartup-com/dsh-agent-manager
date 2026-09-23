@@ -18,15 +18,20 @@ ARG NPM_REGISTRY=https://registry.npmjs.org
 # 与 src/dsh-version.ts 保持一致的钉死版本（官方出新版时一起 bump）
 ARG DSH_VERSION=0.1.2-rc.1
 ARG GATEWAY_REF=github:litestartup-com/dsh-api-gateway#b592b4f
-# pnpm@9（不是 11）：9 按旧语义运行依赖构建脚本，与裸机 setup 的既有验证一致；
+# pnpm 钉到确定版本（不写 pnpm@9 这种浮动区间：同一 tag 会装出不同的构建工具）。
+# 9 而不是 11：9 按旧语义运行依赖构建脚本，与裸机 setup 的既有验证一致；
 # pnpm ≥10 的构建脚本白名单键语义在 11 又变过（实测 ERR_PNPM_IGNORED_BUILDS 仍触发），
 # 构建期工具没必要追新。
-RUN npm install -g @deepseek-ai/dsh@${DSH_VERSION} pnpm@9 --registry="${NPM_REGISTRY}" --no-audit --no-fund \
+RUN npm install -g @deepseek-ai/dsh@${DSH_VERSION} pnpm@9.15.9 --registry="${NPM_REGISTRY}" --no-audit --no-fund \
     && npm cache clean --force
 
-# 构建期生成节点 profile（bundle 钉版 + gateway 钉 commit）并 pnpm install 冻结
+# 构建期生成节点 profile（bundle 钉版 + gateway 钉 commit）并安装依赖。
+# profile-lock/<DSH_VERSION>.package-lock.json 提供可复现的依赖树（npm ci）；
+# 缺锁时脚本回退 npm install 并告警——事实卡 §14 的容器遗留项。
+COPY profile-lock ./profile-lock
 COPY gen-node-profile.mjs /usr/local/bin/gen-node-profile.mjs
 RUN DSH_VERSION="${DSH_VERSION}" GATEWAY_REF="${GATEWAY_REF}" NPM_REGISTRY="${NPM_REGISTRY}" \
+    LOCK_DIR=/profile-lock \
     node /usr/local/bin/gen-node-profile.mjs
 
 COPY entrypoint.sh /usr/local/bin/dsh-node-entrypoint
