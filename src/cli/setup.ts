@@ -94,7 +94,7 @@ export const detectDshBin = (dshHome: string, override: string | null): string =
     'C:/nvm4w/nodejs/node_modules/@deepseek-ai/dsh/lib/bin.js',
   ]
   for (const guess of guesses) if (existsSync(guess)) return resolve(guess)
-  throw new Error(`找不到 DSH 的 bin.js：请先安装钉死版本（${DSH_INSTALL_COMMAND}），或用 --dsh-bin 指定路径`)
+  throw new Error(`DSH bin.js not found: install the pinned version first (${DSH_INSTALL_COMMAND}), or point --dsh-bin at it`)
 }
 
 /**
@@ -367,9 +367,9 @@ export const parseArgs = (argv: string[]): { options: SetupOptions; help: boolea
 }
 
 const usage = (): void => {
-  console.log('用法: npm run setup -- [--workspace 路径] [--brain-workspace 路径] [--ports 3081,3082] [--dsh-bin 路径] [--gateway-local 路径] [--nodes-home 路径] [--no-install] [--force] [--skip-version-check]')
-  console.log('  --gateway-local  用本地 dsh-api-gateway 目录做 file: 依赖（离线安装；缺省从 GitHub 拉）')
-  console.log('  --nodes-home     节点目录根（每个节点一个独立 DSH_HOME，默认 ~/.dsh-ohdsh）')
+  console.log('usage: npm run setup -- [--workspace PATH] [--brain-workspace PATH] [--ports 3081,3082] [--dsh-bin PATH] [--gateway-local PATH] [--nodes-home PATH] [--no-install] [--force] [--skip-version-check]')
+  console.log('  --gateway-local  use a local dsh-api-gateway checkout as a file: dependency (offline install; defaults to GitHub)')
+  console.log('  --nodes-home     root for node directories (one DSH_HOME per node; default ~/.dsh-ohdsh)')
 }
 
 // ---------------------------------------------------------------------------
@@ -384,7 +384,7 @@ const checkPreconditions = (
 ): void => {
   const configPath = 'manager.config.yaml'
   if (existsSync(configPath) && !options.force) {
-    console.error(`已存在 ${configPath}。改配置请直接编辑；重装请加 --force（不会覆盖工作区，但会重写配置）。`)
+    console.error(`${configPath} already exists. Edit it directly, or re-run with --force (workspaces are kept, the config is rewritten).`)
     process.exit(2)
   }
   // --force 重写配置前，把旧配置里用户定制过的工作区保留下来——setup 的默认
@@ -394,25 +394,25 @@ const checkPreconditions = (
     try {
       const old = parseYaml(readFileSync(resolve(configPath), 'utf8')) as unknown
       adoptOldWorkspaces(old, explicit, options)
-      console.log(`   --force：保留旧工作区 personal=${options.personalWorkspace} brain=${options.brainWorkspace}`)
+      console.log(`   --force: keeping the old workspaces personal=${options.personalWorkspace} brain=${options.brainWorkspace}`)
     } catch {
       // 旧配置读不了就当没有——生成新配置总比停在原地强。
     }
   }
   if (!existsSync(join(options.dshHome, '.credentials.yaml'))) {
-    console.error(`未找到 ${options.dshHome}/.credentials.yaml —— 请先运行一次 DSH 并配置模型凭证，再执行 setup。`)
+    console.error(`${options.dshHome}/.credentials.yaml not found — run DSH once and configure model credentials before setup.`)
     process.exit(2)
   }
 }
 
 /** ⓪-2 自检表:DSH bin / 工具版本 / 端口占用(缺件即红字退出)。返回 dshBin。 */
 const selfCheck = async (options: SetupOptions): Promise<string> => {
-  console.log('⓪ 自检…')
+  console.log('[0/4] preflight…')
   let dshBin: string
   try {
     dshBin = detectDshBin(options.dshHome, options.dshBin)
   } catch (error) {
-    console.error(`   ❌ DSH 未找到：${(error as Error).message}`)
+    console.error(`   ✗ DSH not found: ${(error as Error).message}`)
     process.exit(2)
   }
   const tools = probeToolVersions(dshBin)
@@ -422,39 +422,39 @@ const selfCheck = async (options: SetupOptions): Promise<string> => {
     const detail =
       version === null
         ? name === 'dsh'
-          ? `未找到 —— ${DSH_INSTALL_COMMAND}`
+          ? `not found — ${DSH_INSTALL_COMMAND}`
           : name === 'pnpm'
-            ? '未安装（依赖安装由 npx 临时拉取 pnpm@9）'
-            : '未安装'
-        : `${version}${name === 'dsh' && !dshCompatible(version) ? `（验证版本 ${COMPAT_DSH_VERSION}）` : ''}`
-    console.log(`   ${ok ? '✅' : '❌'} ${name.padEnd(6)} ${detail}`)
+            ? 'not installed (dependency install pulls pnpm@9 through npx)'
+            : 'not installed'
+        : `${version}${name === 'dsh' && !dshCompatible(version) ? ` (verified version: ${COMPAT_DSH_VERSION})` : ''}`
+    console.log(`   ${ok ? '✓' : '✗'} ${name.padEnd(6)} ${detail}`)
   }
   if (tools.git === null) {
-    console.error('   ❌ 缺少 git：git → 安装后重试。')
+    console.error('   ✗ git is missing: install git and try again.')
     process.exit(2)
   }
   if (!dshCompatible(tools.dsh)) {
     if (options.skipVersionCheck) {
-      console.warn(`   ⚠ DSH 版本与验证版本 ${COMPAT_DSH_VERSION} 不符，已按 --skip-version-check 放行（风险自负）。`)
+      console.warn(`   ! DSH version differs from the verified ${COMPAT_DSH_VERSION}; continuing because of --skip-version-check (at your own risk).`)
     } else {
-      console.error(`   ❌ DSH 版本必须与验证版本一致（${DSH_INSTALL_COMMAND}）；确要强行继续加 --skip-version-check。`)
+      console.error(`   ✗ the DSH version must match the verified pin (${DSH_INSTALL_COMMAND}); add --skip-version-check to force it.`)
       process.exit(2)
     }
   }
   const MANAGER_PORT = 8080
   const portRows: Array<[string, number]> = [
     ['manager', MANAGER_PORT],
-    ['personal 节点', options.personalPort],
-    ['brain 节点', options.brainPort],
+    ['personal node', options.personalPort],
+    ['brain node', options.brainPort],
   ]
   const busyPorts: string[] = []
   for (const [label, port] of portRows) {
     const free = await checkPortFree(port)
-    console.log(`   ${free ? '✅' : '❌'} 端口 ${port}（${label}）${free ? '空闲' : '被占用'}`)
+    console.log(`   ${free ? '✓' : '✗'} port ${port} (${label}) ${free ? 'free' : 'in use'}`)
     if (!free) busyPorts.push(`${port}（${label}）`)
   }
   if (busyPorts.length > 0) {
-    console.error(`   ❌ 端口被占用：${busyPorts.join('、')}。换端口：--ports 3081,3082；manager 端口改 manager.config.yaml 的 listen.port。`)
+    console.error(`   ✗ ports in use: ${busyPorts.join(', ')}. Change them with --ports 3081,3082; the manager port lives in listen.port of manager.config.yaml.`)
     process.exit(2)
   }
   return dshBin
@@ -462,14 +462,14 @@ const selfCheck = async (options: SetupOptions): Promise<string> => {
 
 /** ① 初始化工作区(模板幂等,绝不覆盖已有文件;note-kaka 类只读权威)。 */
 const initWorkspaces = (options: SetupOptions): void => {
-  console.log('① 初始化工作区…')
+  console.log('[1/4] initialising workspaces…')
   // note-kaka 之类已有 RULE.md/CONTEXT.md 的笔记库是「只读权威」（TASKS 阶段二）：
   // 不写入任何模板文件，只确认目录存在——否则 AGENTS.md 会与 RULE.md 打架、
   // 模板文档会污染用户的笔记体系。
   const personalRoot = resolve(options.personalWorkspace)
   if (existsSync(join(personalRoot, 'RULE.md')) || existsSync(join(personalRoot, 'CONTEXT.md'))) {
     mkdirSync(personalRoot, { recursive: true })
-    console.log(`   已接管现有笔记库 ${personalRoot}（检测到 RULE.md/CONTEXT.md，不写入模板文件）`)
+    console.log(`   adopting the existing notes workspace ${personalRoot} (RULE.md/CONTEXT.md found; template files are not written)`)
   } else {
     initWorkspace({ workspacePath: options.personalWorkspace, preset: 'personal' })
   }
@@ -478,7 +478,7 @@ const initWorkspaces = (options: SetupOptions): void => {
 
 /** ② 节点 profile + 凭据 + 依赖安装(失败 = 红字退出,无半成功态)。返回节点 home 映射。 */
 const installNodeProfiles = (options: SetupOptions, dshBin: string): Map<string, string> => {
-  console.log('② 生成节点目录与 profile…')
+  console.log('[2/4] creating node directories and profiles…')
   const specs: ProfileSpec[] = [
     { name: 'ohdsh-personal', port: options.personalPort },
     { name: 'ohdsh-brain', port: options.brainPort },
@@ -487,18 +487,18 @@ const installNodeProfiles = (options: SetupOptions, dshBin: string): Map<string,
     options.gatewayLocal === null
       ? GATEWAY_REF
       : `file:${resolve(options.gatewayLocal).replace(/\\/g, '/')}`
-  console.log(`   gateway 依赖: ${gatewayDep}`)
+  console.log(`   gateway dependency: ${gatewayDep}`)
   const nodeHomes = new Map<string, string>()
   for (const spec of specs) {
     nodeHomes.set(spec.name, join(options.nodesHome, spec.name))
   }
   for (const home of ensureNodeProfiles(options.nodesHome, specs, gatewayDep)) {
-    console.log(`   节点目录已生成: ${home}`)
+    console.log(`   node directory created: ${home}`)
   }
   // 模型凭据：同一用户同一把 key，从主 DSH_HOME 复制（绝不覆盖已有）。
   for (const home of nodeHomes.values()) {
     if (ensureNodeCredentials(options.dshHome, home)) {
-      console.log(`   凭据已复制到 ${home}`)
+      console.log(`   credentials copied to ${home}`)
     }
   }
   console.log(`   DSH bin: ${dshBin}`)
@@ -515,14 +515,14 @@ const installNodeProfiles = (options: SetupOptions, dshBin: string): Map<string,
       } catch (error) {
         failures += 1
         const message = ((error as Error).message ?? String(error)).split('\n')[0] ?? ''
-        console.error(`   npm install 失败于 ${dir}: ${message}`)
-        console.error('   GitHub 不通时改用 --gateway-local 指向本地 dsh-api-gateway 目录重跑 setup --force。')
+        console.error(`   npm install failed in ${dir}: ${message}`)
+        console.error('   If GitHub is unreachable, re-run setup --force with --gateway-local pointing at a local dsh-api-gateway checkout.')
       }
     }
     // 蜂群2计划 P6 回归：节点依赖没装成 = 半成功态——红字退出（发布实测旧代码软失败
     // 继续，节点能起但原生工具悄悄缺）。修复后重跑 setup --force（幂等）。
     if (failures > 0) {
-      console.error('   ❌ 节点依赖安装失败——修复后重跑 setup --force（幂等）。')
+      console.error('   ✗ node dependency install failed — fix it and re-run setup --force (idempotent).')
       process.exit(2)
     }
   }
@@ -533,13 +533,13 @@ const installNodeProfiles = (options: SetupOptions, dshBin: string): Map<string,
 const writeSecrets = async (
   nodeHomes: Map<string, string>,
 ): Promise<{ envValues: Record<string, string>; personalHome: string; brainHome: string }> => {
-  console.log('③ 生成密钥…')
+  console.log('[3/4] generating secrets…')
   // 每个节点自己的 settings.yaml 里一把独立的 gateway 密钥；manager 分 ref 引用。
   // 债务 E10:ensureNodeProfiles 已保证两 home 必在 map,显式收窄替代 `!`
   const personalHome = nodeHomes.get('ohdsh-personal')
   const brainHome = nodeHomes.get('ohdsh-brain')
   if (personalHome === undefined || brainHome === undefined) {
-    console.error('内部错误:节点 home 未登记——ensureNodeProfiles 未按预期执行。')
+    console.error('internal error: node homes were not registered — ensureNodeProfiles did not run as expected.')
     process.exit(2)
   }
   const personalKey = resolveGatewayKey(personalHome, null)
@@ -556,7 +556,7 @@ const writeManagerConfig = async (
   brainHome: string,
   envValues: Record<string, string>,
 ): Promise<void> => {
-  console.log('④ 生成 manager.config.yaml…')
+  console.log('[4/4] writing manager.config.yaml…')
   const managerConfig = buildManagerConfig({
     personalWorkspace: resolve(options.personalWorkspace),
     brainWorkspace: resolve(options.brainWorkspace),
@@ -575,12 +575,12 @@ const writeManagerConfig = async (
 /** 完成打印:下一步指引。 */
 const printDone = (nodeHomes: Map<string, string>): void => {
   console.log('')
-  console.log('完成。下一步：')
-  console.log('  npm run build && npm start     # manager 启动时会自动拉起两个节点')
-  console.log('  （节点状态：npm run nodes -- list；主脑入口在侧栏顶部）')
-  console.log('  每个节点有独立 DSH_HOME（会话/settings/附件互不可见）：')
+  console.log('Done. Next steps:')
+  console.log('  npm run build && npm start     # the manager starts both nodes on boot')
+  console.log('  (node status: npm run nodes -- list; the brain lives at the top of the sidebar)')
+  console.log('  Each node has its own DSH_HOME (sessions/settings/attachments are isolated):')
   for (const [name, home] of nodeHomes) console.log(`    ${name}: ${home}`)
-  console.log(`  访问 http://127.0.0.1:8080（登录用户 ${process.env.MANAGER_USERNAME ?? 'admin'}）`)
+  console.log(`   open http://127.0.0.1:8080 (user ${process.env.MANAGER_USERNAME ?? 'admin'})`)
 }
 
 const main = async (): Promise<void> => {

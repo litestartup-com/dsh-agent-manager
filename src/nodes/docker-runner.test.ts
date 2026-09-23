@@ -264,7 +264,7 @@ test('债务 R10 回归: runToolIo 退出码非 0 抛错并带 stderr', async ()
   const f = fakeToolDocker({ exitCode: 1, frames: [{ type: 2, payload: 'tar: error reading /data\n' }] })
   await assert.rejects(
     () => new DockerRunner({ docker: f.docker }).runToolIo('alpine:3.20', ['tar', 'czf', '-', '-C', '/data', '.'], [], {}),
-    /退出码 1.*tar: error reading \/data/s,
+    /exited with code 1.*tar: error reading \/data/s,
   )
   assert.equal(f.state.removed, 1)
 })

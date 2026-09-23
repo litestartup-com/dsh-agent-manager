@@ -20,10 +20,10 @@ export const seedEmptyWorkspaces = (
     try {
       if (preset !== undefined) {
         initWorkspace({ workspacePath: ws, preset })
-        log?.(`workspace ${agent.id}: seeded preset "${preset}"（空目录，容器路径无 setup 步骤）`)
+        log?.(`workspace ${agent.id}: seeded preset "${preset}" (empty directory; the container path has no setup step)`)
       } else {
         ensureWorkspaceGit(ws, agent.id)
-        log?.(`workspace ${agent.id}: 无匹配模板，已做最小 git 初始化`)
+        log?.(`workspace ${agent.id}: no matching template; did a minimal git init`)
       }
       seeded.push(agent.id)
     } catch (error) {

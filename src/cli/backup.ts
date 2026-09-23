@@ -57,28 +57,28 @@ const main = async (): Promise<void> => {
     try {
       cfg = loadConfig()
     } catch (error) {
-      console.error(`配置不可读，拒绝恢复：${(error as Error).message}`)
+      console.error(`config unreadable, refusing to restore: ${(error as Error).message}`)
       process.exit(1)
     }
     const dbPath = cfg.databasePath
     const dir = join(dirname(dbPath), 'backups')
     if (await probePort(cfg.listen.port)) {
-      console.error('manager 还在运行——先停掉它再恢复（恢复会覆盖数据库文件）。')
+      console.error('the manager is still running — stop it before restoring (a restore overwrites the database file).')
       process.exit(1)
     }
     const startedAt = Date.now()
     try {
       const result = await restoreSnapshot(dbPath, dir, name ?? 'latest', () => false, cfg.sessionSecret)
       if (!result.ok) {
-        console.log(`恢复失败：${result.detail}`)
+        console.log(`restore failed: ${result.detail}`)
         process.exit(1)
       }
       console.log(result.detail)
       // 债务 R4 口径：配置副本仅供人工参考，本 CLI 不自动恢复配置。
-      console.log('注意：backups/current/ 下的配置副本（manager.config.yaml / .env.enc）仅供人工参考，未自动恢复。')
+      console.log('note: the config copies under backups/current/ (manager.config.yaml / .env.enc) are for reference only and were not restored automatically.')
     } catch (error) {
       // 加密快照解密失败（篡改/密钥错）也会走到这里——显性失败，绝不静默。
-      console.error(`恢复失败：${(error as Error).message}`)
+      console.error(`restore failed: ${(error as Error).message}`)
       process.exit(1)
     }
 
@@ -87,14 +87,14 @@ const main = async (): Promise<void> => {
     const { entries, runner } = nodeContext(cfg)
     const dirTargets = entries.filter((e) => e.kind === 'dir').map((e) => e.home)
     if (dirTargets.length > 0) {
-      console.log('将清空并还原以下节点 home 目录：')
+      console.log('these node home directories will be wiped and restored:')
       for (const target of dirTargets) console.log(`  - ${target}`)
       if (process.env.OHDSH_RESTORE_YES !== '1') {
         const rl = createInterface({ input: process.stdin, output: process.stdout })
-        const answer = await rl.question('确认继续？输入 yes 执行，其它任意键取消：')
+        const answer = await rl.question('Continue? Type yes to proceed, anything else cancels: ')
         rl.close()
         if (answer !== 'yes') {
-          console.log('已取消。')
+          console.log('cancelled.')
           process.exit(1)
         }
       }
@@ -102,18 +102,18 @@ const main = async (): Promise<void> => {
     for (const entry of entries) {
       const last = lastNodeHomeArchive(dir, entry.nodeId)
       if (last === null) {
-        console.warn(`节点 ${entry.nodeId}：没有 home 归档，跳过。`)
+        console.warn(`node ${entry.nodeId}: no home archive — skipping.`)
         continue
       }
       try {
         await restoreNodeHome(entry, last.file, dir, cfg.sessionSecret, runner)
-        console.log(`节点 ${entry.nodeId}：home 已从 ${last.file} 恢复。`)
+        console.log(`node ${entry.nodeId}: home restored from ${last.file}.`)
       } catch (error) {
-        console.error(`节点 ${entry.nodeId}：home 恢复失败：${(error as Error).message}`)
+        console.error(`node ${entry.nodeId}: home restore failed: ${(error as Error).message}`)
         process.exit(1)
       }
     }
-    console.log(`恢复完成，耗时 ${((Date.now() - startedAt) / 1000).toFixed(1)}s（RTO 目标 ≤ 5 分钟）。`)
+    console.log(`restore finished in ${((Date.now() - startedAt) / 1000).toFixed(1)}s (RTO target ≤ 5 minutes).`)
     return
   }
 
@@ -127,40 +127,40 @@ const main = async (): Promise<void> => {
     dbPath = cfg.databasePath
     dir = join(dirname(dbPath), 'backups')
   } catch (error) {
-    console.warn(`配置不可读（${(error as Error).message}），路径回退默认值——如使用自定义 database.path，请先修复配置。`)
+    console.warn(`config unreadable (${(error as Error).message}); falling back to default paths — if you use a custom database.path, fix the config first.`)
   }
 
   if (command === 'list') {
     const snaps = listSnapshots(dir)
-    if (snaps.length === 0) console.log('还没有快照。')
+    if (snaps.length === 0) console.log('no snapshots yet.')
     for (const s of snaps) {
       console.log(`${s.file}  ${new Date(s.at).toLocaleString('zh-CN')}  ${(s.bytes / 1024).toFixed(0)} KB`)
     }
     const { entries } = nodeContext(cfg)
     for (const entry of entries) {
       const last = lastNodeHomeArchive(dir, entry.nodeId)
-      console.log(last === null ? `节点 ${entry.nodeId}：还没有 home 归档` : `节点 ${entry.nodeId}：${last.file}  ${new Date(last.at).toLocaleString('zh-CN')}`)
+      console.log(last === null ? `node ${entry.nodeId}: no home archive yet` : `node ${entry.nodeId}: ${last.file}  ${new Date(last.at).toLocaleString('en-US')}`)
     }
     return
   }
 
   // 默认 = backup
   if (!existsSync(dbPath)) {
-    console.error(`没有 ${dbPath}——先启动过 manager 才有东西可备份。`)
+    console.error(`no ${dbPath} — start the manager once before backing anything up.`)
     process.exit(1)
   }
   // 债务 A5/R3：真相源路径从同一次 loadConfig 的结果取（单一来源）。
   const configPath = cfg?.configPath ?? resolve('manager.config.yaml')
   const envPath = cfg?.envPath ?? resolve('.env')
   const result = await backupNow(dbPath, configPath, envPath, dir, cfg?.sessionSecret ?? '')
-  console.log(`快照完成：${result.snapshot.file}（${(result.snapshot.bytes / 1024).toFixed(0)} KB，已加密），配置副本已更新。`)
-  if (result.pruned.length > 0) console.log(`按保留策略清理了 ${result.pruned.length} 个旧快照。`)
+  console.log(`snapshot complete: ${result.snapshot.file} (${(result.snapshot.bytes / 1024).toFixed(0)} KB, encrypted); config copies refreshed.`)
+  if (result.pruned.length > 0) console.log(`pruned ${result.pruned.length} old snapshots by the retention policy.`)
 
   const { entries, runner } = nodeContext(cfg)
   if (cfg !== null && entries.length > 0) {
     const packed = await packNodeHomes(entries, dir, cfg.sessionSecret, runner)
-    if (packed.length === 0) console.log('节点 home：6 小时内已有归档，跳过。')
-    else console.log(`节点 home 归档（加密）：${packed.join(', ')}`)
+    if (packed.length === 0) console.log('node homes: archived within the last 6 hours — skipping.')
+    else console.log(`node home archives (encrypted): ${packed.join(', ')}`)
   } else if (cfg === null) {
     console.warn('节点 home 备份跳过（配置不可读）。')
   }

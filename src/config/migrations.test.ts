@@ -31,7 +31,7 @@ test('P0 回归: migrateConfigIfNeeded 写回 + 备份原文件 + 警告说明 +
   writeFileSync(file, 'listen:\n  host: 127.0.0.1\n  port: 8080\nendpoints:\n  A:\n    url: http://x\n', 'utf8')
   const parsed = { listen: { host: '127.0.0.1', port: 8080 }, endpoints: { A: { url: 'http://x' } } }
   const result = migrateConfigIfNeeded(file, parsed)
-  assert.match(result.warnings[0] ?? '', /迁移到 1/)
+  assert.match(result.warnings[0] ?? '', /migrated from version 0 to 1/)
   assert.match(readFileSync(file, 'utf8'), /config_version: 1/, '写回文件带版本戳')
   assert.ok(existsSync(`${file}.pre-mig.bak`), '原文件备份存在')
   assert.match(readFileSync(`${file}.pre-mig.bak`, 'utf8'), /listen:/, '备份是原文件')
@@ -49,7 +49,7 @@ test('P0 回归: 版本等于 CURRENT = 零副作用；版本超前 = fail-loud'
 
   assert.throws(
     () => migrateConfigIfNeeded(file, { config_version: CURRENT_CONFIG_VERSION + 1 }),
-    /高于当前支持的/,
+    /newer than the supported/,
     '来自未来的配置大声拒绝',
   )
 })

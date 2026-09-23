@@ -22,7 +22,7 @@ import type { NodeSupervisor } from '../nodes/supervisor.js'
 type Command = 'up' | 'down' | 'list' | 'logs'
 
 const usage = (): void => {
-  console.error('用法: npm run nodes -- <list|up|down|logs> [endpoint-id]')
+  console.error('usage: npm run nodes -- <list|up|down|logs> [endpoint-id]')
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
@@ -86,7 +86,7 @@ const main = (): void => {
 
   if (command === 'list') {
     if (supervisors.size === 0) {
-      console.log('(没有被托管的节点：给 endpoint 配 spawn.managed: true 后重启 manager)')
+      console.log('(no managed nodes: set spawn.managed: true on an endpoint and restart the manager)')
       return
     }
     for (const [id, node] of supervisors) {
@@ -96,7 +96,7 @@ const main = (): void => {
       const pidFile = pidFileOf(spec?.logFile ?? null)
       if (node.current.state === 'cold' && pidFile !== null && existsSync(pidFile)) {
         const pid = readFileSync(pidFile, 'utf8').trim()
-        console.log(`${id.padEnd(12)} detached   pid=${pid === '' ? '-' : pid}`.padEnd(36) + '(按 pidfile 推断)')
+        console.log(`${id.padEnd(12)} detached   pid=${pid === '' ? '-' : pid}`.padEnd(36) + '(inferred from pidfile)')
         continue
       }
       printStatus(node)
@@ -110,12 +110,12 @@ const main = (): void => {
   }
   const node = supervisors.get(target)
   if (node === undefined) {
-    console.error(`端点 "${target}" 不存在或未托管（配置里没有 spawn.managed: true）。`)
+    console.error(`endpoint "${target}" does not exist or is not managed (no spawn.managed: true in the config).`)
     process.exit(2)
   }
   const endpoint = config.endpoints[target]
   if (endpoint === undefined || endpoint.spawn === null) {
-    console.error(`端点 "${target}" 没有 spawn 配置。`)
+    console.error(`endpoint "${target}" has no spawn config.`)
     process.exit(2)
   }
   const spec = endpoint.spawn
@@ -124,15 +124,15 @@ const main = (): void => {
     if (command === 'up') {
       const pidFile = pidFileOf(spec.logFile)
       if (pidFile !== null && existsSync(pidFile)) {
-        console.error(`节点 "${target}" 看起来已在跑（pidfile 存在：${pidFile}）。先执行 down 再 up。`)
+        console.error(`node "${target}" looks like it is already running (pidfile: ${pidFile}). Run down before up.`)
         process.exit(2)
       }
       // managed 且无 logFile 的节点是「manager 常驻托管」形态：CLI 拉起的子进程
       // 随本进程退出变孤儿，manager 进程的状态机也不知情（侧栏仍是 offline）。
       // 正确姿势是重启 manager 由其拉起；CLI 只适合 detached + log_file 的独立节点。
       if (spec.logFile === null) {
-        console.log(`提示：${target} 由 manager 托管（无 log_file）。CLI 拉起的进程不受 manager 跟踪，`)
-        console.log('     侧栏状态不会同步——建议重启 manager 让它自己拉起；本条命令仅作临时调试用。')
+        console.log(`note: ${target} is managed by the manager (no log_file). A process started from the CLI is not tracked by the manager,`)
+        console.log('     so the sidebar will not reflect it — restart the manager and let it start the node; this command is for temporary debugging.')
       }
       node.start(spec)
       const ok = await waitSettled(node, 'up', spec.readyTimeoutMs + 15_000)
@@ -146,7 +146,7 @@ const main = (): void => {
         if (killByPidFile(pidFile)) {
           console.log(`node ${target}: killed (pidfile ${pidFile})`)
         } else {
-          console.error(`node ${target}: 无法按 pidfile 杀进程`)
+          console.error(`node ${target}: could not kill the process from its pidfile`)
           process.exit(1)
         }
       } else {
@@ -159,7 +159,7 @@ const main = (): void => {
       const buffered = node.logs()
       if (buffered !== '') process.stdout.write(buffered)
       else if (spec.logFile !== null && existsSync(spec.logFile)) process.stdout.write(readFileSync(spec.logFile, 'utf8'))
-      else console.log('(无日志：节点未运行或未配置 log_file)')
+      else console.log('(no logs: the node is not running, or has no log_file configured)')
     }
   })()
 }

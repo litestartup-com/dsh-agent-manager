@@ -70,7 +70,7 @@ export class DockerRunner {
    */
   async start(spec: ResolvedSpawnSpec, nodeId: string, env: Record<string, string>): Promise<string> {
     const d = spec.docker
-    if (d === null) throw new Error('docker runner 需要 docker 段')
+    if (d === null) throw new Error('a docker runner needs a docker section')
     const name = d.containerName ?? `ohdsh-node-${nodeId}`
 
     const leftovers = await this.docker.listContainers({ all: true, filters: { name: [name] } }).catch(() => [])
@@ -238,7 +238,7 @@ export class DockerRunner {
       await Promise.all([streamDone, stdoutDone, stdinDone])
       if (waited.StatusCode !== 0) {
         throw new Error(
-          `工具容器退出码 ${String(waited.StatusCode)}：${cmd.join(' ')}${stderrText.trim() === '' ? '' : `\n${stderrText.trim()}`}`,
+          `tool container exited with code ${String(waited.StatusCode)}: ${cmd.join(' ')}${stderrText.trim() === '' ? '' : `\n${stderrText.trim()}`}`,
         )
       }
     } finally {

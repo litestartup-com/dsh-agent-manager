@@ -426,7 +426,7 @@ test('P0 回归: loadConfig 自动迁移旧配置——迁移警告可见、文�
     const file = join(dir, 'config.yaml')
     writeFileSync(file, stringify(baseConfig()), 'utf8')
     const cfg = loadConfig(file)
-    assert.ok(cfg.warnings.some((w) => w.includes('迁移到 1')), '迁移说明进 config.warnings（boot 日志可见）')
+    assert.ok(cfg.warnings.some((w) => w.includes('migrated from version 0 to 1')), '迁移说明进 config.warnings（boot 日志可见）')
     assert.match(readFileSync(file, 'utf8'), /config_version: 1/, '写回版本戳')
     assert.ok(existsSync(`${file}.pre-mig.bak`), '原文件备份')
   } finally {
@@ -435,5 +435,5 @@ test('P0 回归: loadConfig 自动迁移旧配置——迁移警告可见、文�
 })
 
 test('P0 回归: 未来版本配置 fail-loud（配置来自更新版 manager，拒绝猜测）', () => {
-  assert.throws(() => loadFrom(baseConfig({ config_version: 99 })), /高于当前支持的/)
+  assert.throws(() => loadFrom(baseConfig({ config_version: 99 })), /newer than the supported/)
 })

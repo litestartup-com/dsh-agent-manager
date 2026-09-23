@@ -53,18 +53,18 @@ export const installWindows = (rootDir: string): { ok: boolean; detail: string }
       '/sc', 'onlogon',
       '/rl', 'limited',
     ], { stdio: ['ignore', 'pipe', 'pipe'] })
-    return { ok: true, detail: `任务计划 OhdshManager 已创建（登录时拉起 ${script}）。` }
+    return { ok: true, detail: `scheduled task OhdshManager created (starts ${script} at sign-in).` }
   } catch (error) {
-    return { ok: false, detail: `schtasks 失败：${(error as Error).message.split('\n')[0]}` }
+    return { ok: false, detail: `schtasks failed: ${(error as Error).message.split('\n')[0]}` }
   }
 }
 
 export const uninstallWindows = (): { ok: boolean; detail: string } => {
   try {
     execFileSync('schtasks', ['/delete', '/f', '/tn', 'OhdshManager'], { stdio: ['ignore', 'pipe', 'pipe'] })
-    return { ok: true, detail: '任务计划 OhdshManager 已删除。' }
+    return { ok: true, detail: 'scheduled task OhdshManager deleted.' }
   } catch (error) {
-    return { ok: false, detail: `schtasks 失败：${(error as Error).message.split('\n')[0]}` }
+    return { ok: false, detail: `schtasks failed: ${(error as Error).message.split('\n')[0]}` }
   }
 }
 
@@ -72,9 +72,9 @@ export const statusWindows = (): string => {
   try {
     return execFileSync('schtasks', ['/query', '/tn', 'OhdshManager'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
       .split(/\r?\n/)
-      .find((l) => l.includes('OhdshManager')) ?? '未找到任务计划 OhdshManager。'
+      .find((l) => l.includes('OhdshManager')) ?? 'scheduled task OhdshManager not found.'
   } catch {
-    return '未找到任务计划 OhdshManager。'
+    return 'scheduled task OhdshManager not found.'
   }
 }
 
@@ -86,18 +86,18 @@ export const installLinux = (rootDir: string, node: string): { ok: boolean; deta
     writeFileSync(unit, systemdUnit(rootDir, node), 'utf8')
     execFileSync('systemctl', ['--user', 'daemon-reload'], { stdio: 'ignore' })
     execFileSync('systemctl', ['--user', 'enable', '--now', 'ohdsh.service'], { stdio: 'ignore' })
-    return { ok: true, detail: `systemd user unit 已启用：${unit}（systemctl --user status ohdsh）。` }
+    return { ok: true, detail: `systemd user unit enabled: ${unit} (systemctl --user status ohdsh).` }
   } catch (error) {
-    return { ok: false, detail: `systemctl 失败：${(error as Error).message.split('\n')[0]}` }
+    return { ok: false, detail: `systemctl failed: ${(error as Error).message.split('\n')[0]}` }
   }
 }
 
 export const uninstallLinux = (): { ok: boolean; detail: string } => {
   try {
     execFileSync('systemctl', ['--user', 'disable', '--now', 'ohdsh.service'], { stdio: 'ignore' })
-    return { ok: true, detail: 'systemd user unit 已停用。' }
+    return { ok: true, detail: 'systemd user unit disabled.' }
   } catch (error) {
-    return { ok: false, detail: `systemctl 失败：${(error as Error).message.split('\n')[0]}` }
+    return { ok: false, detail: `systemctl failed: ${(error as Error).message.split('\n')[0]}` }
   }
 }
 
@@ -105,7 +105,7 @@ export const statusLinux = (): string => {
   try {
     return execFileSync('systemctl', ['--user', 'is-active', 'ohdsh.service'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
   } catch {
-    return 'inactive（未安装或未运行）'
+    return 'inactive (not installed or not running)'
   }
 }
 

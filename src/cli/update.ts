@@ -40,7 +40,7 @@ export const updateManager = async (deps: UpdateDeps, rootDir: string): Promise<
   //    不该出现在这里；真出现说明有事）。
   const dirty = deps.git(['status', '--porcelain'], rootDir).trim()
   if (dirty !== '') {
-    return { ok: false, detail: `工作树有未提交的改动，先提交或还原再更新。\n${dirty.split('\n').slice(0, 5).join('\n')}` }
+    return { ok: false, detail: `the working tree has uncommitted changes — commit or revert them before updating.\n${dirty.split('\n').slice(0, 5).join('\n')}` }
   }
 
   const oldHead = deps.git(['rev-parse', 'HEAD'], rootDir).trim()
@@ -49,24 +49,24 @@ export const updateManager = async (deps: UpdateDeps, rootDir: string): Promise<
     snapshot = await deps.backup()
     deps.log(`backup: ${snapshot}`)
   } catch (error) {
-    return { ok: false, detail: `更新前备份失败，中止（数据库未动）：${(error as Error).message}` }
+    return { ok: false, detail: `the pre-update backup failed, aborting (the database is untouched): ${(error as Error).message}` }
   }
 
   try {
     deps.git(['fetch', 'origin'], rootDir)
   } catch (error) {
-    return { ok: false, detail: `git fetch 失败（远程不可达？）：${(error as Error).message.split('\n')[0]}` }
+    return { ok: false, detail: `git fetch failed (remote unreachable?): ${(error as Error).message.split('\n')[0]}` }
   }
 
   try {
     deps.git(['pull', '--ff-only'], rootDir)
   } catch (error) {
-    return { ok: false, detail: `git pull 失败（有分叉需要人工处理）：${(error as Error).message.split('\n')[0]}` }
+    return { ok: false, detail: `git pull failed (diverged — needs a human): ${(error as Error).message.split('\n')[0]}` }
   }
 
   const newHead = deps.git(['rev-parse', 'HEAD'], rootDir).trim()
   if (newHead === oldHead) {
-    return { ok: true, detail: '已经是最新，无需更新。', from: oldHead, to: newHead, snapshot }
+    return { ok: true, detail: 'already up to date.', from: oldHead, to: newHead, snapshot }
   }
 
   const build = (): void => {
@@ -83,7 +83,7 @@ export const updateManager = async (deps: UpdateDeps, rootDir: string): Promise<
     } catch {
       // 回滚构建也失败：代码已还原，dist 可能不匹配——如实报告。
     }
-    return { ok: false, detail: `构建失败，已回滚代码到 ${oldHead.slice(0, 8)}（dist 可能需手动 npm run build）。${(error as Error).message.split('\n')[0]}`, from: oldHead, to: newHead, snapshot }
+    return { ok: false, detail: `the build failed; code rolled back to ${oldHead.slice(0, 8)} (dist may need a manual npm run build). ${(error as Error).message.split('\n')[0]}`, from: oldHead, to: newHead, snapshot }
   }
 
   // 探活：短暂拉起一个实例，端口通了才算数。
@@ -92,7 +92,7 @@ export const updateManager = async (deps: UpdateDeps, rootDir: string): Promise<
   instance.stop()
 
   if (alive) {
-    return { ok: true, detail: `更新完成：${oldHead.slice(0, 8)} → ${newHead.slice(0, 8)}。重启 manager（服务或手动）即生效。`, from: oldHead, to: newHead, snapshot }
+    return { ok: true, detail: `update complete: ${oldHead.slice(0, 8)} → ${newHead.slice(0, 8)}. Restart the manager (service or manual) to apply it.`, from: oldHead, to: newHead, snapshot }
   }
 
   deps.git(['reset', '--hard', oldHead], rootDir)
@@ -101,7 +101,7 @@ export const updateManager = async (deps: UpdateDeps, rootDir: string): Promise<
   } catch {
     // 同上：代码已还原，dist 可能不匹配。
   }
-  return { ok: false, detail: `新版 30 秒内探活失败，已回滚到 ${oldHead.slice(0, 8)} 并重建。`, from: oldHead, to: newHead, snapshot }
+  return { ok: false, detail: `the new version failed its 30-second health probe; rolled back to ${oldHead.slice(0, 8)} and rebuilt.`, from: oldHead, to: newHead, snapshot }
 }
 
 /** 真实依赖（CLI 直跑用）。 */
@@ -174,7 +174,7 @@ const main = async (): Promise<void> => {
 
   // manager 正在跑时不能更新（探活实例会撞端口，配置也可能被改写）。
   if (await deps.probe(8080, 1_500)) {
-    console.error('manager 正在运行——先停掉它（npm run service -- uninstall 或 Ctrl+C）再更新。')
+    console.error('the manager is running — stop it first (npm run service -- uninstall, or Ctrl+C) and then update.')
     process.exit(1)
   }
 

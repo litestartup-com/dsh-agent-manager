@@ -42,7 +42,7 @@ const applyChain = (doc: Record<string, unknown>, from: number): { doc: Record<s
   while (version < CURRENT_CONFIG_VERSION) {
     const step = CONFIG_MIGRATIONS.find((m) => m.from === version)
     if (step === undefined) {
-      throw new Error(`配置迁移链断裂：缺少 ${version} → ${version + 1} 的迁移（CURRENT_CONFIG_VERSION=${CURRENT_CONFIG_VERSION}）`)
+      throw new Error(`config migration chain is broken: no migration for ${version} → ${version + 1} (CURRENT_CONFIG_VERSION=${CURRENT_CONFIG_VERSION})`)
     }
     current = step.up(current)
     version = step.to
@@ -62,7 +62,7 @@ export interface MigrateResult {
 export const migrateConfigIfNeeded = (configPath: string, raw: unknown): MigrateResult => {
   const version = versionOf(raw)
   if (version > CURRENT_CONFIG_VERSION) {
-    throw new Error(`配置版本 ${version} 高于当前支持的 ${CURRENT_CONFIG_VERSION}——这是更新版 manager 生成的配置，请先升级 manager`)
+    throw new Error(`config version ${version} is newer than the supported ${CURRENT_CONFIG_VERSION} — it was written by a newer manager; upgrade the manager first`)
   }
   if (version === CURRENT_CONFIG_VERSION) return { doc: raw as Record<string, unknown>, warnings: [] }
 
@@ -73,5 +73,5 @@ export const migrateConfigIfNeeded = (configPath: string, raw: unknown): Migrate
   const tmp = `${configPath}.tmp`
   writeFileSync(tmp, stringifyYaml(doc), 'utf8')
   renameSync(tmp, configPath)
-  return { doc, warnings: [`配置已从版本 ${version} 迁移到 ${to}（原文件备份于 ${bak}，注释不保留）`] }
+  return { doc, warnings: [`config migrated from version ${version} to ${to} (original backed up at ${bak}; comments are not preserved)`] }
 }
