@@ -628,6 +628,14 @@ code {
   text-decoration: none;
   transition: background-color var(--motion);
 }
+
+/* 主导航容器（DAC v1.0.0）：agent 树之下、端点状态之上，常驻两项。 */
+.side-links {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+}
 .side-link:hover {
   background: var(--side-hover);
   color: var(--text);

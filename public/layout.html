@@ -243,6 +243,11 @@
           <div class="skeleton w40"></div>
         </nav>
 
+        <!-- 主导航（DAC v1.0.0）：节点 / 任务常驻侧栏，其余（技能/已归档/花费/
+             审计/改密）收进左下角 ⋮ 弹窗。shell.js 填充，与 ⋮ 菜单共用同一份
+             链接语言（data-nav 决定高亮）。 -->
+        <nav id="side-primary" class="side-links" aria-label="主导航"></nav>
+
         <!-- 底部菜单（节点/技能/定时/归档/花费/审计/改密/退出登录）已收进
              左下角 ⋮ 弹窗（shell.js 动态构建，锚定 side-more 按钮向上打开）。
              侧栏本体只留 agent 树 + 端点状态，任务区最大。 -->

@@ -1084,14 +1084,25 @@ notifyPanel.hidden = true
 document.body.appendChild(notifyPanel)
 
 // ---------------------------------------------------------------------------
-// ⋮ 溢出菜单：底部导航（节点→改密）+ 退出登录（原 side-links 收进弹窗）。
-// 与通知面板同一浮层语言：body 挂载 + fixed rect 定位（抽屉/rail 不裁剪）。
+// 导航分层（DAC v1.0.0）：节点 / 任务 常驻侧栏；技能 / 已归档 / 花费 / 审计 /
+// 改密 收进左下角 ⋮ 弹窗（+ 品牌页脚 + 退出登录）。九个平级入口会让人把侧栏
+// 当文档读，而每天真正用的只有两个。
+// ⋮ 菜单与通知面板同一浮层语言：body 挂载 + fixed rect 定位（抽屉/rail 不裁剪）。
 // markActive() 在下方执行，菜单必须在它之前入 DOM 才能吃到高亮。
 // ---------------------------------------------------------------------------
 
-const MORE_NAV = [
+const navLinkHtml = (item) => `<a class="side-link"${item.id === undefined ? '' : ` id="${item.id}"`} href="${item.href}" data-nav="${item.nav}">
+      <svg width="14" height="14" aria-hidden="true"><use href="#i-${item.icon}" /></svg>
+      <span class="grow">${item.label}</span>
+      ${item.hint === null ? '' : `<span id="${item.hint}" class="muted small"></span>`}
+    </a>`
+
+const PRIMARY_NAV = [
   { href: '/nodes', nav: 'nodes', icon: 'server', label: '节点', hint: 'nodes-hint', id: 'nodes-link' },
   { href: '/runs', nav: 'runs', icon: 'history', label: '任务', hint: null },
+]
+
+const MORE_NAV = [
   { href: '/skills', nav: 'skills', icon: 'spark', label: '技能', hint: null },
   { href: '/archive', nav: 'archive', icon: 'archive', label: '已归档', hint: 'archive-hint' },
   { href: '/spend', nav: 'spend', icon: 'coin', label: '花费', hint: 'spend-hint' },
@@ -1099,18 +1110,15 @@ const MORE_NAV = [
   { href: '/password', nav: 'password', icon: 'pencil', label: '改密', hint: null },
 ]
 
+const primaryNav = $('side-primary')
+if (primaryNav !== null) primaryNav.innerHTML = PRIMARY_NAV.map(navLinkHtml).join('')
+
 const moreMenu = document.createElement('div')
 moreMenu.id = 'side-more-menu'
 moreMenu.className = 'side-more-menu'
 moreMenu.setAttribute('aria-label', '更多功能')
 moreMenu.hidden = true
-moreMenu.innerHTML = `${MORE_NAV.map(
-  (item) => `<a class="side-link"${item.id === undefined ? '' : ` id="${item.id}"`} href="${item.href}" data-nav="${item.nav}">
-      <svg width="14" height="14" aria-hidden="true"><use href="#i-${item.icon}" /></svg>
-      <span class="grow">${item.label}</span>
-      ${item.hint === null ? '' : `<span id="${item.hint}" class="muted small"></span>`}
-    </a>`,
-).join('')}
+moreMenu.innerHTML = `${MORE_NAV.map(navLinkHtml).join('')}
   <div class="more-divider"></div>
   <!-- 品牌页脚（DAC v1.0.0）：全称 + 口号 + 仓库入口 + 运行时版本（版本号
        由 shell 的 /api/status 轮询回填，不在页面里写死）。 -->
