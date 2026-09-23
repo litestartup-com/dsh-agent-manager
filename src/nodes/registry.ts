@@ -25,6 +25,9 @@ export interface NodeRegistryDeps {
   agentLog?: (agentId: string, nodeId: string) => string
   /** 能力四（M1-6）：fleet.md 内容生成（派生下发载荷）。 */
   fleetDoc?: () => string
+  /** 舰队 M3：agent 节点开锁全量沙箱（绑定工作区的 sandboxMode=danger-full-access）
+   * —— spawn 载荷带 ALLOW_FULL_ACCESS，agent 写进 facade settings（allowFullAccess）。 */
+  agentFullAccess?: boolean
 }
 
 /** 蜂群 P5.5：单节点监督器构造（boot 全量构建与运行时热加载共用）。 */
@@ -54,8 +57,10 @@ export const makeSupervisor = (endpoint: ResolvedEndpoint, deps: NodeRegistryDep
     ...(deps.fleetDoc === undefined ? {} : { fleetDoc: deps.fleetDoc }),
     // 能力四（M1-6）：agent 节点的 spawn 载荷附加环境——GW_KEY 走 gateway 沙箱
     // 密钥（agent 写 DSH_HOME/settings.yaml），模型 key 走继承环境。
+    // 舰队 M3：agentFullAccess = ops 节点开锁信号（agent 写 facade allowFullAccess）。
     agentEnv: () => ({
       GW_KEY: endpoint.sandboxKey,
+      ...(deps.agentFullAccess === true ? { ALLOW_FULL_ACCESS: 'true' } : {}),
       ...(process.env.DEEPSEEK_API_KEY !== undefined && process.env.DEEPSEEK_API_KEY !== ''
         ? { DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY }
         : {}),
@@ -78,7 +83,11 @@ export const buildNodeSupervisors = (config: AppConfig, deps: NodeRegistryDeps):
   for (const endpoint of Object.values(config.endpoints)) {
     // 蜂群2计划 P2b：docker runner 的节点也是托管节点（manager 经 socket 拉容器）
     if (endpoint.spawn === null || !endpoint.spawn.managed) continue
-    map.set(endpoint.id, makeSupervisor(endpoint, deps))
+    // 舰队 M3：该端点绑定的工作区里任一是 danger-full-access = 开锁信号
+    const fullAccess = Object.values(config.agents).some(
+      (a) => a.endpoint === endpoint.id && a.sandboxMode === 'danger-full-access',
+    )
+    map.set(endpoint.id, makeSupervisor(endpoint, { ...deps, ...(fullAccess ? { agentFullAccess: true } : {}) }))
   }
   return map
 }

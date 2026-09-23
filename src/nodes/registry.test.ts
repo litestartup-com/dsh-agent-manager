@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { buildNodeSupervisors, makeSupervisor } from './registry.js'
 import { NodeSupervisor } from './supervisor.js'
 import { FakeSessionDriver } from '../session-driver/fake.js'
-import type { AppConfig, ResolvedEndpoint } from '../config.js'
+import type { AppConfig, ResolvedEndpoint, ResolvedSpawnSpec } from '../config.js'
 
 /**
  * 债务 C2:nodes/registry(监督器构造与托管过滤)此前零覆盖。
@@ -59,4 +59,46 @@ test('债务 C2: buildNodeSupervisors 只收托管节点(外管不收;process/do
   assert.equal(map.size, 2, '外管(spawn null)不收;两个 managed 各一')
   assert.ok(map.has('B') && map.has('C'))
   assert.ok(!map.has('A'), '未托管端点绝不入册')
+})
+
+test('舰队 M3 回归: agentFullAccess=true 时 spawn 载荷带 ALLOW_FULL_ACCESS（ops 节点开锁信号）', () => {
+  const up = new FakeSessionDriver('A', { frames: [], probeVersion: '0.1.5-rc.2' })
+  const enqueued: Array<{ type: string; payload: Record<string, unknown> }> = []
+  const agentSpawn = { ...managedProcess, runner: 'agent', host: 'agent-1' } as ResolvedSpawnSpec
+  const s = makeSupervisor(endpointFor('A', 'apiproxy', agentSpawn), {
+    upstream: () => up,
+    gateway: () => undefined,
+    agentFullAccess: true,
+    agentCommand: (_a, type, payload) => {
+      enqueued.push({ type, payload: payload as Record<string, unknown> })
+      return enqueued.length
+    },
+    agentResult: () => () => {},
+  })
+  s.start(agentSpawn)
+  const env = enqueued[0]?.payload.env as Record<string, string> | undefined
+  assert.equal(env?.ALLOW_FULL_ACCESS, 'true', 'danger-full-access 节点 → agent 收到开锁信号（写 settings 用）')
+  assert.equal(env?.GW_KEY, 'apigw-test-key', 'GW_KEY 照旧注入')
+
+  const plain = makeSupervisor(endpointFor('B', 'apiproxy', agentSpawn), {
+    upstream: () => up,
+    gateway: () => undefined,
+    agentCommand: () => 1,
+    agentResult: () => () => {},
+  })
+  const enqueued2: Array<{ payload: Record<string, unknown> }> = []
+  const s2 = makeSupervisor(endpointFor('B', 'apiproxy', agentSpawn), {
+    upstream: () => up,
+    gateway: () => undefined,
+    agentCommand: (_a, _t, payload) => {
+      enqueued2.push({ payload: payload as Record<string, unknown> })
+      return 1
+    },
+    agentResult: () => () => {},
+  })
+  s2.start(agentSpawn)
+  const env2 = enqueued2[0]?.payload.env as Record<string, string> | undefined
+  assert.equal(env2?.ALLOW_FULL_ACCESS, undefined, '普通节点不带开锁信号')
+  plain.stop()
+  s.stop()
 })

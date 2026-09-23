@@ -574,6 +574,8 @@ export const registerProvisionRoutes = (
           ...(deps.agentResult === undefined ? {} : { agentResult: deps.agentResult }),
           ...(deps.agentLog === undefined ? {} : { agentLog: deps.agentLog }),
           ...(deps.fleetDoc === undefined ? {} : { fleetDoc: deps.fleetDoc }),
+          // 舰队 M3：ops 节点（danger-full-access）→ spawn 载荷带开锁信号
+          ...(body.agent?.sandboxMode === 'danger-full-access' ? { agentFullAccess: true } : {}),
         })
         supervisors.set(body.name, supervisor)
         supervisorStarted = supervisor

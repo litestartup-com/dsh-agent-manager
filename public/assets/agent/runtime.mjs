@@ -274,8 +274,11 @@ export class AgentRuntime {
     this.fs.mkdir(dshHome)
     // 钥匙：spawn 载荷 env 里的 GW_KEY → DSH_HOME/settings.yaml（facade 只读
     // settings；容器 entrypoint 同款派生，单向下发）。
+    // 舰队 M3：ALLOW_FULL_ACCESS=true（ops 节点）→ facade allowFullAccess 开锁
+    // （危险操作仍需 approval 卡片放行，facade 侧风险告警日志）。
     if (typeof payload.env?.GW_KEY === 'string' && payload.env.GW_KEY !== '') {
-      this.fs.writeFile(`${dshHome}/settings.yaml`, `ohdsh-api-facade:\n  apiKeys: ['${payload.env.GW_KEY}']\n`)
+      const fullAccess = payload.env.ALLOW_FULL_ACCESS === 'true' ? '\n  allowFullAccess: true' : ''
+      this.fs.writeFile(`${dshHome}/settings.yaml`, `ohdsh-api-facade:\n  apiKeys: ['${payload.env.GW_KEY}']${fullAccess}\n`)
     }
     try {
       const version = typeof payload.dshVersion === 'string' && payload.dshVersion !== '' ? payload.dshVersion : '0.1.2-rc.1'

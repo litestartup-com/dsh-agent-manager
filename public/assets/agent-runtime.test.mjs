@@ -203,6 +203,27 @@ test('能力四 M2 回归: 文件未变 + 安装完成标记 = 跳过 npm 重装
   assert.equal(b.proc.profileInstalls.length, 1, '无完成标记必须重装')
 })
 
+test('舰队 M3 回归: ALLOW_FULL_ACCESS=true 时 settings.yaml 带 facade allowFullAccess 开锁', async () => {
+  const a = makeRuntime()
+  await a.runtime.registerOnce()
+  a.transport.commandBatches.push([
+    { id: 61, type: 'node.spawn', payload: { nodeId: 'ops33', args: [], env: { DSH_HOME: '/agent/nodes/ops33', GW_KEY: 'apigw-k', ALLOW_FULL_ACCESS: 'true' }, dshVersion: '0.1.5-rc.2', profile: { dir: 'profiles/ops33', files: { 'package.json': '{}' } } } },
+  ])
+  await a.runtime.loopOnce()
+  const settings = a.fs.store.get('/agent/nodes/ops33/settings.yaml') ?? ''
+  assert.match(settings, /apiKeys: \['apigw-k'\]/, 'GW_KEY 照旧写入')
+  assert.match(settings, /allowFullAccess: true/, 'ops 节点开锁字段写入')
+
+  const b = makeRuntime()
+  await b.runtime.registerOnce()
+  b.transport.commandBatches.push([
+    { id: 62, type: 'node.spawn', payload: { nodeId: 'ops34', args: [], env: { DSH_HOME: '/agent/nodes/ops34', GW_KEY: 'apigw-k' }, dshVersion: '0.1.5-rc.2', profile: { dir: 'profiles/ops34', files: { 'package.json': '{}' } } } },
+  ])
+  await b.runtime.loopOnce()
+  const plain = b.fs.store.get('/agent/nodes/ops34/settings.yaml') ?? ''
+  assert.ok(!plain.includes('allowFullAccess'), '普通节点不开锁')
+})
+
 test('能力四 M4-4: 心跳指标——首轮携带主机指标，60s 窗口内不重报', async () => {
   const a = makeRuntime()
   await a.runtime.registerOnce()
