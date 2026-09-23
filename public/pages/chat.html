@@ -30,8 +30,8 @@
       id="chat-input"
       class="composer-input"
       rows="1"
-      placeholder="说点什么…"
-      aria-label="消息"
+      placeholder="{{t:chat.composer.placeholder}}"
+      aria-label="{{t:chat.composer.messageLabel}}"
       disabled
     ></textarea>
   </div>
@@ -53,41 +53,41 @@
         <div class="composer-modes" id="composer-modes" hidden>
           <span class="composer-select-wrap">
             <button type="button" id="composer-access" class="composer-select" aria-haspopup="listbox" aria-expanded="false" disabled>
-              <span class="composer-select-label">只读</span>
+              <span class="composer-select-label">{{t:chat.access.readonly}}</span>
             </button>
           </span>
         </div>
       <span class="composer-select-wrap">
         <button type="button" id="composer-model" class="composer-select composer-model" aria-haspopup="listbox" aria-expanded="false" disabled>
-          <span class="composer-select-label">默认模型</span>
+          <span class="composer-select-label">{{t:chat.model.default}}</span>
         </button>
       </span>
       <span class="composer-select-wrap">
         <button type="button" id="composer-effort" class="composer-select composer-effort" aria-haspopup="listbox" aria-expanded="false" disabled hidden>
-          <span class="composer-select-label">默认推理</span>
+          <span class="composer-select-label">{{t:chat.reasoning.default}}</span>
         </button>
       </span>
       <span id="composer-context-wrap" class="composer-context-wrap" hidden>
-        <button id="composer-context" class="composer-context" type="button" aria-label="上下文使用率" aria-expanded="false"></button>
-        <span id="composer-context-popover" class="composer-context-popover" role="dialog" aria-label="上下文使用率" hidden>
-          <span class="composer-context-head"><strong>上下文</strong><span id="composer-context-summary"></span></span>
+        <button id="composer-context" class="composer-context" type="button" aria-label="{{t:chat.context.label}}" aria-expanded="false"></button>
+        <span id="composer-context-popover" class="composer-context-popover" role="dialog" aria-label="{{t:chat.context.label}}" hidden>
+          <span class="composer-context-head"><strong>{{t:chat.context.title}}</strong><span id="composer-context-summary"></span></span>
           <span class="composer-context-bar"><i id="composer-context-system"></i><i id="composer-context-tools"></i><i id="composer-context-messages"></i></span>
           <span id="composer-context-breakdown" class="composer-context-breakdown" hidden></span>
         </span>
       </span>
       </div>
-      <button id="composer-settings" class="composer-settings" type="button" aria-label="聊天设置" title="聊天设置" aria-expanded="false" hidden>
+      <button id="composer-settings" class="composer-settings" type="button" aria-label="{{t:chat.settings}}" title="{{t:chat.settings}}" aria-expanded="false" hidden>
         <svg width="16" height="16" aria-hidden="true"><use href="#i-more-v" /></svg>
       </button>
       <span id="composer-hint" class="composer-hint"></span>
-      <button id="chat-queue" class="composer-queue" type="button" aria-label="排队发送" title="排队发送" hidden>
+      <button id="chat-queue" class="composer-queue" type="button" aria-label="{{t:chat.queueSend}}" title="{{t:chat.queueSend}}" hidden>
         <svg width="16" height="16" aria-hidden="true"><use href="#i-up" /></svg>
       </button>
       <span class="composer-slot">
-        <button id="chat-stop" class="btn-quiet composer-send" type="button" aria-label="停止生成" title="停止生成" hidden>
+        <button id="chat-stop" class="btn-quiet composer-send" type="button" aria-label="{{t:chat.stopGenerating}}" title="{{t:chat.stopGenerating}}" hidden>
           <svg width="16" height="16" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor" /></svg>
         </button>
-        <button id="chat-send" class="btn-primary composer-send" type="submit" disabled aria-label="发送">
+        <button id="chat-send" class="btn-primary composer-send" type="submit" disabled aria-label="{{t:chat.composer.send}}">
           <svg width="16" height="16" aria-hidden="true"><use href="#i-up" /></svg>
         </button>
       </span>

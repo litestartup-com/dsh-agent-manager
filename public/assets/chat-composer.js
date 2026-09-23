@@ -4,7 +4,9 @@
 // 纯函数(modelKey/shortPath/accessOptions/sendPolicy)独立单测;
 // makeComposer 工厂注入 el/refs/deps,与 render/wire 层对称。
 
-import { esc, icon, apiFetch } from './ui.js'
+import { esc, icon, apiFetch, t, loadI18n } from './ui.js'
+
+await loadI18n()
 
 // ---------------------------------------------------------------------------
 // 自绘下拉（模型 / 访问模式 / 推理深度）——原生 <option> 弹出列表浏览器
@@ -138,14 +140,14 @@ export const shortPath = (path) => {
 export const accessOptions = (caps) =>
   caps.fullAccess === true
     ? [
-        { value: 'read-only', label: '只读' },
-        { value: 'workspace-write', label: '工作区可写' },
-        { value: 'danger-full-access', label: '全量访问', danger: true },
+        { value: 'read-only', label: t('chat.access.readonly') },
+        { value: 'workspace-write', label: t('chat.access.workspaceWrite') },
+        { value: 'danger-full-access', label: t('chat.access.full'), danger: true },
       ]
     : [
-        { value: 'read-only', label: '只读' },
-        { value: 'workspace-write', label: '工作区可写' },
-        { value: 'danger-full-access', label: '全量访问 · 节点未开启', danger: true, locked: true },
+        { value: 'read-only', label: t('chat.access.readonly') },
+        { value: 'workspace-write', label: t('chat.access.workspaceWrite') },
+        { value: 'danger-full-access', label: t('chat.access.fullLocked'), danger: true, locked: true },
       ]
 
 /**
@@ -163,8 +165,8 @@ export const sendPolicy = ({ text, sending, state }) => {
 
 // 全量访问的确认文案按部署形态区分（爆炸半径不同，2026-09-11 拍板）。
 const FULL_WARNINGS = {
-  container: '容器内全量访问：agent 可读写容器内所有文件与工作区挂载。仅在完全信任该 agent 时开启。确定开启？',
-  'bare-metal': '整台机器的全量访问：agent 可读写本机所有文件，包括本 manager 的密钥文件（.env）。仅在完全信任该 agent 时开启。确定开启？',
+  container: t('chat.access.confirmContainer'),
+  'bare-metal': t('chat.access.confirmBare'),
 }
 
 /**
@@ -207,7 +209,7 @@ export const makeComposer = (refs, deps) => {
     }
     el.effort.hidden = false
     const options = [
-      { value: '', label: '默认推理' },
+      { value: '', label: t('chat.reasoning.default') },
       ...efforts.filter((effort) => typeof effort?.id === 'string' && typeof effort?.name === 'string').map((effort) => ({ value: effort.id, label: effort.name })),
     ]
     const entry = deps.dropdownState.get(el.effort)
@@ -227,14 +229,14 @@ export const makeComposer = (refs, deps) => {
     }
     el.context.textContent = `${context.percent}%`
     el.context.style.setProperty('--context-ratio', String(context.percent / 100))
-    el.context.title = `上下文约 ${context.usedTokens.toLocaleString()} / ${context.contextWindow.toLocaleString()} tokens`
+    el.context.title = t('chat.context.usageTitle', { used: context.usedTokens.toLocaleString(), total: context.contextWindow.toLocaleString() })
     el.context.setAttribute('aria-label', el.context.title)
-    if (el.contextSummary !== null) el.contextSummary.textContent = `约 ${context.usedTokens.toLocaleString()} / ${context.contextWindow.toLocaleString()} tokens`
+    if (el.contextSummary !== null) el.contextSummary.textContent = t('chat.context.usageSummary', { used: context.usedTokens.toLocaleString(), total: context.contextWindow.toLocaleString() })
     const breakdown = context.breakdown
     if (el.contextBreakdown !== null) {
       el.contextBreakdown.hidden = breakdown === null || breakdown === undefined
       if (breakdown !== null && breakdown !== undefined) {
-        el.contextBreakdown.textContent = `系统 ${breakdown.systemTokens.toLocaleString()} · 工具 ${breakdown.toolsTokens.toLocaleString()} · 对话 ${breakdown.messageTokens.toLocaleString()}`
+        el.contextBreakdown.textContent = t('chat.context.breakdown', { system: breakdown.systemTokens.toLocaleString(), tools: breakdown.toolsTokens.toLocaleString(), messages: breakdown.messageTokens.toLocaleString() })
       }
     }
     const total = breakdown === null || breakdown === undefined ? 0 : breakdown.systemTokens + breakdown.toolsTokens + breakdown.messageTokens
@@ -281,20 +283,20 @@ export const makeComposer = (refs, deps) => {
     }
     if (el.access !== null) {
       el.access.disabled = lost || fresh || refs.sending.value || turnRunning || capabilities.accessMode !== true
-      el.access.title = fresh ? '发送第一条消息后即可切换访问模式' : turnRunning ? '当前回合结束后可切换' : ''
+      el.access.title = fresh ? t('chat.hint.afterFirst') : turnRunning ? t('chat.hint.afterTurn') : ''
       syncAccessOptions()
       if (composer.accessMode !== null) {
         const entry = deps.dropdownState.get(el.access)
         if (entry !== undefined) {
           entry.value = composer.accessMode
-          deps.setDropdownLabel(el.access, composer.accessMode === 'workspace-write' ? '工作区可写' : composer.accessMode === 'danger-full-access' ? '全量访问' : '只读')
+          deps.setDropdownLabel(el.access, composer.accessMode === 'workspace-write' ? t('chat.access.workspaceWrite') : composer.accessMode === 'danger-full-access' ? t('chat.access.full') : t('chat.access.readonly'))
         }
       }
     }
     if (el.model !== null) {
       if (el.model.parentElement !== null) el.model.parentElement.hidden = capabilities.modelSelection !== true
       el.model.disabled = lost || fresh || refs.sending.value || turnRunning || capabilities.modelSelection !== true || refs.modelChoices.value.size === 0
-      el.model.title = fresh ? '发送第一条消息后即可选择模型' : turnRunning ? '当前回合结束后可切换' : ''
+      el.model.title = fresh ? t('chat.hint.afterFirst') : turnRunning ? t('chat.hint.afterTurn') : ''
     }
     if (el.effort !== null) el.effort.disabled = lost || refs.sending.value || turnRunning || capabilities.modelSelection !== true
     syncEffort()
@@ -309,15 +311,15 @@ export const makeComposer = (refs, deps) => {
     el.queue.hidden = !(turnRunning && !lost && el.input.value.trim() !== '')
 
     el.input.placeholder = lost
-      ? '这个会话已无法继续'
+      ? t('chat.dead')
       : turnRunning && !refs.sending.value
-        ? '正在跑上一回合 · 新消息会自动排队'
+        ? t('chat.composer.nextTurn')
         : refs.sending.value
-          ? '正在等它回答…'
-          : '说点什么…'
+          ? t('chat.composer.awaiting')
+          : t('chat.composer.placeholder')
 
     // The hint only names the available interruption gesture beside the input.
-    el.hint.textContent = refs.sending.value ? '按 Esc 或点「停止」可以中断' : ''
+    el.hint.textContent = refs.sending.value ? t('chat.composer.escHint') : ''
   }
 
   const send = async () => {
@@ -349,7 +351,7 @@ export const makeComposer = (refs, deps) => {
         // is the last thing anyone wants after being told the agent was busy.
         el.input.value = text
         deps.grow()
-        deps.toast(body.detail ?? `发送失败（${response.status}）`)
+        deps.toast(body.detail ?? t('chat.send.failedStatus', { status: response.status }))
         void deps.reload()
         return
       }
@@ -366,13 +368,13 @@ export const makeComposer = (refs, deps) => {
       // the relay dropped and `turn_done` never arrived.
       await deps.reload()
       if (result.queued === true) {
-        deps.toast(`已排队（第 ${result.position} 位），前一个任务完成后自动开始`)
+        deps.toast(t('chat.queue.queued', { position: result.position }))
       }
     } catch (error) {
       refs.sending.value = false
       el.input.value = text
       deps.grow()
-      deps.toast(`发送失败：${error.message}`)
+      deps.toast(t('chat.queue.failed', { message: error.message }))
       deps.render()
     }
   }
@@ -381,9 +383,9 @@ export const makeComposer = (refs, deps) => {
     try {
       const response = await apiFetch(`/api/chats/${encodeURIComponent(chatId)}/cancel`, { method: 'POST' })
       const body = await response.json().catch(() => ({}))
-      deps.toast(response.ok ? '已请求停止' : (body.detail ?? '停止失败'))
+      deps.toast(response.ok ? t('chat.stop.requested') : (body.detail ?? t('chat.stop.failed')))
     } catch (error) {
-      deps.toast(`停止失败：${error.message}`)
+      deps.toast(t('chat.stop.failedMsg', { message: error.message }))
     }
   }
 
@@ -398,14 +400,14 @@ export const makeComposer = (refs, deps) => {
       })
       const body = await response.json().catch(() => ({}))
       if (!response.ok) {
-        deps.toast(body.detail ?? `模型切换失败（${response.status}）`)
+        deps.toast(body.detail ?? t('chat.model.switchFailed', { status: response.status }))
         return
       }
       refs.state.value.composer = { ...(refs.state.value.composer ?? {}), model: body.model }
       refs.effortSignature.value = null
-      deps.toast('模型已更新，将在下一回合生效')
+      deps.toast(t('chat.model.updated'))
     } catch (error) {
-      deps.toast(`模型切换失败：${error.message}`)
+      deps.toast(t('chat.model.switchFailedMsg', { message: error.message }))
     }
     deps.render()
   }
@@ -426,7 +428,7 @@ export const makeComposer = (refs, deps) => {
       el.input.value = item.text
       deps.grow()
       el.input.focus()
-      deps.toast('已撤销，改完再发即可')
+      deps.toast(t('chat.queue.undone'))
     }
     deps.render()
   }

@@ -7,6 +7,10 @@
 // events, so manager does the same here. Pure functions -- the HTML assembly
 // lives in chat.js, tests live in tool-cards.test.mjs.
 
+import { t, loadI18n } from './ui.js'
+
+await loadI18n()
+
 /** DSH's TOOL_VARIANTS table (name -> variant). */
 export const TOOL_VARIANTS = {
   bash: 'bash',
@@ -38,13 +42,13 @@ export const TOOL_TITLES = {
 
 /** Variant display titles (DSH's Figma literals; manager UI is Chinese). */
 export const VARIANT_TITLES = {
-  search: '搜索',
-  read: '读取',
-  bash: '终端',
-  write: '写入',
-  edit: '编辑',
-  code: '代码',
-  others: '工具调用',
+  search: t('tool.search'),
+  read: t('tool.read'),
+  bash: t('tool.bash'),
+  write: t('tool.write'),
+  edit: t('tool.edit'),
+  code: t('tool.code'),
+  others: t('tool.others'),
 }
 
 /** Summary key preference per variant (DSH's SUMMARY_KEYS). */

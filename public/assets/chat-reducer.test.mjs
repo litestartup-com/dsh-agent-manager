@@ -2,7 +2,11 @@
 // 拆出 chat.js 前先用测试把行为钉死(红→绿),再让 chat.js 引用它。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { newAgentBlock, reduce, attachRuns, build } from './chat-reducer.js'
+import { useTestDictionary } from './test-i18n.mjs'
+
+useTestDictionary('en')
+
+const { newAgentBlock, reduce, attachRuns, build } = await import('./chat-reducer.js')
 
 test('债务 F1: chunk 在无 turn_start 时也开 agent block(恢复会话不承诺 turn_start)', () => {
   const list = reduce([], { kind: 'chunk', chunk: { type: 'text-delta', text: '你好' } })
@@ -55,9 +59,9 @@ test('债务 F1: turn_end error/aborted 的文案与 detail 提取', () => {
   let list = reduce([], { kind: 'turn_end', reason: 'error', detail: { message: '炸了' } })
   assert.equal(list[0].error, '炸了')
   list = reduce([], { kind: 'turn_end', reason: 'aborted', detail: { cause: 'user_cancelled' } })
-  assert.equal(list[0].error, '已取消')
+  assert.equal(list[0].error, 'cancelled')
   list = reduce([], { kind: 'turn_end', reason: 'aborted', detail: { cause: 'timeout' } })
-  assert.equal(list[0].error, '回合被中断')
+  assert.equal(list[0].error, 'the turn was interrupted')
 })
 
 test('债务 F1: turn_done 在无 turn_end 时兜底收尾(超时/断流)', () => {

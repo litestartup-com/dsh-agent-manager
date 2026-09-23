@@ -6,7 +6,9 @@
 
 import { md } from './md.js'
 import { classifyTool, toolBody, toolSummary, toolTitle } from './tool-cards.js'
-import { esc, icon, money } from './ui.js'
+import { esc, icon, money, t, loadI18n } from './ui.js'
+
+await loadI18n()
 
 // Local for now: a tap is remembered per turn id so the thumbs stay honest
 // across reloads. No server API exists yet, so nothing pretends the feedback
@@ -80,14 +82,14 @@ export const makeRenderer = ({ getState, openTools, openContext, mdCache: inject
     const inner = esc(tool.path)
     return `<div class="write-row">
     <span class="pen" aria-hidden="true">✎</span>
-    <span>已更新 ${inner}</span>
+    <span>${esc(t('chat.render.updated', { path: inner }))}</span>
   </div>`
   }
 
   const toolsBlock = (tools, index) => {
     if (tools.length === 0) return ''
     const failed = tools.filter((t) => t.failed).length
-    const summary = failed > 0 ? `工具调用 ×${tools.length} · ${failed} 个失败` : `工具调用 ×${tools.length}`
+    const summary = failed > 0 ? t('chat.tools.summaryFailed', { count: tools.length, failed }) : t('chat.tools.summary', { count: tools.length })
     // DSH web 的工具卡推导（tool-cards.js）：名字→variant 分类、标题、
     // 摘要、正文（code/JSON）、结果文本——与 DSH 的 GenericToolCard 同源规则。
     const rows = tools
@@ -97,15 +99,15 @@ export const makeRenderer = ({ getState, openTools, openContext, mdCache: inject
         const head = `<div class="tool-head">
         <span class="tool-variant v-${esc(variant)}">${esc(title)}</span>
         <span class="tool-summary">${esc(toolSummary(tool.name, tool.raw))}</span>
-        <span class="tool-state${tool.failed ? ' bad' : tool.done ? '' : ' running'}">${tool.failed ? '失败' : tool.done ? '完成' : '…'}</span>
+        <span class="tool-state${tool.failed ? ' bad' : tool.done ? '' : ' running'}">${tool.failed ? esc(t('chat.tools.failed')) : tool.done ? esc(t('chat.tools.done')) : '…'}</span>
       </div>`
         const body = toolBody(tool.name, tool.raw)
         const bodyHtml = body === null
           ? ''
-          : `<details class="tool-body"><summary>${variant === 'code' ? '代码' : '参数'}</summary><pre>${esc(body)}</pre></details>`
+          : `<details class="tool-body"><summary>${variant === 'code' ? esc(t('chat.tools.code')) : esc(t('chat.tools.args'))}</summary><pre>${esc(body)}</pre></details>`
         // 失败的调用默认展开结果（这是出错时唯一要紧的东西）；成功的默认折叠。
         const resultHtml = tool.done && tool.resultText !== ''
-          ? `<details class="tool-result"${tool.failed ? ' open' : ''}><summary>结果</summary><pre>${esc(tool.resultText)}</pre></details>`
+          ? `<details class="tool-result"${tool.failed ? ' open' : ''}><summary>${esc(t('chat.tools.result'))}</summary><pre>${esc(tool.resultText)}</pre></details>`
           : ''
         return `<div class="tool-call${tool.failed ? ' failed' : ''}" data-variant="${esc(variant)}">${head}${bodyHtml}${resultHtml}</div>`
       })
@@ -161,13 +163,13 @@ export const makeRenderer = ({ getState, openTools, openContext, mdCache: inject
     ${parts.length === 0 ? '' : `<span class="turn-meta">${parts.join(' · ')}</span>`}
     <span class="grow"></span>
     <div class="turn-actions">
-      <button class="turn-act" type="button" data-act="copy" data-copy="${index}" aria-label="复制回答" title="复制">
+      <button class="turn-act" type="button" data-act="copy" data-copy="${index}" aria-label="${esc(t('chat.turn.copyAnswer'))}" title="${esc(t('chat.copy'))}">
         ${icon('copy', 14)}
       </button>
-      <button class="turn-act${fb === 'up' ? ' on' : ''}" type="button" data-act="up" data-turn="${esc(turnId)}" aria-label="点赞" title="有帮助">
+      <button class="turn-act${fb === 'up' ? ' on' : ''}" type="button" data-act="up" data-turn="${esc(turnId)}" aria-label="${esc(t('chat.turn.like'))}" title="${esc(t('chat.turn.like'))}">
         ${icon('thumb-up', 14)}
       </button>
-      <button class="turn-act${fb === 'down' ? ' on' : ''}" type="button" data-act="down" data-turn="${esc(turnId)}" aria-label="反对" title="没帮助">
+      <button class="turn-act${fb === 'down' ? ' on' : ''}" type="button" data-act="down" data-turn="${esc(turnId)}" aria-label="${esc(t('chat.turn.dislike'))}" title="${esc(t('chat.turn.dislike'))}">
         ${icon('thumb-down', 14)}
       </button>
     </div>
@@ -216,7 +218,7 @@ export const makeRenderer = ({ getState, openTools, openContext, mdCache: inject
         return `<div class="context-item prose">${mdOnce(inner.trim())}</div>`
       })
       .join('')
-    const label = group.length === 1 ? '系统注入的上下文' : `系统注入的上下文 ×${group.length}`
+    const label = group.length === 1 ? t('chat.injection.one') : t('chat.injection.many', { count: group.length })
     return `<details class="context" data-context="${index}"${openContext.has(index) ? ' open' : ''}>
     <summary><span class="chev">${icon('chev', 11)}</span>${esc(label)}</summary>
     ${bodies}
@@ -236,33 +238,33 @@ export const makeRenderer = ({ getState, openTools, openContext, mdCache: inject
       <div class="ask-q-text">${esc(q.question)}</div>
       ${q.detail === undefined ? '' : `<div class="ask-q-detail prose">${mdOnce(q.detail)}</div>`}
       ${(q.options ?? []).length === 0 ? '' : `<div class="ask-opts${q.multiSelect === true ? ' multi' : ''}" role="${q.multiSelect === true ? 'group' : 'radiogroup'}">${q.options.map((o) => optionRow(q.id, o, q.multiSelect === true)).join('')}</div>`}
-      <input class="ask-custom" data-q="${esc(q.id)}" type="text" placeholder="${(q.options ?? []).length === 0 ? '写下你的回答' : '或者自己写一个'}">
+      <input class="ask-custom" data-q="${esc(q.id)}" type="text" placeholder="${esc((q.options ?? []).length === 0 ? t('chat.ask.customPlaceholder') : t('chat.ask.customOrOwn'))}">
     </div>`).join('')
     // DSH's decision-card grammar: amber strip on top, white card, body, and the
     // actions pinned to the bottom-right of the card.
     return `<div class="ask" data-ask="${esc(ask.id)}">
-    <div class="ask-strip"><span class="ask-dot" aria-hidden="true"></span>它在等你回答</div>
+    <div class="ask-strip"><span class="ask-dot" aria-hidden="true"></span>${esc(t('chat.ask.waiting'))}</div>
     <div class="ask-body">${bodies}</div>
     <div class="ask-actions">
       <span class="ask-error"></span>
-      <button type="button" class="ask-skip" data-ask="${esc(ask.id)}">不答，让它自己定</button>
-      <button type="button" class="ask-send" data-ask="${esc(ask.id)}">回答</button>
+      <button type="button" class="ask-skip" data-ask="${esc(ask.id)}">${esc(t('chat.ask.skip'))}</button>
+      <button type="button" class="ask-send" data-ask="${esc(ask.id)}">${esc(t('chat.ask.answer'))}</button>
     </div>
   </div>`
   }
 
   const approvalCard = (ask) => {
-    const toolName = ask.toolName === '' ? '一个工具' : ask.toolName
+    const toolName = ask.toolName === '' ? t('chat.ask.tool') : ask.toolName
     return `<div class="ask approval" data-ask="${esc(ask.id)}">
-    <div class="ask-strip"><span class="ask-dot" aria-hidden="true"></span>等待授权</div>
+    <div class="ask-strip"><span class="ask-dot" aria-hidden="true"></span>${esc(t('chat.ask.approvalWaiting'))}</div>
     <div class="ask-body">
-      <div class="ask-headline">它要用「${esc(toolName)}」做一件事，需要你批准</div>
+      <div class="ask-headline">${esc(t('chat.ask.headline', { tool: toolName }))}</div>
       ${ask.reason === null || ask.reason === '' ? '' : `<div class="ask-q-detail">${esc(ask.reason)}</div>`}
     </div>
     <div class="ask-actions">
       <span class="ask-error"></span>
-      <button type="button" class="ask-reject" data-ask="${esc(ask.id)}">不允许</button>
-      <button type="button" class="ask-allow" data-ask="${esc(ask.id)}">允许这一次</button>
+      <button type="button" class="ask-reject" data-ask="${esc(ask.id)}">${esc(t('chat.ask.reject'))}</button>
+      <button type="button" class="ask-allow" data-ask="${esc(ask.id)}">${esc(t('chat.ask.allowOnce'))}</button>
     </div>
   </div>`
   }

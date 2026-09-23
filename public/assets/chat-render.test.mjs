@@ -2,7 +2,11 @@
 // 拆分前用测试钉死转义与折叠行为。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { makeRenderer } from './chat-render.js'
+import { useTestDictionary } from './test-i18n.mjs'
+
+useTestDictionary('en')
+
+const { makeRenderer } = await import('./chat-render.js')
 
 const setup = () =>
   makeRenderer({
@@ -47,7 +51,7 @@ test('债务 F1: toolsBlock 折叠状态由 openTools 决定,失败默认展开�
     { name: 'write', args: { path: 'a.txt' }, raw: '{"path":"a.txt"}', failed: true, done: true, resultText: 'boom' },
   ]
   const html = toolsBlock(tools, 3)
-  assert.ok(html.includes('工具调用 ×2 · 1 个失败'))
+  assert.ok(html.includes('tool calls ×2 · 1 failed'))
   assert.ok(!html.includes('<details class="tools" data-fold="3" open>'), '未展开时不得带 open')
   const opened = makeRenderer({ getState: () => null, openTools: new Set([3]), openContext: new Set() }).toolsBlock(tools, 3)
   assert.ok(opened.includes('data-fold="3" open>'), 'openTools 命中必须带 open')

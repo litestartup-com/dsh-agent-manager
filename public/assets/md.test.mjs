@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { md } from './md.js'
+import { useTestDictionary } from './test-i18n.mjs'
+
+useTestDictionary('en')
+
+const { md } = await import('./md.js')
 
 /**
  * Tests for the Markdown renderer.
@@ -21,7 +25,7 @@ test('code blocks carry the DSH banner: language label + copy button, code escap
   const html = md('```js\nalert(1)\n```')
   assert.match(html, /<div class="md-code-block">/)
   assert.match(html, /<span class="md-code-lang">js<\/span>/)
-  assert.match(html, /<button type="button" class="md-copy">复制<\/button>/)
+  assert.match(html, /<button type="button" class="md-copy">Copy<\/button>/)
   assert.match(html, /<pre class="lang-js"><code>alert\(1\)<\/code><\/pre>/)
   // No language: the banner still names it "text" -- a bare fence is a text block.
   assert.match(md('```\nhi\n```'), /<span class="md-code-lang">text<\/span>/)

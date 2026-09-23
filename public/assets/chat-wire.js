@@ -4,7 +4,9 @@
 // handleFrame 是纯函数(依赖注入),可独立单测(chat-wire.test.mjs)。
 // chat.js 只把 refs/deps 接好,自身不再持有加载与流逻辑。
 
-import { esc, icon, apiFetch, uniqueFrames, autoReconnect } from './ui.js'
+import { esc, icon, apiFetch, uniqueFrames, autoReconnect, t, loadI18n } from './ui.js'
+
+await loadI18n()
 import { reduce, build } from './chat-reducer.js'
 
 /**
@@ -106,7 +108,7 @@ export const makeWire = (refs, deps) => {
         return `<div class="delegation ${cls}">
         <span class="delegation-icon" aria-hidden="true">${glyph}</span>
         <span class="delegation-main">
-          <span class="delegation-head">已派给 ${esc(d.agentName ?? d.agentId)} · ${esc(d.state)}</span>
+          <span class="delegation-head">${esc(t('chat.delegation', { agent: d.agentName ?? d.agentId, state: d.state }))}</span>
           ${detail}
         </span>
       </div>`
@@ -153,7 +155,7 @@ export const makeWire = (refs, deps) => {
       if (entry !== undefined) {
         entry.value = selectedKey
         const chosen = options.find((option) => option.key === selectedKey)
-        deps.setDropdownLabel(el.model, chosen?.label ?? (selected !== null && selected !== undefined ? `${selected.provider} · ${selected.model}` : '默认模型'))
+        deps.setDropdownLabel(el.model, chosen?.label ?? (selected !== null && selected !== undefined ? `${selected.provider} · ${selected.model}` : t('chat.model.default')))
       }
       deps.render()
     } catch {
@@ -171,7 +173,7 @@ export const makeWire = (refs, deps) => {
       response = await apiFetch(`/api/chats/${encodeURIComponent(chatId)}`, { headers: { accept: 'application/json' } })
     } catch (error) {
       refs.loading.value = false
-      fatal(`连不上 manager：${error.message}`)
+      fatal(t('chat.wire.connectFailed', { message: error.message }))
       return
     }
 
@@ -185,8 +187,8 @@ export const makeWire = (refs, deps) => {
       // 409 and 502 carry a `detail` written for a person; 404 does not.
       fatal(
         response.status === 404
-          ? '没有这个会话，或者它已被移除'
-          : (body.detail ?? `服务端返回 ${response.status}`),
+          ? t('chat.wire.noSession')
+          : (body.detail ?? t('chat.wire.serverStatus', { status: response.status })),
       )
       return
     }

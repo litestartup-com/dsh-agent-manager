@@ -6,6 +6,10 @@
 //
 // 帧契约见 chat.js 头注释(gateway 帧 + manager 自产 user/turn_done)。
 
+import { t, loadI18n } from './ui.js'
+
+await loadI18n()
+
 /**
  * A fresh agent block. All turn state starts empty; frames fill it in.
  */
@@ -233,8 +237,8 @@ export const reduce = (list, frame) => {
       block.reason = typeof frame.reason === 'string' ? frame.reason : 'unknown'
       block.streaming = false
       const detail = frame.detail ?? null
-      if (block.reason === 'error') block.error = detail?.message ?? '这个回合以错误结束'
-      if (block.reason === 'aborted') block.error = detail?.cause === 'user_cancelled' ? '已取消' : '回合被中断'
+      if (block.reason === 'error') block.error = detail?.message ?? t('chat.reducer.errorEnd')
+      if (block.reason === 'aborted') block.error = detail?.cause === 'user_cancelled' ? t('chat.reducer.cancelled') : t('chat.reducer.interrupted')
       return list
     }
 

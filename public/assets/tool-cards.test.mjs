@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { classifyTool, toolBody, toolFilePath, toolSummary, toolTitle } from './tool-cards.js'
+import { useTestDictionary } from './test-i18n.mjs'
+
+useTestDictionary('en')
+
+const { classifyTool, toolBody, toolFilePath, toolSummary, toolTitle } = await import('./tool-cards.js')
 
 // Tool-card derivation tests. The rules are DSH web's own (ui-tool
 // GenericToolCard, 0.1.2-rc.1): these tests pin the ported tables so an
@@ -25,9 +29,9 @@ test('classifies DSH tool names into variants', () => {
 test('titles: tool-owned overrides win over variant titles', () => {
   assert.equal(toolTitle('pwsh'), 'Pwsh')
   assert.equal(toolTitle('cordis_run'), 'Run Cordis Plugin')
-  assert.equal(toolTitle('bash'), '终端')
-  assert.equal(toolTitle('write'), '写入')
-  assert.equal(toolTitle('unknown_tool'), '工具调用')
+  assert.equal(toolTitle('bash'), 'terminal')
+  assert.equal(toolTitle('write'), 'write')
+  assert.equal(toolTitle('unknown_tool'), 'tool call')
 })
 
 test('summary picks the variant key (DSH SUMMARY_KEYS) and truncates to one line', () => {

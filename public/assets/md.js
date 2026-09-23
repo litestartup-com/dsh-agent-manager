@@ -18,7 +18,9 @@
 //   - `href` is allow-listed by scheme. `javascript:` and `data:` are the
 //     reason; a link the agent invented is not permitted to run anything.
 
-import { esc } from './ui.js'
+import { esc, t, loadI18n } from './ui.js'
+
+await loadI18n()
 
 /** Schemes a link may use. Anything else renders as plain text, not a link. */
 const SAFE_HREF = /^(?:https?:\/\/|mailto:|\/|\.\/|#)/i
@@ -74,7 +76,7 @@ const codeBlock = (lang, lines) => {
   // DSH's CodeBlock grammar (stable class md-code-block): a banner carrying the
   // language and a copy button above the code. `md-copy` is wired in chat.js;
   // the code text itself stays escape-first (see the safety note above).
-  return `<div class="md-code-block"><div class="md-code-banner"><span class="md-code-lang">${esc(lang || 'text')}</span><button type="button" class="md-copy">复制</button></div><pre${cls}><code>${esc(lines.join('\n'))}</code></pre></div>`
+  return `<div class="md-code-block"><div class="md-code-banner"><span class="md-code-lang">${esc(lang || 'text')}</span><button type="button" class="md-copy">${esc(t('chat.md.copy'))}</button></div><pre${cls}><code>${esc(lines.join('\n'))}</code></pre></div>`
 }
 
 const TABLE_DIVIDER = /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$/

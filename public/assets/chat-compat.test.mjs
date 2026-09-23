@@ -2,6 +2,10 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
+import { useTestDictionary } from './test-i18n.mjs'
+
+useTestDictionary('en')
+
 const source = await readFile(new URL('./chat.js', import.meta.url), 'utf8')
 const composer = await readFile(new URL('./chat-composer.js', import.meta.url), 'utf8')
 const page = await readFile(new URL('../pages/chat.html', import.meta.url), 'utf8')
@@ -27,8 +31,8 @@ test('send/stop share one slot and queue send is wired (方案 C)', () => {
 test('Ongoing Goal 条：宿主 goal 投影渲染（仅显示，complete 隐藏）', () => {
   assert.match(page, /id="goal-bar"/)
   assert.match(source, /const renderGoalBar = \(\) => \{/)
-  assert.match(source, /进行中的目标/)
-  assert.match(source, /已暂停的目标/)
-  assert.match(source, /受阻的目标/)
+  assert.match(source, /chat\.goal\.active/)
+  assert.match(source, /chat\.goal\.paused/)
+  assert.match(source, /chat\.goal\.blocked/)
   assert.match(source, /goal\.phase === 'complete'/)
 })

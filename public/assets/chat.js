@@ -20,7 +20,9 @@
 //   turn_end    { turn, reason, detail }
 //   turn_done   { runId, state, error }     (manager's)
 
-import { $, esc, icon, apiFetch } from './ui.js'
+import { $, esc, icon, apiFetch, t, loadI18n } from './ui.js'
+
+await loadI18n()
 // 债务 F1:reducer/render/wire/composer 四层已下沉——chat.js 只编排与持有页面状态。
 import { makeRenderer } from './chat-render.js'
 import { makeWire } from './chat-wire.js'
@@ -162,9 +164,9 @@ const {
 
 const EMPTY_FRESH = `<div class="chat-empty">
     <span class="chat-empty-icon">${icon('chat', 20)}</span>
-    <strong>还没有消息</strong>
-    <p>说一句就开始。</p>
-    <p class="small">这个 agent 会在它自己的工作区里读写文件，所以先确认下面那行写的是你想要的那个。</p>
+    <strong>${esc(t('chat.empty.title'))}</strong>
+    <p>${esc(t('chat.empty.body'))}</p>
+    <p class="small">${esc(t('chat.empty.hint'))}</p>
   </div>`
 
 /**
@@ -214,25 +216,25 @@ const waitLabel = (block) => {
   // Checked before anything else, and before the block: these are the states
   // where the turn is stopped rather than slow, and any other label here is a
   // lie the clock keeps telling once a second.
-  if (asks.size() > 0) return asks.size() === 1 ? '在等你回答上面那张卡' : `在等你回答上面 ${asks.size()} 张卡`
-  if (block === null) return '正在唤起它'
+  if (asks.size() > 0) return asks.size() === 1 ? t('chat.status.askingOne') : t('chat.status.askingMany', { count: asks.size() })
+  if (block === null) return t('chat.status.waking')
   // No card, but the audit trail says it asked: the prompt went to whoever the
   // deployment answers with, which is not this screen.
   if (block.awaiting !== null) {
-    const tool = block.awaiting.toolName === '' ? '一个操作' : block.awaiting.toolName
-    return `在等授权：${tool}（卡片没到这里，得去 DSH 批）`
+    const tool = block.awaiting.toolName === '' ? t('chat.status.aTool') : block.awaiting.toolName
+    return t('chat.status.awaitApproval', { tool })
   }
   const tool = [...block.tools].reverse().find((t) => !t.done)
-  if (tool !== undefined) return `正在用 ${tool.name === '' ? '工具' : tool.name}`
-  if (block.streaming || block.streamed !== '' || block.text !== '') return '正在回答'
-  if (block.reasoning !== '') return '正在思考'
-  return '已收到，正在起草'
+  if (tool !== undefined) return t('chat.status.usingTool', { tool: tool.name === '' ? t('chat.status.aTool') : tool.name })
+  if (block.streaming || block.streamed !== '' || block.text !== '') return t('chat.status.answering')
+  if (block.reasoning !== '') return t('chat.status.thinking')
+  return t('chat.status.drafting')
 }
 
 const elapsedText = (ms) => {
   const total = Math.max(0, Math.round(ms / 1000))
-  if (total < 60) return `${total} 秒`
-  return `${Math.floor(total / 60)} 分 ${String(total % 60).padStart(2, '0')} 秒`
+  if (total < 60) return t('chat.status.seconds', { count: total })
+  return t('chat.status.minutes', { minutes: Math.floor(total / 60), seconds: String(total % 60).padStart(2, '0') })
 }
 
 /* Past this, the wait stops being ordinary and the note about stopping earns its
@@ -281,7 +283,7 @@ const paintWait = () => {
   const what = waitLabel(block)
   if (waitParts.what.textContent !== what) waitParts.what.textContent = what
   waitParts.time.textContent = elapsedText(ms)
-  waitParts.note.textContent = slow ? '长回合很正常 · Esc 可以停下' : ''
+  waitParts.note.textContent = slow ? t('chat.wait.slowNote') : ''
   waitNode.classList.toggle('slow', slow)
 }
 
@@ -340,11 +342,11 @@ const gatherAnswers = (card, ask) => {
   const answers = []
   for (const question of ask.questions) {
     const scope = card.querySelector(`.ask-q[data-q="${CSS.escape(question.id)}"]`)
-    if (scope === null) return { error: '这张卡片已经不在了，刷新一下' }
+    if (scope === null) return { error: t('chat.ask.cardGone') }
     const selected = Array.from(scope.querySelectorAll('.ask-opt.on')).map((node) => node.dataset.label)
     const custom = scope.querySelector('.ask-custom').value.trim()
     if (selected.length === 0 && custom === '') {
-      return { error: (question.options ?? []).length === 0 ? '写一句就行' : '选一个，或者自己写一个' }
+      return { error: (question.options ?? []).length === 0 ? t('chat.ask.answerFree') : t('chat.ask.answerPick') }
     }
     answers.push({ id: question.id, selected, ...(custom === '' ? {} : { custom }) })
   }
@@ -367,7 +369,7 @@ const postAsk = async (card, path, body) => {
       // Re-enabled rather than removed: the answer was refused, so the card is
       // still the thing that has to be corrected and sent again.
       for (const button of buttons) button.disabled = false
-      error.textContent = payload.detail ?? `没发出去（${response.status}）`
+      error.textContent = payload.detail ?? t('chat.send.failedDetail', { status: response.status })
       return
     }
     // The card is removed by the gateway's own `question_resolved` /
@@ -376,7 +378,7 @@ const postAsk = async (card, path, body) => {
     card.classList.add('sent')
   } catch (failure) {
     for (const button of buttons) button.disabled = false
-    error.textContent = `没发出去：${failure.message}`
+    error.textContent = t('chat.send.failed', { message: failure.message })
   }
 }
 
@@ -469,7 +471,7 @@ const syncWait = () => {
 const toBottomSlot = document.createElement('div')
 toBottomSlot.className = 'to-bottom-slot'
 toBottomSlot.hidden = true
-toBottomSlot.innerHTML = `<button type="button" class="to-bottom" aria-label="回到底部" title="回到底部">${icon('down', 16)}</button>`
+toBottomSlot.innerHTML = `<button type="button" class="to-bottom" aria-label="${esc(t('chat.toBottom'))}" title="${esc(t('chat.toBottom'))}">${icon('down', 16)}</button>`
 
 const syncToBottom = () => {
   const overflow = el.log.scrollHeight - el.log.clientHeight
@@ -606,8 +608,8 @@ el.log.addEventListener('click', (event) => {
     const text = code === null || code === undefined ? '' : code.textContent
     if (text !== '') {
       void navigator.clipboard.writeText(text).then(() => {
-        copy.textContent = '已复制'
-        setTimeout(() => { copy.textContent = '复制' }, 1500)
+        copy.textContent = t('chat.copied')
+        setTimeout(() => { copy.textContent = t('chat.copy') }, 1500)
       }).catch(() => {})
     }
     return
@@ -622,8 +624,8 @@ el.log.addEventListener('click', (event) => {
     if (text !== '') {
       void navigator.clipboard
         ?.writeText(text)
-        .then(() => toast('已复制'))
-        .catch(() => toast('复制失败'))
+        .then(() => toast(t('chat.copied')))
+        .catch(() => toast(t('chat.copyFailed')))
     }
     return
   }
@@ -633,7 +635,7 @@ el.log.addEventListener('click', (event) => {
   const kind = act.dataset.act
   const next = readFeedback()[turnId] === kind ? null : kind
   setFeedback(turnId, next)
-  toast(next === null ? '已撤销' : kind === 'up' ? '已点赞，谢谢' : '已反对')
+  toast(next === null ? t('chat.feedback.undone') : kind === 'up' ? t('chat.feedback.up') : t('chat.feedback.down'))
   render()
 })
 
@@ -642,9 +644,9 @@ el.log.addEventListener('click', (event) => {
 // ---------------------------------------------------------------------------
 
 const chatTitle = () => {
-  if (state === null) return '对话'
+  if (state === null) return t('chat.defaultTitle')
   const t = state.chat.title
-  return t === null || t === '' ? '新会话' : t
+  return t === null || t === '' ? t('side.newChat') : t
 }
 
 const renderHead = () => {
@@ -674,10 +676,10 @@ const renderQueueDock = () => {
     .map(
       (item) =>
         `<div class="queue-row" data-id="${esc(item.id)}">` +
-        `<span class="queue-badge">排队中</span>` +
+        `<span class="queue-badge">${esc(t('chat.queue.badge'))}</span>` +
         `<span class="queue-text" title="${esc(item.text)}">${esc(item.text)}</span>` +
-        `<button type="button" class="queue-act" data-action="edit" title="撤销并回填输入框">${icon('pencil', 13)}</button>` +
-        `<button type="button" class="queue-act" data-action="delete" title="删除这条排队消息">${icon('trash', 13)}</button>` +
+        `<button type="button" class="queue-act" data-action="edit" title="${esc(t('chat.queue.edit'))}">${icon('pencil', 13)}</button>` +
+        `<button type="button" class="queue-act" data-action="delete" title="${esc(t('chat.queue.delete'))}">${icon('trash', 13)}</button>` +
         `</div>`,
     )
     .join('')
@@ -697,7 +699,7 @@ const renderNotices = () => {
   // costs the reader nothing until they are about to type. It lives in the
   // composer's hint line instead -- the place the action actually happens.
   if (state.sessionState === 'lost') {
-    out.push(strip('bad', '这个会话已无法继续，历史仅供查阅'))
+    out.push(strip('bad', t('chat.dead')))
   }
 
   el.notices.innerHTML = out.join('')
@@ -710,9 +712,9 @@ const renderNotices = () => {
 // ---------------------------------------------------------------------------
 
 const GOAL_PHASES = {
-  active: '进行中的目标',
-  paused: '已暂停的目标',
-  blocked: '受阻的目标',
+  active: t('chat.goal.active'),
+  paused: t('chat.goal.paused'),
+  blocked: t('chat.goal.blocked'),
 }
 
 const renderGoalBar = () => {
@@ -724,7 +726,7 @@ const renderGoalBar = () => {
     el.goalBar.innerHTML = ''
     return
   }
-  const label = GOAL_PHASES[goal.phase] ?? '目标'
+  const label = GOAL_PHASES[goal.phase] ?? t('chat.goal.generic')
   const blocked = goal.phase === 'blocked' && typeof goal.blockedReason === 'string' && goal.blockedReason !== ''
     ? goal.blockedReason
     : null
@@ -805,14 +807,14 @@ if (el.access !== null) {
         })
         const body = await response.json().catch(() => ({}))
         if (!response.ok) {
-          toast(body.detail ?? `访问模式切换失败（${response.status}）`)
+          toast(body.detail ?? t('chat.access.switchFailed', { status: response.status }))
           render()
           return
         }
         state.composer = { ...(state.composer ?? {}), accessMode: body.accessMode }
-        toast(body.deferred === true ? '已记录，将在下回合开始时生效' : '访问模式已更新')
+        toast(body.deferred === true ? t('chat.access.deferred') : t('chat.access.updated'))
       } catch (error) {
-        toast(`访问模式切换失败：${error.message}`)
+        toast(t('chat.access.switchFailedMsg', { message: error.message }))
       }
       render()
     })()
@@ -959,7 +961,7 @@ if (chatId === null) {
   el.identity.hidden = true
   el.composer.hidden = true
   el.log.innerHTML = `<div class="chat-empty">
-      <p>从左边选一个会话，或者在某个 agent 下点「新会话」。</p>
+      <p>${esc(t('chat.pickSession'))}</p>
     </div>`
   reattachToBottom()
 } else {
