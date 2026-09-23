@@ -1,6 +1,8 @@
 // Plain fetch + DOM, matching the rest of the front end: no build step.
 
-import { $, esc, moneyAdaptive, apiJson, showError, bannerHtml } from './ui.js'
+import { $, esc, moneyAdaptive, apiJson, showError, bannerHtml, t, loadI18n } from './ui.js'
+
+await loadI18n()
 
 // 金额显示走 ui.js 的 moneyAdaptive(债务 F2 收口):$0 / <1 分 4 位 / <$1 3 位 / 其余 2 位。
 // 一个回合花费只有几厘,固定 2 位会把一整天的工作显示成 "$0.00"。
@@ -36,9 +38,9 @@ const renderTotals = (data) => {
 
   $('total-cost').textContent = `${gap ? '≥ ' : ''}${moneyAdaptive(t.costMicroUsd)}`
   $('total-note').textContent = gap
-    ? `另有 ${t.unpriced} 条记录的模型未配置单价，未计入`
+    ? t('spend.unpricedNote', { count: t.unpriced })
     : t.runs === 0
-      ? '本月还没有运行'
+      ? t('spend.noRuns')
       : ''
 
   const share = t.costMicroUsd > 0 ? Math.round((t.peakCostMicroUsd / t.costMicroUsd) * 100) : 0
@@ -48,19 +50,19 @@ const renderTotals = (data) => {
     .join('、')
   $('peak-note').textContent =
     windows === ''
-      ? '未配置峰时窗口'
+      ? t('spend.noWindows')
       : share > 0
-        ? `峰时单价翻倍 · 本地 ${windows}`
-        : `全部在谷时 · 峰时为本地 ${windows}`
+        ? t('spend.peakDoubled', { windows })
+        : t('spend.allOffPeak', { windows })
 
   $('total-tokens').textContent = `${tokens(t.inputTokens)} / ${tokens(t.outputTokens)}`
-  $('runs-note').textContent = `输入 / 输出 · 共 ${t.runs} 次运行`
+  $('runs-note').textContent = t('spend.tokensNote', { runs: t.runs })
 }
 
 const renderChart = (days) => {
   const el = $('chart')
   if (days.length === 0) {
-    el.innerHTML = '<span class="chart-empty">本月还没有记录</span>'
+    el.innerHTML = `<span class="chart-empty">${esc(t('spend.noRecords'))}</span>`
     return
   }
   const max = Math.max(...days.map((d) => d.costMicroUsd), 1)
@@ -69,7 +71,11 @@ const renderChart = (days) => {
       const height = Math.max((d.costMicroUsd / max) * 100, d.costMicroUsd > 0 ? 2 : 0)
       const peakPart = d.costMicroUsd > 0 ? (d.peakCostMicroUsd / d.costMicroUsd) * height : 0
       const offPart = height - peakPart
-      const title = `${d.day} · ${moneyAdaptive(d.costMicroUsd)}${d.peakCostMicroUsd > 0 ? `（峰时 ${moneyAdaptive(d.peakCostMicroUsd)}）` : ''}${d.unpriced > 0 ? ` · ${d.unpriced} 条未定价` : ''}`
+      const title = [
+    `${d.day} · ${moneyAdaptive(d.costMicroUsd)}`,
+    d.peakCostMicroUsd > 0 ? t('spend.dayPeak', { cost: moneyAdaptive(d.peakCostMicroUsd) }) : '',
+    d.unpriced > 0 ? ` · ${t('spend.dayUnpriced', { count: d.unpriced })}` : '',
+  ].join('')
       // An unpriced-only day would otherwise be an invisible gap, as if nothing
       // ran at all. Draw it flat and grey instead.
       const body =
@@ -83,7 +89,7 @@ const renderChart = (days) => {
 
 const spendRow = (name, sub, entry) => {
   const gap = entry.unpriced > 0
-  const figure = gap && entry.costMicroUsd === 0 ? '未定价' : `${gap ? '≥ ' : ''}${moneyAdaptive(entry.costMicroUsd)}`
+  const figure = gap && entry.costMicroUsd === 0 ? t('spend.unpriced') : `${gap ? '≥ ' : ''}${moneyAdaptive(entry.costMicroUsd)}`
   return `
     <div class="row">
       <div class="spend-row">
@@ -94,8 +100,8 @@ const spendRow = (name, sub, entry) => {
         <span class="figure ${gap && entry.costMicroUsd === 0 ? 'unknown' : ''}">${esc(figure)}</span>
       </div>
       <div class="muted small">
-        ${entry.runs} 次 · ${tokens(entry.inputTokens)} in / ${tokens(entry.outputTokens)} out${
-          entry.peakCostMicroUsd > 0 ? ` · 峰时 ${moneyAdaptive(entry.peakCostMicroUsd)}` : ''
+        ${esc(t('spend.rowRuns', { runs: entry.runs }))} · ${tokens(entry.inputTokens)} in / ${tokens(entry.outputTokens)} out${
+          entry.peakCostMicroUsd > 0 ? ` · ${esc(t('spend.rowPeak', { cost: moneyAdaptive(entry.peakCostMicroUsd) }))}` : ''
         }
       </div>
     </div>`
@@ -104,19 +110,19 @@ const spendRow = (name, sub, entry) => {
 const renderAgents = (rows) => {
   $('by-agent').innerHTML =
     rows.length === 0
-      ? '<div class="row muted small">本月没有运行</div>'
+      ? `<div class="row muted small">${esc(t('spend.noRuns'))}</div>`
       : rows.map((r) => spendRow(r.name, r.agentId, r)).join('')
 }
 
 const renderModels = (rows) => {
   $('by-model').innerHTML =
     rows.length === 0
-      ? '<div class="row muted small">本月没有运行</div>'
+      ? `<div class="row muted small">${esc(t('spend.noRuns'))}</div>`
       : rows
           .map((r) =>
             spendRow(
-              r.model ?? '(未知模型)',
-              r.rateConfigured ? (r.provider ?? '') : '单价未配置',
+              r.model ?? t('spend.unknownModel'),
+              r.rateConfigured ? (r.provider ?? '') : t('spend.rateMissing'),
               r,
             ),
           )
@@ -137,10 +143,10 @@ const renderBanners = (data) => {
       ? ''
       : bannerHtml({
           level: 'warn',
-          title: `有 ${missing.length} 个模型没有配置单价`,
-          body: `${esc(missing.map((m) => m.model ?? '(未知)').join('、'))} 的运行只记录了 token，没有金额。
-             在 <code>manager.config.yaml</code> 的 <code>pricing.models</code> 下补上单价后，
-             新的运行就会计费（已有记录不会自动回填）。`,
+          title: t('spend.missingTitle', { count: missing.length }),
+          body: t('spend.missingBody', {
+            models: esc(missing.map((m) => m.model ?? t('spend.unknownModel')).join(', ')),
+          }),
         })
 }
 
@@ -157,7 +163,7 @@ const load = async (month) => {
     return
   }
   if (!r.ok) {
-    $('banners').innerHTML = showError(r, '读取花费失败')
+    $('banners').innerHTML = showError(r, t('spend.readFailed'))
     return
   }
   const data = r.data

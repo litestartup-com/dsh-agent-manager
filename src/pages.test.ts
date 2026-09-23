@@ -6,8 +6,9 @@ import { tmpdir } from 'node:os'
 import { test } from 'node:test'
 import fastifyStatic from '@fastify/static'
 import Fastify from 'fastify'
-import { assetCacheHeaders, buildPages, PAGES, PLACEHOLDERS } from './pages.js'
+import { assetCacheHeaders, buildPages, buildStandalonePage, PAGES, PLACEHOLDERS } from './pages.js'
 import { BRAND } from './brand.js'
+import { LOCALES } from './i18n/index.js'
 
 const publicDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'public')
 
@@ -42,6 +43,24 @@ test('each page gets its own title, stylesheets and script', () => {
   // bottom); the wide pages keep the roomier column.
   assert.match(pages.get('chat') ?? '', /<main class="content content-flush">/)
   assert.match(pages.get('nodes') ?? '', /<main class="content wide">/)
+})
+
+test('DAC v1.0.0: 每种语言都能成页（缺键/漏翻在启动期就炸，而不是页面里混语言）', () => {
+  for (const locale of LOCALES) {
+    const pages = buildPages(publicDir, locale)
+    assert.ok(pages.size > 0)
+    for (const [name, html] of pages) {
+      assert.doesNotMatch(html, /\{\{t:/, `${name} (${locale}) 还有未替换的翻译占位符`)
+      assert.doesNotMatch(html, /\{\{[A-Z_]+\}\}/, `${name} (${locale}) 还有未替换的框架占位符`)
+      assert.match(html, new RegExp(`<html lang="${locale}">`), `${name} (${locale}) 的 lang 属性`)
+    }
+  }
+  // 独立页（登录）也要两种语言都成页
+  for (const locale of LOCALES) {
+    const login = buildStandalonePage(publicDir, 'login.html', locale)
+    assert.doesNotMatch(login, /\{\{/, `login.html (${locale}) 还有未替换的占位符`)
+    assert.match(login, new RegExp(`<html lang="${locale}">`))
+  }
 })
 
 test('every asset URL carries a content version', () => {

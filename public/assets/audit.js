@@ -1,16 +1,18 @@
 // 蜂群2计划 P3：审计流水页（只读）。
-import { $, apiJson, esc, setHtml, when } from './ui.js'
+import { $, apiJson, esc, setHtml, when, t, loadI18n } from './ui.js'
+
+await loadI18n()
 
 const KIND_LABEL = {
-  login_success: '登录成功',
-  login_failed: '登录失败',
-  password_change: '修改密码',
-  node_create: '创建节点',
-  node_delete: '删除节点',
-  node_up: '节点启动',
-  node_down: '节点停止',
-  node_restart: '节点重启',
-  backup: '备份',
+  login_success: t('audit.kind.login_success'),
+  login_failed: t('audit.kind.login_failed'),
+  password_change: t('audit.kind.password_change'),
+  node_create: t('audit.kind.node_create'),
+  node_delete: t('audit.kind.node_delete'),
+  node_up: t('audit.kind.node_up'),
+  node_down: t('audit.kind.node_down'),
+  node_restart: t('audit.kind.node_restart'),
+  backup: t('audit.kind.backup'),
 }
 
 const row = (e) => `<div class="node-row">
@@ -24,10 +26,10 @@ const load = async () => {
   try {
     const r = await apiJson('/api/audit')
     if (!r.ok) return
-    setHtml('audit-list', r.data.entries.length === 0 ? '<p class="muted small">还没有审计记录。</p>' : r.data.entries.map(row).join(''))
-    $('audit-refresh').textContent = `刷新于 ${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`
+    setHtml('audit-list', r.data.entries.length === 0 ? `<p class="muted small">${esc(t('audit.empty'))}</p>` : r.data.entries.map(row).join(''))
+    $('audit-refresh').textContent = t('audit.refreshAt', { time: new Date().toLocaleTimeString(undefined, { hour12: false }) })
   } catch {
-    setHtml('audit-list', '<p class="muted small">读取失败</p>')
+    setHtml('audit-list', `<p class="muted small">${esc(t('audit.readFailed'))}</p>`)
   }
 }
 
