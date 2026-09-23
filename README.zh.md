@@ -1,9 +1,11 @@
-# Oh! dsh
+# DAC — Dispatched Agent Cluster
 
-> 蜂群计划 —— 单主机多节点的本地多 agent 管理器，建在 DeepSeek Harness 之上。
+> **One Manager. A Fleet of Agents.**
+> DAC 是 MIT 开源的多机 agent 控制面：跨服务器管理并暴露容器化 agent 节点舰队
+> （当前基于 DeepSeek Harness），提供统一对话与 API 访问。
 > 默认安装 = manager（总办）+ 主脑（总控）+ 个人（工作区）。一条命令、5 分钟用起来。
 
-> English version: [README.md](./README.md)。
+> English version: [README.md](./README.md)。界面**默认英文，可一键切换中文**（语言切换在侧栏 ⋮ 菜单里）。
 
 ## 一键安装
 
@@ -27,8 +29,8 @@ irm https://raw.githubusercontent.com/litestartup-com/dsh-agent-manager/v1.1.1/i
 
 ## 是什么
 
-DeepSeek Harness 提供 agent 运行时（会话 / 工具 / 沙箱 / 文件系统）；Oh! dsh 提供控制面：
-认证、聊天中继、主脑派工、定时任务、节点管理、技能清单、记账、备份恢复。
+DeepSeek Harness 提供 agent 运行时（会话 / 工具 / 沙箱 / 文件系统）；DAC 提供控制面：
+认证、聊天中继、主脑派工、节点与机器管理、技能清单、记账、备份恢复。
 
 概念层级（详见 `docs/USER-GUIDE.md`）：
 
@@ -45,9 +47,9 @@ DeepSeek Harness 提供 agent 运行时（会话 / 工具 / 沙箱 / 文件系�
 - **主脑派工**：对话式编排 + delegation 帧（点击跳回被派会话）+ 会话复用（同类续接）
 - **多节点**：`/nodes` 页全 UI 管控（起/停/重启/日志）+ 向导新增节点 + 侧栏 `N/N` 就绪计数；向导可选节点形态——**容器工蜂（隔离）**或**宿主机进程（整机能力，黄字风险 + 审计）**，宿主机节点依赖装进自己目录、不碰全局 npm
 - **多会话并发**：会话内串行、会话间并行（DSH 原生语义 + git 提交锁 + 冲突显性化）
-- **定时任务**：cron 自动化、连续失败自动停用、主脑日预算熔断（只拦派工，人工不拦）
+- **计划运行**：调度 API 驱动无人值守任务（起草默认停用；主脑派工受日预算熔断约束）
 - **技能清单**：`/skills` 页按工作区列技能 + 版本对照（= 工作区 git HEAD）
-- **站内通知**：铃铛——cron 成败 / 预算熔断 / 主脑任务完成
+- **站内通知**：铃铛——机器掉线 / 节点异常 / 预算熔断 / 主脑任务完成
 - **记账**：峰谷计价（**周六周日全天谷价**）、每 run 花费、月度汇总、按工作区分账
 - **备份恢复**：手动 `npm run backup` + 一键恢复；自动快照可选（`backup.auto: true` 开启，**默认关闭**——15 分钟 DB 快照 + 保留策略 24h 全留 → 每日 30 天 → 每周 12 周；间隔可用 `backup.interval_minutes` 调，如 1440 = 每日）
 - **服务化**：开机自启（Windows 任务计划 / Linux systemd）

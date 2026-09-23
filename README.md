@@ -1,9 +1,13 @@
-# Oh! dsh
+# DAC — Dispatched Agent Cluster
 
-> The Swarm Project — a single-host, multi-node local multi-agent manager built on top of DeepSeek Harness.
+> **One Manager. A Fleet of Agents.**
+> DAC is an MIT open-source control plane for managing and exposing fleets of containerized
+> agent nodes (currently built on DeepSeek Harness) across multiple servers, with unified
+> conversation and API access.
 > Default install = manager (HQ) + brain (chief controller) + personal workspace. One command, up in 5 minutes.
 
-> 中文文档见 [README.zh.md](./README.zh.md)。
+> 中文文档见 [README.zh.md](./README.zh.md)。The UI ships with **English as the default
+> language and Chinese one click away** (the language switcher lives in the sidebar's ⋮ menu).
 
 ## One-line install
 
@@ -27,8 +31,8 @@ first login forces a password change. Full manual: `docs/USER-GUIDE.md` (Chinese
 
 ## What it is
 
-DeepSeek Harness provides the agent runtime (sessions / tools / sandbox / filesystem); Oh! dsh provides the control plane:
-auth, chat relay, brain dispatch, cron jobs, node management, skill inventory, billing, backup & restore.
+DeepSeek Harness provides the agent runtime (sessions / tools / sandbox / filesystem); DAC provides the control plane:
+auth, chat relay, brain dispatch, node and machine management, skill inventory, billing, backup & restore.
 
 Concept hierarchy (see `docs/USER-GUIDE.md`):
 
@@ -43,11 +47,12 @@ server ──► node (= one DSH agent process + its own DSH_HOME) ──► wor
 
 - **Chat UI**: multi-turn conversation, streaming output, tool-call cards, inline question/authorization answers, context usage, session model selection, and restricted read-only/workspace-write access switching when the endpoint supports it
 - **Brain dispatch**: conversational orchestration + delegation frames (click to jump to the delegated session) + session reuse
-- **Multi-node**: full UI control on `/nodes` (start/stop/restart/logs) + guided node wizard + `N/N` readiness count in the sidebar; the wizard offers node forms — **container worker (isolated)** or **host process (whole-machine capability, warning + audit)**; host-process nodes install dependencies into their own directory, never the global npm
+- **Multi-node fleet**: three views on `/nodes` — a live **topology** (manager → machines → nodes, heartbeat edges), the node list, and the machine (node-agent) directory; guided node wizard; start/stop/restart/logs; the wizard offers node forms — **container worker (isolated)** or **host process (whole-machine capability, warning + audit)**; host-process nodes install dependencies into their own directory, never the global npm
 - **Concurrent sessions**: serial within a session, parallel across sessions (native DSH semantics + git commit locks + surfaced conflicts)
-- **Cron jobs**: automation, auto-disable after repeated failures, brain daily-budget circuit breaker (blocks dispatch only, never humans)
+- **Scheduled runs**: the scheduler API drives unattended work (disabled at draft time; brain dispatches are budget-capped)
 - **Skill inventory**: `/skills` page lists skills per workspace with version mapping (= workspace git HEAD)
-- **In-app notifications**: bell — cron results / budget breaker / brain task completions
+- **In-app notifications**: bell — offline machines / abnormal nodes / budget breaker / brain task completions
+- **Bilingual UI**: English by default, Chinese switchable per user (`?lang=` → cookie → `Accept-Language`); adding a language is one JSON file plus one registry line
 - **Billing**: peak/off-peak pricing (**weekends are all off-peak**), per-run cost, monthly summary, per-workspace breakdown
 - **Backup & restore**: on-demand `npm run backup` + one-click restore; optional automatic snapshots (`backup.auto: true`, default off — 15-min DB snapshots + retention policy 24h full → daily 30 days → weekly 12 weeks; interval tunable via `backup.interval_minutes`, e.g. 1440 = daily)
 - **Service**: auto-start on boot (Windows Task Scheduler / Linux systemd)
@@ -214,8 +219,11 @@ npm start              # start manager, auto-spawns managed nodes
 
 | Doc | Contents |
 | --- | --- |
-| `docs/USER-GUIDE.md` | User manual (install / brain / nodes / cron / billing / backup) — Chinese |
+| `docs/USER-GUIDE.md` | User manual (install / brain / nodes & machines / billing / backup) |
 | `README.zh.md` | This README in Chinese |
+| `SECURITY.md` | Threat model, how to report a vulnerability, hardening checklist |
+| `CONTRIBUTING.md` | How to get a change merged (tests first, i18n rules, container rules) |
+| `CODE_OF_CONDUCT.md` | Contributor Covenant |
 | `CHANGELOG.md` | Changelog |
 
 > **This repo carries user-facing docs only.** Design drafts, roadmaps, implementation plans, review records,
