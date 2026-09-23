@@ -1,8 +1,9 @@
 // @ts-check
-// 集群拓扑（UI 收尾 C-P1）：manager → 机器（node-agent）→ 节点（DSH）三列
-// 静态拓扑，纯前端聚合 /api/nodes + /api/agents，零新 API、零依赖。
-// 卡片拼装与边配对是纯函数（topology.test.mjs 可单测）；SVG 连线只在浏览器
-// 里按实测矩形画（drawTopoEdges，DOM 函数）。
+// 集群拓扑（UI 收尾 C）：manager → 机器 → 节点（DSH）三列静态拓扑，纯前端
+// 聚合 /api/nodes + /api/agents，零新 API、零依赖。机器列 = node-agent 注册
+// 的远端机器 + 「本机（manager 宿主）」伪卡（C-P1.5：本机不经 node-agent，
+// 直管节点，边从本机卡出发）。卡片拼装与边配对是纯函数（topology.test.mjs
+// 可单测）；SVG 连线只在浏览器里按实测矩形画（drawTopoEdges，DOM 函数）。
 import { esc } from './ui.js'
 import { machineMetricBits } from './machines.js'
 
@@ -15,6 +16,30 @@ export const formTag = (n) => {
 
 /** 机器在线态决定边样式：在线绿实线 / 离线红虚线（revoked 也走虚线）。 */
 export const machineAlive = (m) => m.online === true && m.revoked !== true
+
+/** 本机（manager 宿主）在拓扑里的伪机器 id；与 agent-* 注册 id 不冲突。 */
+export const LOCAL_MACHINE_ID = 'local'
+
+/** manager 宿主机平台名映射（process.platform → 可读文案）。 */
+export const platformLabel = (os) => ({ win32: 'Windows', linux: 'Linux', darwin: 'macOS' }[os] ?? os)
+
+/**
+ * 本机卡（C-P1.5）：manager 宿主机不是 node-agent 注册机器（机器目录语义 =
+ * 受管远端主机），但拓扑里画成机器列首张卡，本机节点边从它出发——
+ * 图与"manager 直管本机"的事实对齐。无指标徽标：本机指标不经 agent 上报。
+ * @param {{ os: string, arch: string, containerForm: boolean, nodeCount: number }} m
+ * @returns {string}
+ */
+export const localMachineCardHtml = (m) => {
+  const deploy = m.containerForm ? '容器工蜂' : '宿主机进程'
+  return `<div class="topo-item" data-topo-machine="${LOCAL_MACHINE_ID}" title="manager 宿主机——本机节点不经 node-agent，由 manager 直接拉起">
+    <div class="topo-item-head">
+      <span class="dot ok"></span><strong>本机（manager 宿主）</strong>
+      <span class="pill-mini">${esc(deploy)}</span>
+    </div>
+    <div class="topo-item-line muted small">${esc(platformLabel(m.os))}/${esc(m.arch)} · 直管 ${m.nodeCount} 个节点</div>
+  </div>`
+}
 
 /**
  * manager 卡片：版本 + 监听面 + 部署形态 + 机器/节点计数。
@@ -88,42 +113,56 @@ export const nodeCardHtml = (n, hostnameById) => {
 /**
  * 边的源-目标配对（纯函数，供测试与 drawTopoEdges 共用）：
  * - manager → 每台机器（在线绿实线 / 离线红虚线）
- * - 节点归属机器 → 节点（机器离线则红虚线）；host 不在机器目录（含本机
- *   host=null 的节点）直接从 manager 拉线，按节点状态上色。
+ * - 有本机节点（host 为空）时 manager → 本机卡（常绿，manager 宿主机恒可达），
+ *   本机节点从本机卡出发（按节点状态上色）
+ * - 节点归属机器 → 节点（机器离线则红虚线）；host 不在机器目录的节点直接从
+ *   manager 拉线，按节点状态上色。
  * @param {Array<{ id: string, online: boolean, revoked?: boolean }>} machines
  * @param {Array<{ id: string, state: string, host?: string | null }>} nodes
+ * @param {boolean} hasLocalNodes 是否渲染本机卡（有 host 为空的节点）
  * @returns {Array<{ from: string, to: string, on: boolean }>}
  */
-export const edgePairs = (machines, nodes) => {
+export const edgePairs = (machines, nodes, hasLocalNodes = false) => {
   const byId = new Map(machines.map((m) => [m.id, m]))
   const pairs = []
   for (const m of machines) pairs.push({ from: 'manager', to: `machine:${m.id}`, on: machineAlive(m) })
+  if (hasLocalNodes) pairs.push({ from: 'manager', to: `machine:${LOCAL_MACHINE_ID}`, on: true })
   for (const n of nodes) {
     const host = typeof n.host === 'string' && n.host !== '' && byId.has(n.host) ? byId.get(n.host) : null
-    if (host === null) {
-      pairs.push({ from: 'manager', to: `node:${n.id}`, on: n.state === 'live' })
-    } else {
+    const isLocal = typeof n.host !== 'string' || n.host === ''
+    if (host !== null) {
       pairs.push({ from: `machine:${host.id}`, to: `node:${n.id}`, on: machineAlive(host) })
+    } else if (hasLocalNodes && isLocal) {
+      pairs.push({ from: `machine:${LOCAL_MACHINE_ID}`, to: `node:${n.id}`, on: n.state === 'live' })
+    } else {
+      pairs.push({ from: 'manager', to: `node:${n.id}`, on: n.state === 'live' })
     }
   }
   return pairs
 }
 
 /**
- * 三列拓扑骨架（DOM 装配的前半段）：manager 列 + 机器列（离线折叠）+ 节点列。
- * @param {{ managerVersion: string, origin: string, containerForm: boolean, machines: any[], nodes: any[] }} data
+ * 三列拓扑骨架（DOM 装配的前半段）：manager 列 + 机器列（本机卡 + 在线机器
+ * + 离线折叠）+ 节点列。localHost 给本机卡提供平台信息（manager 宿主不经
+ * node-agent，无指标徽标）。
+ * @param {{ managerVersion: string, origin: string, containerForm: boolean, machines: any[], nodes: any[], localHost?: { os: string, arch: string } | null }} data
  * @returns {string}
  */
 export const topologyHtml = (data) => {
-  const { managerVersion, origin, containerForm, machines, nodes } = data
+  const { managerVersion, origin, containerForm, machines, nodes, localHost = null } = data
   const hostnameById = new Map(machines.map((m) => [m.id, m.hostname]))
   const online = machines.filter(machineAlive)
   const offline = machines.filter((m) => !machineAlive(m))
+  const localNodes = nodes.filter((n) => typeof n.host !== 'string' || n.host === '')
+  const localCard =
+    localHost !== null && localNodes.length > 0
+      ? localMachineCardHtml({ ...localHost, containerForm, nodeCount: localNodes.length })
+      : ''
   const manager = managerCardHtml({
     managerVersion,
     origin,
     containerForm,
-    machineCount: machines.length,
+    machineCount: machines.length + (localCard === '' ? 0 : 1), // 本机卡也算一台
     nodeCount: nodes.length,
   })
   return `<div class="topo">
@@ -133,8 +172,9 @@ export const topologyHtml = (data) => {
       ${manager}
     </div>
     <div class="topo-col">
-      <div class="topo-col-head">机器（node-agent）</div>
-      ${online.length === 0 ? '<p class="muted small">没有在线机器</p>' : online.map((m) => machineCardHtml(m, managerVersion)).join('')}
+      <div class="topo-col-head">机器</div>
+      ${localCard}
+      ${online.length === 0 && localCard === '' ? '<p class="muted small">没有在线机器</p>' : online.map((m) => machineCardHtml(m, managerVersion)).join('')}
       ${offline.length === 0
         ? ''
         : `<details class="topo-fold"><summary class="muted small">离线/已吊销 ${offline.length} 台</summary>${offline.map((m) => machineCardHtml(m, managerVersion)).join('')}</details>`}

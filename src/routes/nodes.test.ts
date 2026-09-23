@@ -66,6 +66,9 @@ test('an unmanaged node reports the probe result as its state', async () => {
   // 蜂群2计划 P1：gateway 驱动探测不到 DSH 版本 → null，不产生虚假告警
   assert.equal(body.nodes[0]?.dshVersion, null)
   assert.equal(body.nodes[0]?.dshCompatible, null)
+  // UI 收尾 C-P1.5：本机平台信息（拓扑「本机卡」数据源）
+  assert.equal(typeof body.hostOs, 'string', 'hostOs 必须随 /api/nodes 返回')
+  assert.equal(typeof body.hostArch, 'string', 'hostArch 必须随 /api/nodes 返回')
 })
 
 test('a managed node reports the supervisor state machine', async () => {

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { formTag, machineAlive, managerCardHtml, machineCardHtml, nodeCardHtml, edgePairs, topologyHtml } from './topology.js'
+import { formTag, machineAlive, managerCardHtml, machineCardHtml, nodeCardHtml, edgePairs, topologyHtml, localMachineCardHtml, platformLabel } from './topology.js'
 
 const machine = (over = {}) => ({
   id: 'agent-abc',
@@ -88,6 +88,20 @@ test('UI 收尾 C: 节点卡片——状态点/工作区/版本/漂移/主机映
   assert.ok(cold.includes('dot bad'), 'offline 红点')
 })
 
+test('UI 收尾 C-P1.5: 本机卡——平台映射/部署形态/直管节点数', () => {
+  assert.equal(platformLabel('win32'), 'Windows')
+  assert.equal(platformLabel('linux'), 'Linux')
+  assert.equal(platformLabel('darwin'), 'macOS')
+  assert.equal(platformLabel('freebsd'), 'freebsd', '未知平台回退原文')
+  const html = localMachineCardHtml({ os: 'win32', arch: 'x64', containerForm: false, nodeCount: 3 })
+  assert.ok(html.includes('data-topo-machine="local"'), '本机卡挂在机器列（local 伪机器 id）')
+  assert.ok(html.includes('本机（manager 宿主）'))
+  assert.ok(html.includes('宿主机进程'))
+  assert.ok(html.includes('Windows'))
+  assert.ok(html.includes('直管 3 个节点'))
+  assert.ok(localMachineCardHtml({ os: 'linux', arch: 'arm64', containerForm: true, nodeCount: 1 }).includes('容器工蜂'))
+})
+
 test('UI 收尾 C: 边配对——manager→机器全连，节点随 host 归属', () => {
   const machines = [machine(), machine({ id: 'agent-off', online: false, hostname: 'srv-off' })]
   const nodes = [
@@ -97,16 +111,20 @@ test('UI 收尾 C: 边配对——manager→机器全连，节点随 host 归属
     node({ id: 'd', host: 'agent-gone' }),
     node({ id: 'e', state: 'offline', host: null }),
   ]
-  const pairs = edgePairs(machines, nodes)
+  const pairs = edgePairs(machines, nodes, true)
   const pairOf = (from, to) => pairs.find((p) => p.from === from && p.to === to)
   assert.equal(pairOf('manager', 'machine:agent-abc').on, true, '在线机器绿边')
   assert.equal(pairOf('manager', 'machine:agent-off').on, false, '离线机器红虚线')
   assert.equal(pairOf('machine:agent-abc', 'node:a').on, true, '在线主机 → 节点绿边')
   assert.equal(pairOf('machine:agent-off', 'node:b').on, false, '离线主机 → 节点红虚线')
-  assert.equal(pairOf('manager', 'node:c').on, true, '本机节点直接挂 manager（live 绿边）')
-  assert.equal(pairOf('manager', 'node:e').on, false, '本机离线节点红虚线')
+  assert.equal(pairOf('manager', 'machine:local').on, true, 'C-P1.5: 有本机节点时 manager→本机卡常绿')
+  assert.equal(pairOf('machine:local', 'node:c').on, true, 'C-P1.5: 本机节点从本机卡出发（live 绿边）')
+  assert.equal(pairOf('machine:local', 'node:e').on, false, 'C-P1.5: 本机离线节点红虚线')
   assert.equal(pairOf('manager', 'node:d').on, true, 'host 不在机器目录 → 回退 manager')
-  assert.equal(pairs.length, machines.length + nodes.length, '边数 = 机器数 + 节点数')
+  assert.equal(pairs.length, machines.length + 1 + nodes.length, '边数 = 机器数 + 本机卡 + 节点数')
+  const withoutLocal = edgePairs(machines, nodes, false)
+  assert.equal(withoutLocal.find((p) => p.to === 'machine:local'), undefined, '没有本机节点不画本机边')
+  assert.equal(withoutLocal.find((p) => p.from === 'manager' && p.to === 'node:c').on, true, '无本机卡时本机节点回退 manager')
 })
 
 test('UI 收尾 C: 拓扑骨架——三列齐备，离线机器折叠', () => {
@@ -116,6 +134,7 @@ test('UI 收尾 C: 拓扑骨架——三列齐备，离线机器折叠', () => {
     containerForm: false,
     machines: [machine(), machine({ id: 'agent-off', online: false, hostname: 'srv-off' }), machine({ id: 'agent-rev', revoked: true, hostname: 'srv-rev' })],
     nodes: [node({}), node({ id: 'ops33', agents: ['ops33'], state: 'offline' })],
+    localHost: { os: 'win32', arch: 'x64' },
   }
   const html = topologyHtml(data)
   assert.ok(html.includes('data-topo-manager'))
@@ -124,6 +143,10 @@ test('UI 收尾 C: 拓扑骨架——三列齐备，离线机器折叠', () => {
   assert.ok(html.includes('data-topo-node="ops33"'))
   assert.ok(html.includes('离线/已吊销 2 台'), '离线 + 吊销收进折叠区')
   assert.ok(html.indexOf('data-topo-machine="agent-off"') < html.indexOf('data-topo-machine="agent-rev"'), '离线机器在折叠区内')
+  assert.ok(html.includes('data-topo-machine="local"'), 'C-P1.5: 有本机节点时渲染本机卡')
+  assert.ok(html.indexOf('data-topo-machine="local"') < html.indexOf('data-topo-machine="agent-abc"'), '本机卡排在机器列最前')
   const onlyOnline = topologyHtml({ ...data, machines: [machine()] })
   assert.ok(!onlyOnline.includes('topo-fold'), '没有离线机器不渲染折叠区')
+  const noLocalNodes = topologyHtml({ ...data, nodes: [node({ host: 'agent-abc' })], machines: [machine()] })
+  assert.ok(!noLocalNodes.includes('data-topo-machine="local"'), '没有本机节点不渲染本机卡')
 })

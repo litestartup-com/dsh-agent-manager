@@ -153,7 +153,11 @@ export const registerNodesRoutes = (
     const supportedDsh = SUPPORTED_DSH.map((p) => ({ dsh: p.dsh, status: p.status }))
     // 部署形态标记（镜像 ENV OHDSH_DEPLOY_FORM）：容器形态前端禁用「宿主机进程」
     const containerForm = process.env.OHDSH_DEPLOY_FORM === 'container'
-    return { nodes, dockerMode, supportedDsh, containerForm }
+    // UI 收尾 C-P1.5：本机平台信息（拓扑「本机卡」数据源；manager 宿主不经
+    // node-agent，机器目录里没有它，这里显式给出）。
+    const hostOs = process.platform
+    const hostArch = process.arch
+    return { nodes, dockerMode, supportedDsh, containerForm, hostOs, hostArch }
   })
 
   /**

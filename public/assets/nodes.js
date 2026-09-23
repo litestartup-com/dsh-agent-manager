@@ -493,7 +493,7 @@ $('machines-list').addEventListener('click', (event) => {
 })
 
 // ---- UI 收尾 C-P1：集群拓扑（视图切换 + 边线绘制 + 卡片跳转） ----
-let topoState = { managerVersion: '', origin: window.location.origin, containerForm: false, machines: [], nodes: [] }
+let topoState = { managerVersion: '', origin: window.location.origin, containerForm: false, machines: [], nodes: [], localHost: null }
 
 const VIEW_KEY = 'nodes-view'
 
@@ -508,7 +508,9 @@ const setRevokedFold = (show) => {
 const redrawTopo = () => {
   const container = document.querySelector('#topology .topo')
   if (container === null) return
-  drawTopoEdges(container, edgePairs(topoState.machines, topoState.nodes))
+  // C-P1.5：有 host 为空的节点才渲染本机卡（本机节点从本机卡出发）。
+  const hasLocal = topoState.nodes.some((n) => typeof n.host !== 'string' || n.host === '')
+  drawTopoEdges(container, edgePairs(topoState.machines, topoState.nodes, hasLocal))
 }
 
 const renderTopo = () => {
@@ -573,7 +575,7 @@ const load = async () => {
     // 债务 F6:统一 Result 层。
     const [nodesResult, agentsResult] = await Promise.all([apiJson('/api/nodes'), apiJson('/api/agents')])
     if (!nodesResult.ok) return
-    const { nodes, dockerMode: isDocker, supportedDsh, containerForm } = nodesResult.data
+    const { nodes, dockerMode: isDocker, supportedDsh, containerForm, hostOs, hostArch } = nodesResult.data
     dockerMode = isDocker === true
     if (Array.isArray(supportedDsh)) versionList = supportedDsh
     // 能力四（M1-7/M4-3/UI 收尾 B）：机器目录 + 主机下拉 + 节点行主机名映射 +
@@ -610,6 +612,7 @@ const load = async () => {
         containerForm: containerForm === true,
         machines: machines.map((m) => ({ ...m, managerVersion })),
         nodes,
+        localHost: typeof hostOs === 'string' && typeof hostArch === 'string' ? { os: hostOs, arch: hostArch } : null,
       }
       renderTopo()
     }
