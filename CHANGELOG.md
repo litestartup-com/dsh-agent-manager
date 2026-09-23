@@ -1,5 +1,42 @@
 # Changelog
 
+## v1.0.0 — first public release (2026-10-01)
+
+**One Manager. A Fleet of Agents.** The first public release of DAC (Dispatched Agent
+Cluster), an MIT control plane for fleets of containerized agent nodes across servers.
+
+What ships in 1.0.0:
+
+- **Fleet management** — one manager, machines joined by a node agent (Linux `join.sh` with a
+  systemd user unit, Windows `join.ps1` with a scheduled task), nodes as container workers or
+  host processes, with start/stop/restart/logs, per-node DSH version pinning, and a live
+  topology view (manager → machines → nodes, heartbeat edges).
+- **Unified conversation** — streaming chat against any node, tool cards, inline question and
+  approval handling, per-session model selection and access-mode switching
+  (`read-only` / `workspace-write` / `danger-full-access`), conflict surfacing when two turns
+  commit the same workspace.
+- **API access** — the gateway plugin exposes each node's agent through one authenticated
+  prefix, so third-party clients get the same agents the UI has.
+- **Operations** — audit log, peak/off-peak costing with daily budget breakers, encrypted
+  backups with a restore drill, self-update with health probe and automatic rollback,
+  in-app notifications for offline machines and abnormal nodes.
+- **Bilingual UI** — English by default, Chinese switchable per user; new languages are one
+  JSON file plus one registry line.
+- **Safe defaults** — node ports bind loopback only, the node agent is zero-native-dependency
+  and outbound-only, dangerous operations are gated by approval cards, agent tokens rotate
+  with a 30-minute grace window, first login forces a password change.
+
+Changes made *for* the public release, relative to the pre-release internal line:
+
+- Renamed the product to **DAC** (was "Oh! dsh"); repository and images follow
+  (`hellodac/dac-manager`, `hellodac/dac-node`).
+- Removed two half-finished pages from the UI: the per-agent board view and the scheduled-jobs
+  page. Both back ends remain (the board feeds brain output, the scheduler API still runs
+  unattended work) — only the unfinished surfaces are gone.
+- Made English the default language and moved every user-visible string into translatable
+  locale files (UI, API error details, notification text, CLI output, workspace templates).
+- Added `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, issue and PR templates.
+
 ## 未发布（1.1.2 候选 · 升级零手改配置，2026-09-22）
 
 - **配置版本化迁移（P0）**：`manager.config.yaml` 增 `config_version` 字段 +
