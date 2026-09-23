@@ -1,23 +1,23 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="{{LOCALE}}">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>登录 · Oh! dsh</title>
+    <title>{{t:login.title}} · {{BRAND}}</title>
     <link rel="stylesheet" href="/assets/style.css" />
   </head>
   <body class="centered">
     <form id="form" class="card narrow" autocomplete="on">
-      <h1>Oh! dsh</h1>
-      <p class="muted">dsh agents manager · 个人 / 小团队的 AI 中台</p>
+      <h1>{{BRAND}}</h1>
+      <p class="muted">{{BRAND_FULL}} · {{TAGLINE}}</p>
 
-      <label for="username">用户名</label>
+      <label for="username">{{t:login.username}}</label>
       <input id="username" name="username" autocomplete="username" required autofocus />
 
-      <label for="password">密码</label>
+      <label for="password">{{t:login.password}}</label>
       <input id="password" name="password" type="password" autocomplete="current-password" required />
 
-      <button type="submit" id="submit">登录</button>
+      <button type="submit" id="submit">{{t:login.submit}}</button>
       <p id="error" class="error" hidden></p>
     </form>
 

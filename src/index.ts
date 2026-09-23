@@ -41,7 +41,9 @@ import { registerMetricsRoutes } from './metrics.js'
 import { registerProvisionRoutes } from './routes/provision.js'
 import { createFleetWatchdog } from './fleet/watchdog.js'
 import { Scheduler } from './cron/schedule.js'
-import { assetCacheHeaders, buildPages } from './pages.js'
+import { registerI18nRoutes } from './routes/i18n.js'
+import { assetCacheHeaders, buildAllPages, buildStandalonePage } from './pages.js'
+import { LOCALE_COOKIE, LOCALES, isLocale, resolveLocale } from './i18n/index.js'
 import { registerSecurityHeaders } from './security.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -177,17 +179,55 @@ const main = async (): Promise<void> => {
     setHeaders: assetCacheHeaders,
   })
 
-  // Composed once at boot, so a missing fragment fails here rather than in
-  // somebody's browser.
-  const pages = buildPages(publicDir)
+  // Composed once at boot, so a missing fragment (or a missing i18n key) fails
+  // here rather than in somebody's browser. 每种语言一套 HTML。
+  const pages = buildAllPages(publicDir, LOCALES)
+  // 登录页在壳之外，单独预渲染每种语言（见 pages.ts 的 buildStandalonePage）。
+  const loginPages = new Map(LOCALES.map((locale) => [locale, buildStandalonePage(publicDir, 'login.html', locale)]))
   // HTML documents carry no version of their own: stale-proofing them is one
   // header. (Assets are the opposite -- hash-versioned URLs plus must-revalidate
   // -- so a restart changes their URL, but a document URL never does.)
   const noCache = (reply: FastifyReply): FastifyReply => reply.header('cache-control', 'no-store')
+
+  /**
+   * 语言判定与切换：`?lang=` 命中时写 cookie 并 302 回干净 URL（去掉 lang），
+   * 这样语言偏好可分享、可书签，也不会让 lang 参数留在地址栏里。
+   */
+  const localeOf = (request: {
+    query?: unknown
+    cookies?: Record<string, string | undefined>
+    headers?: Record<string, unknown>
+  }) =>
+    resolveLocale({
+      query: (request.query as { lang?: unknown } | undefined)?.lang,
+      cookie: request.cookies?.[LOCALE_COOKIE],
+      accept: typeof request.headers?.['accept-language'] === 'string' ? (request.headers['accept-language'] as string) : undefined,
+    })
+
+  /** `?lang=` 命中 → 写 cookie + 回跳；否则返回 null。 */
+  const switchLocale = (
+    request: { url: string; query?: unknown },
+    reply: FastifyReply,
+  ): FastifyReply | null => {
+    const requested = (request.query as { lang?: unknown } | undefined)?.lang
+    if (!isLocale(requested)) return null
+    reply.setCookie(LOCALE_COOKIE, requested, { path: '/', sameSite: 'lax', maxAge: 60 * 60 * 24 * 365 })
+    const [pathname, search] = request.url.split('?')
+    const params = new URLSearchParams(search ?? '')
+    params.delete('lang')
+    const query = params.toString()
+    // 回跳目标只取本站路径（request.url 由路由器给出，不含外部主机）。
+    return reply.redirect(query === '' ? (pathname ?? '/') : `${pathname}?${query}`, 302)
+  }
+
   const page =
     (name: string) =>
-    async (_request: unknown, reply: FastifyReply): Promise<FastifyReply> =>
-      noCache(reply.type('text/html').send(pages.get(name)))
+    async (request: { url: string; query?: unknown; cookies?: Record<string, string | undefined>; headers?: Record<string, unknown> }, reply: FastifyReply): Promise<FastifyReply> => {
+      const switched = switchLocale(request, reply)
+      if (switched !== null) return switched
+      const html = pages.get(localeOf(request))?.get(name)
+      return noCache(reply.type('text/html').send(html))
+    }
 
   // 蜂群 Q5：首页已删。/ 与 /app 都直达最近会话——首页最后剩下的职能就
   // 是重定向，那就让它只是重定向。一条会话都没有时落在 /chat 空态
@@ -205,8 +245,19 @@ const main = async (): Promise<void> => {
   app.get('/', landing)
   app.get('/app', landing)
   // The only page outside the shell, on purpose: the sidebar is agent data, and
-  // there is no session yet to fetch it with.
-  app.get('/login', async (_request, reply) => noCache(reply.type('text/html').sendFile('login.html', publicDir)))
+  // there is no session yet to fetch it with. 语言同样按 cookie/Accept-Language
+  // 判定（登录页也要能选语言，DAC v1.0.0）。
+  app.get(
+    '/login',
+    async (
+      request: { url: string; query?: unknown; cookies?: Record<string, string | undefined>; headers?: Record<string, unknown> },
+      reply: FastifyReply,
+    ) => {
+      const switched = switchLocale(request, reply)
+      if (switched !== null) return switched
+      return noCache(reply.type('text/html').send(loginPages.get(localeOf(request))))
+    },
+  )
   // One page for every agent, and which conversation to draw comes from the
   // path. `/chat` without an id is the empty state, which is what the "new
   // conversation" action navigates to before a chat row exists.
@@ -228,6 +279,8 @@ const main = async (): Promise<void> => {
   // P1-5：改密成功后抹掉 .env 里的初始口令。
   // 债务 R6:路径改用 config.envPath(真相源单一推导;旧代码 dist/../.env 在
   // 非默认部署布局下会摸错文件)。
+  // 客户端字典/品牌接口（CSP 禁内联脚本，客户端启动时取一次）。
+  registerI18nRoutes(app)
   registerAuthRoutes(app, db, secureCookies, config.envPath ?? join(here, '..', '.env'))
   registerAuditRoutes(app, db, requireUser)
   registerStatusRoutes(app, config, db, clients, requireUser, upstreamClients, nodeSupervisors)

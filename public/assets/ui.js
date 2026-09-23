@@ -27,6 +27,69 @@ export const esc = (value) =>
 /** @param {string} id @returns {HTMLElement | null} */
 export const $ = (id) => document.getElementById(id)
 
+// ---------------------------------------------------------------------------
+// 多语言（DAC v1.0.0）
+//
+// 静态页面由服务端按语言预渲染；这里的 t() 只服务**动态文案**（表格行、确认框、
+// 提示）。字典不内嵌在页面里（CSP `script-src 'self'` 禁内联脚本），启动时从
+// /api/i18n/<lang> 取一次——语言标签就在 <html lang> 上，服务端已写好。
+// 页面模块用 `await loadI18n()` 保证首屏渲染前字典就位，不要先画键名再补译文。
+// ---------------------------------------------------------------------------
+
+/** @type {Record<string, string>} */
+let dict = {}
+/** @type {string[]} */
+let locales = []
+let locale = typeof document === 'undefined' ? 'en' : document.documentElement.lang || 'en'
+/** @type {{ name: string, full: string, tagline: string, repo: string, site: string } | null} */
+let brand = null
+/** @type {Promise<void> | null} */
+let loading = null
+
+/**
+ * 取一次字典与品牌信息（并发调用共享同一个 Promise）。
+ * 失败不抛：页面仍能用服务端渲染好的静态文案，动态文案回退键名。
+ * @returns {Promise<void>}
+ */
+export const loadI18n = () => {
+  if (loading !== null) return loading
+  const target = typeof document === 'undefined' ? 'en' : document.documentElement.lang || 'en'
+  loading = fetch(`/api/i18n/${encodeURIComponent(target)}`)
+    .then((res) => (res.ok ? res.json() : null))
+    .then((data) => {
+      if (data === null) return
+      locale = typeof data.locale === 'string' ? data.locale : target
+      dict = data.dict ?? {}
+      locales = Array.isArray(data.locales) ? data.locales : []
+      brand = data.brand ?? null
+    })
+    .catch(() => {
+      // 离线/后端未起：保持空字典，界面用键名或服务端文案，不炸页面。
+    })
+  return loading
+}
+
+/** 品牌信息（/api/i18n 提供；未就绪时给安全缺省，避免调用方到处判空）。 */
+export const brandInfo = () =>
+  brand ?? { name: 'DAC', full: 'Dispatched Agent Cluster', tagline: '', repo: '', site: '' }
+
+/** 当前语言与可选语言（语言切换器用）。 */
+export const currentLocale = () => locale
+export const availableLocales = () => (locales.length > 0 ? locales : [locale])
+
+/**
+ * 客户端翻译：`t('nav.nodes')`，`{name}` 插值。缺键返回键名（界面上直接看得见，
+ * 配合 CI 的键一致性断言，缺键进不了发布）。
+ * @param {string} key
+ * @param {Record<string, string | number>} [params]
+ * @returns {string}
+ */
+export const t = (key, params) => {
+  const raw = dict[key] ?? key
+  if (params === undefined) return raw
+  return raw.replace(/\{(\w+)\}/g, (whole, name) => (params[name] === undefined ? whole : String(params[name])))
+}
+
 /**
  * process.platform → 可读平台名（未知平台回退原文）。机器行/本机卡共用，
  * 避免 machines 与 topology 各写一份映射漂移。

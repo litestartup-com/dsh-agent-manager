@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { BRAND } from './brand.js'
+import { DEFAULT_LOCALE, t as translate, type Locale } from './i18n/index.js'
 
 /**
  * Splices each page's body into one shared frame at boot.
@@ -111,7 +112,11 @@ export const PAGES: Record<string, PageDef> = {
   },
 }
 
-/** 布局里必须出现的占位符清单（buildPages 启动期校验；测试据此拼夹具布局）。 */
+/**
+ * 布局里**必须**出现的占位符（buildPages 启动期校验；测试据此拼夹具布局）。
+ * 只是「可替换」的占位符（{{TAGLINE}}/{{HOMEPAGE}}/{{BRAND_FULL}}）不在此列：
+ * 它们由页面片段或独立页按需使用，布局不引用时不该逼着布局保留空位。
+ */
 export const PLACEHOLDERS = [
   '{{TITLE}}',
   '{{HEAD}}',
@@ -121,10 +126,8 @@ export const PLACEHOLDERS = [
   '{{BRAND}}',
   '{{BRAND_MARK}}',
   '{{BRAND_SUB}}',
-  '{{BRAND_FULL}}',
-  '{{TAGLINE}}',
   '{{REPO_URL}}',
-  '{{HOMEPAGE}}',
+  '{{LOCALE}}',
 ] as const
 
 /**
@@ -177,13 +180,33 @@ export const assetCacheHeaders = (reply: { header: (name: string, value: string)
   reply.header('cache-control', 'no-cache')
 }
 
-const render = (layout: string, def: PageDef, fragment: string): string => {
+/** 模板里的翻译占位符：`{{t:nav.nodes}}`。 */
+const TRANSLATION_TOKEN = /\{\{t:([A-Za-z0-9_.-]+)\}\}/g
+
+/**
+ * 把 `{{t:key}}` 换成译文。缺键直接抛错——启动期炸掉比在页面上显示键名好，
+ * 也比"英文页面里混一句中文"好：布局是每页共用的，一次漏翻影响全站。
+ */
+const translateTokens = (text: string, locale: Locale): string =>
+  text.replace(TRANSLATION_TOKEN, (_whole, key: string) => {
+    const value = translate(key, locale)
+    if (value === key) throw new Error(`missing i18n key "${key}" (locale ${locale})`)
+    return value
+  })
+
+const render = (layout: string, def: PageDef, fragment: string, locale: Locale): string => {
   const head = def.css.map((href) => `<link rel="stylesheet" href="/assets/${href}" />`).join('\n    ')
   const script = def.script === null ? '' : `<script src="/assets/${def.script}" type="module"></script>`
-  return layout
+  // 翻译先做：片段与布局里的 {{t:...}} 都在这一步收敛，后面只剩框架占位符。
+  const localizedLayout = translateTokens(layout, locale)
+  const localizedFragment = translateTokens(fragment, locale)
+  // 客户端字典（本语言全量，几 KB）：由 /api/i18n/<locale> 提供给 shell.js
+  // 与 login.js（CSP 禁内联脚本，不能内嵌到页面里），保证服务端渲染与客户端
+  // 动态文案用的是同一份译文。
+  return localizedLayout
     // replaceAll：品牌占位符在一个页面里可能出现多次（标题、侧栏、注入脚本），
     // 用 replace 只会换掉第一处——2026-09-24 实测踩到（spend 页残留 {{BRAND}}）。
-    .replaceAll('{{TITLE}}', def.title)
+    .replaceAll('{{TITLE}}', translateTokens(def.title, locale))
     .replaceAll('{{HEAD}}', head)
     .replaceAll('{{CONTENT_CLASS}}', def.contentClass)
     // 品牌占位符（DAC v1.0.0）：产品名/仓库/站点来自 src/brand.ts，页面里
@@ -195,20 +218,24 @@ const render = (layout: string, def: PageDef, fragment: string): string => {
     .replaceAll('{{TAGLINE}}', BRAND.tagline)
     .replaceAll('{{REPO_URL}}', BRAND.repoUrl)
     .replaceAll('{{HOMEPAGE}}', BRAND.homepage)
+    .replaceAll('{{LOCALE}}', locale)
     // Last, and via a function: a fragment containing `$&` or `$1` would
     // otherwise be interpreted as a replacement pattern and silently mangled.
-    .replace('{{CONTENT}}', () => fragment)
+    .replace('{{CONTENT}}', () => localizedFragment)
     .replaceAll('{{SCRIPT}}', script)
 }
 
 /**
- * Builds every page once.
+ * Builds every page once, for one locale.
  *
- * Rendering at boot rather than per request means a missing fragment or a
- * renamed placeholder fails at startup with a clear message, instead of serving
- * a broken page to whoever happens to open it first.
+ * Rendering at boot rather than per request means a missing fragment, a renamed
+ * placeholder or a missing i18n key fails at startup with a clear message,
+ * instead of serving a broken page to whoever happens to open it first.
+ *
+ * 语言维度也在这里展开（每种语言一套 HTML）：页面是纯静态字符串，按语言预渲染
+ * 比每请求模板替换便宜，也不会把「服务端渲染 + 客户端字典」两份译文弄不一致。
  */
-export const buildPages = (publicDir: string): Map<string, string> => {
+export const buildPages = (publicDir: string, locale: Locale = DEFAULT_LOCALE): Map<string, string> => {
   const layout = readFileSync(join(publicDir, 'layout.html'), 'utf8')
   for (const token of PLACEHOLDERS) {
     if (!layout.includes(token)) throw new Error(`layout.html is missing the ${token} placeholder`)
@@ -217,7 +244,7 @@ export const buildPages = (publicDir: string): Map<string, string> => {
   const out = new Map<string, string>()
   for (const [name, def] of Object.entries(PAGES)) {
     const fragment = readFileSync(join(publicDir, 'pages', def.file), 'utf8')
-    const html = stampAssets(render(layout, def, fragment), publicDir)
+    const html = stampAssets(render(layout, def, fragment, locale), publicDir)
     // Catches a typo'd placeholder that would otherwise reach the browser as
     // literal braces on the page.
     const leftover = html.match(/\{\{[A-Z_]+\}\}/)
@@ -225,4 +252,32 @@ export const buildPages = (publicDir: string): Map<string, string> => {
     out.set(name, html)
   }
   return out
+}
+
+/** 每种语言一套页面（memo：启动期算一次）。 */
+export const buildAllPages = (publicDir: string, locales: readonly Locale[]): Map<Locale, Map<string, string>> => {
+  const out = new Map<Locale, Map<string, string>>()
+  for (const locale of locales) out.set(locale, buildPages(publicDir, locale))
+  return out
+}
+
+/**
+ * 布局之外的独立页（登录页）也按语言预渲染。
+ *
+ * 登录页故意不套 layout 的壳：侧栏画的是 agent 数据，而登录时还没有会话可查。
+ * 它需要的是同一套译文与品牌占位符，而不是整套框架。
+ */
+export const buildStandalonePage = (publicDir: string, file: string, locale: Locale): string => {
+  const raw = readFileSync(join(publicDir, file), 'utf8')
+  const html = translateTokens(raw, locale)
+    .replaceAll('{{BRAND}}', BRAND.name)
+    .replaceAll('{{BRAND_SUB}}', BRAND.sub)
+    .replaceAll('{{BRAND_FULL}}', BRAND.fullName)
+    .replaceAll('{{TAGLINE}}', BRAND.tagline)
+    .replaceAll('{{REPO_URL}}', BRAND.repoUrl)
+    .replaceAll('{{HOMEPAGE}}', BRAND.homepage)
+    .replaceAll('{{LOCALE}}', locale)
+  const leftover = html.match(/\{\{[A-Z_]+\}\}/)
+  if (leftover !== null) throw new Error(`${file} still contains ${leftover[0]} after rendering (${locale})`)
+  return stampAssets(html, publicDir)
 }

@@ -3,13 +3,14 @@
 // Split out of the (since-deleted) home page script when the frame stopped
 // being the dashboard's private property; every page owns the shell equally.
 
-import { $, ago, banner, esc, icon, setHtml, when, apiFetch, poll } from './ui.js'
+import { $, ago, banner, esc, icon, setHtml, when, apiFetch, poll, t, loadI18n, brandInfo, availableLocales, currentLocale } from './ui.js'
 
 /**
- * 品牌信息由 layout.html 从 src/brand.ts 注入（单一真相源），客户端不散写
- * URL 与产品名。缺省回退保证 shell.js 被单独加载时也不炸。
+ * 多语言与品牌：先取字典再画侧栏（顶层 await——首屏不该先显示键名再补译文）。
+ * 品牌来自 /api/i18n（唯一真相源是服务端 src/brand.ts），客户端不散写 URL。
  */
-const brand = window.__DAC_BRAND__ ?? { name: 'DAC', full: 'Dispatched Agent Cluster', tagline: '', repo: '', site: '' }
+await loadI18n()
+const brand = brandInfo()
 
 /** An agent is only as healthy as the endpoint it runs on. */
 const agentHealth = (agent, endpoints) => {
@@ -1098,16 +1099,16 @@ const navLinkHtml = (item) => `<a class="side-link"${item.id === undefined ? '' 
     </a>`
 
 const PRIMARY_NAV = [
-  { href: '/nodes', nav: 'nodes', icon: 'server', label: '节点', hint: 'nodes-hint', id: 'nodes-link' },
-  { href: '/runs', nav: 'runs', icon: 'history', label: '任务', hint: null },
+  { href: '/nodes', nav: 'nodes', icon: 'server', label: t('nav.nodes'), hint: 'nodes-hint', id: 'nodes-link' },
+  { href: '/runs', nav: 'runs', icon: 'history', label: t('nav.runs'), hint: null },
 ]
 
 const MORE_NAV = [
-  { href: '/skills', nav: 'skills', icon: 'spark', label: '技能', hint: null },
-  { href: '/archive', nav: 'archive', icon: 'archive', label: '已归档', hint: 'archive-hint' },
-  { href: '/spend', nav: 'spend', icon: 'coin', label: '花费', hint: 'spend-hint' },
-  { href: '/audit', nav: 'audit', icon: 'shield', label: '审计', hint: null },
-  { href: '/password', nav: 'password', icon: 'pencil', label: '改密', hint: null },
+  { href: '/skills', nav: 'skills', icon: 'spark', label: t('nav.skills'), hint: null },
+  { href: '/archive', nav: 'archive', icon: 'archive', label: t('nav.archive'), hint: 'archive-hint' },
+  { href: '/spend', nav: 'spend', icon: 'coin', label: t('nav.spend'), hint: 'spend-hint' },
+  { href: '/audit', nav: 'audit', icon: 'shield', label: t('nav.audit'), hint: null },
+  { href: '/password', nav: 'password', icon: 'pencil', label: t('nav.password'), hint: null },
 ]
 
 const primaryNav = $('side-primary')
@@ -1116,16 +1117,29 @@ if (primaryNav !== null) primaryNav.innerHTML = PRIMARY_NAV.map(navLinkHtml).joi
 const moreMenu = document.createElement('div')
 moreMenu.id = 'side-more-menu'
 moreMenu.className = 'side-more-menu'
-moreMenu.setAttribute('aria-label', '更多功能')
+moreMenu.setAttribute('aria-label', t('nav.more'))
 moreMenu.hidden = true
 moreMenu.innerHTML = `${MORE_NAV.map(navLinkHtml).join('')}
   <div class="more-divider"></div>
+  <!-- 语言切换（DAC v1.0.0）：点到 ?lang=xx，服务端写 cookie 并 302 回干净 URL；
+       语言名一律用本族语写法（English / 中文），切换时不靠猜。 -->
+  <div class="more-langs" role="group" aria-label="${esc(t('nav.language'))}">
+    ${availableLocales()
+      .map(
+        (tag) =>
+          `<a class="side-link${tag === currentLocale() ? ' active' : ''}" href="?lang=${encodeURIComponent(tag)}" hreflang="${esc(tag)}" lang="${esc(tag)}">
+      <span class="grow">${esc(t(`lang.${tag}`))}</span>
+      ${tag === currentLocale() ? '<span class="muted small">✓</span>' : ''}
+    </a>`,
+      )
+      .join('')}
+  </div>
   <!-- 品牌页脚（DAC v1.0.0）：全称 + 口号 + 仓库入口 + 运行时版本（版本号
        由 shell 的 /api/status 轮询回填，不在页面里写死）。 -->
   <div class="more-brand">
     <div class="more-brand-line"><strong>${esc(brand.name)}</strong> <span class="muted small">${esc(brand.full)}</span> <span id="side-version" class="muted small"></span></div>
     ${brand.tagline === '' ? '' : `<div class="muted small">${esc(brand.tagline)}</div>`}
-    ${brand.repo === '' ? '' : `<a class="side-link" href="${esc(brand.repo)}" target="_blank" rel="noopener noreferrer" title="${esc(brand.name)} 源码（MIT）">
+    ${brand.repo === '' ? '' : `<a class="side-link" href="${esc(brand.repo)}" target="_blank" rel="noopener noreferrer" title="${esc(t('nav.sourceTitle'))}">
       <svg width="14" height="14" aria-hidden="true"><use href="#i-github" /></svg>
       <span class="grow">GitHub</span>
       <span class="muted small">↗</span>
@@ -1133,7 +1147,7 @@ moreMenu.innerHTML = `${MORE_NAV.map(navLinkHtml).join('')}
   </div>
   <button id="logout" class="more-logout" type="button">
     <svg width="14" height="14" aria-hidden="true"><use href="#i-logout" /></svg>
-    <span class="grow">退出登录</span>
+    <span class="grow">${esc(t('nav.logout'))}</span>
   </button>`
 document.body.appendChild(moreMenu)
 

@@ -2339,6 +2339,14 @@ select.text-input {
   margin-top: 2px;
 }
 
+/* 语言切换（DAC v1.0.0）：与导航项同语言，✓ 标出当前语言。 */
+.side-more-menu .more-langs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 2px;
+}
+
 /* 退出登录：与导航视觉分离的危险操作（红线 hover，同仓库 danger 惯例）。 */
 .side-more-menu .more-logout {
   display: flex;
