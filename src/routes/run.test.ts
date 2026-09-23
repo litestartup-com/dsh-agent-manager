@@ -126,6 +126,40 @@ test('unauthenticated GET /api/runs is rejected by the requireUser hook', async 
   assert.equal(res.statusCode, 401)
 })
 
+test('舰队 UI 收尾 A: /api/runs 筛选分页——agent_id/state/before/limit 与 next 游标', async () => {
+  const { app, db } = boot()
+  const rows = []
+  for (let i = 0; i < 6; i += 1) {
+    rows.push({ id: `p${i}`, agentId: 'personal', trigger: 'manual', state: i % 2 === 0 ? 'done' : 'failed', startedAt: 100 + i })
+    rows.push({ id: `b${i}`, agentId: 'brain', trigger: 'manual', state: 'done', startedAt: 200 + i })
+  }
+  db.insert(schema.run).values(rows).run()
+
+  const byAgent = await app.inject({ method: 'GET', url: '/api/runs?agent_id=personal&limit=20' })
+  const ba = byAgent.json() as { runs: Array<{ id: string }>; next: number | null }
+  assert.equal(ba.runs.length, 6, '按工作区过滤')
+  assert.ok(ba.runs.every((r) => r.id.startsWith('p')), '只回该工作区的任务')
+
+  const byState = await app.inject({ method: 'GET', url: '/api/runs?state=failed&limit=20' })
+  const bs = byState.json() as { runs: Array<{ id: string }> }
+  assert.equal(bs.runs.length, 3, '按状态过滤（personal 的奇数行）')
+  assert.ok(bs.runs.every((r) => r.id.startsWith('p')), 'failed 行均来自 personal')
+
+  // 分页：before = 上一页最后一条 startedAt；next = 下一页游标
+  const page1 = await app.inject({ method: 'GET', url: '/api/runs?limit=4' })
+  const p1 = page1.json() as { runs: Array<{ startedAt: number }>; next: number | null }
+  assert.equal(p1.runs.length, 4)
+  assert.equal(p1.next, p1.runs[3]?.startedAt, 'next = 末条 startedAt')
+  const page2 = await app.inject({ method: 'GET', url: `/api/runs?limit=4&before=${p1.next}` })
+  const p2 = page2.json() as { runs: Array<{ id: string }>; next: number | null }
+  assert.equal(p2.runs.length, 4, '第二页继续')
+  assert.equal(p1.runs.some((r) => p2.runs.some((r2) => r2.id === (r as unknown as { id: string }).id)), false, '两页不重叠')
+  const page3 = await app.inject({ method: 'GET', url: `/api/runs?limit=4&before=${p2.next}` })
+  const p3 = page3.json() as { runs: Array<{ id: string }>; next: number | null }
+  assert.equal(p3.runs.length, 4)
+  assert.equal(p3.next, null, '末页 next=null（12 条 = 3 页 × 4）')
+})
+
 test('债务 E9: runs API 的钱字段统一 MicroUsd 命名(不泄露裸列名 cost/peakCost)', async () => {
   const { app, db } = boot()
   db.insert(schema.run)

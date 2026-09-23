@@ -1,0 +1,41 @@
+<div class="wrap">
+  <div class="page-head">
+    <h1 class="grow">任务</h1>
+    <button id="runs-refresh" class="btn-quiet btn-sm" type="button">刷新</button>
+    <span id="runs-updated" class="muted small"></span>
+  </div>
+
+  <!-- UI 收尾 A：全局任务流从 /nodes 迁出，独立成页并升级——工作区/状态
+       筛选 + startedAt 游标分页。主脑派活也在这里留痕。 -->
+  <section class="section">
+    <div class="section-head">
+      <h2>全部任务</h2>
+      <span class="muted small">按开始时间倒序 · 翻页后停自动刷新，点「刷新」回到第一页</span>
+    </div>
+    <div class="card">
+      <div class="field-row" style="padding: 2px 0 14px">
+        <label class="field" style="flex: 0 1 280px">
+          <span class="field-label">工作区</span>
+          <select id="f-run-agent" class="text-input pill-select">
+            <option value="">全部</option>
+          </select>
+        </label>
+        <label class="field" style="flex: 0 1 160px">
+          <span class="field-label">状态</span>
+          <select id="f-run-state" class="text-input pill-select">
+            <option value="">全部</option>
+            <option value="pending">排队</option>
+            <option value="running">跑着</option>
+            <option value="done">做完</option>
+            <option value="failed">失败</option>
+            <option value="missed">错过</option>
+          </select>
+        </label>
+      </div>
+      <div id="runs-list" class="nodes-list"><p class="muted small">加载中…</p></div>
+      <div class="form-actions" style="padding: 14px 0 2px">
+        <button id="runs-more" class="btn-quiet btn-sm" type="button" hidden>加载更多</button>
+      </div>
+    </div>
+  </section>
+</div>

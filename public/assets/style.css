@@ -1850,6 +1850,126 @@ button:disabled {
   gap: 8px;
 }
 
+/* ---- 集群拓扑（UI 收尾 C）：三列 manager→机器→节点 + SVG 边线 ---- */
+
+.topo-toggle {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.topo-toggle .on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+  box-shadow: none;
+}
+
+.topo-card {
+  overflow-x: auto;
+}
+
+.topo {
+  position: relative;
+  display: grid;
+  grid-template-columns: 220px minmax(240px, 1fr) minmax(260px, 1fr);
+  gap: 18px;
+  min-width: 720px;
+}
+
+.topo-edges {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.topo-col {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.topo-col-head {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text-2);
+  letter-spacing: 0.02em;
+  padding: 2px 4px;
+}
+
+.topo-item {
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-1);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.topo-item:hover {
+  border-color: var(--accent);
+}
+
+.topo-manager-card {
+  cursor: default;
+}
+
+.topo-manager-card:hover {
+  border-color: var(--border);
+}
+
+.topo-item-off {
+  opacity: 0.62;
+}
+
+.topo-item-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.topo-item-head strong {
+  font-size: 13px;
+}
+
+.topo-item-line {
+  line-height: 1.5;
+}
+
+.topo-fold {
+  margin-top: 2px;
+}
+
+.topo-fold summary {
+  cursor: pointer;
+}
+
+.topo-fold .topo-item {
+  margin-top: 10px;
+}
+
+.topo-edge {
+  stroke-width: 1.75;
+  fill: none;
+}
+
+.topo-edge.on {
+  stroke: var(--ok);
+}
+
+.topo-edge.off {
+  stroke: var(--bad);
+  stroke-dasharray: 5 4;
+}
+
 .node-row {
   display: flex;
   align-items: center;

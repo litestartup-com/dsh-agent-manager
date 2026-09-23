@@ -1,5 +1,5 @@
 import type { FastifyInstance, preHandlerHookHandler } from 'fastify'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, lt } from 'drizzle-orm'
 import { z } from 'zod'
 import type { AppConfig } from '../config.js'
 import type { Db } from '../db/index.js'
@@ -132,25 +132,45 @@ export const registerRunRoutes = (
 
   // 蜂群 Q4：全局最近任务流，跨所有 agent。/nodes 页的第二栏用，
   // 主脑在脑内看不到全局，节点页就是它的后视镜。
-  app.get<{ Querystring: { limit?: string } }>('/api/runs', { preHandler: requireUser }, async (request, reply) => {
-    const limit = Math.min(Math.max(Number(request.query.limit ?? 30) || 30, 1), 100)
-    const rows = db.select().from(schema.run).orderBy(desc(schema.run.startedAt)).limit(limit).all()
-    return reply.header('cache-control', 'no-store').send({
-      runs: rows.map((r) => ({
-        id: r.id,
-        agentId: r.agentId,
-        agentName: config.agents[r.agentId]?.name ?? r.agentId,
-        trigger: r.trigger,
-        state: r.state,
-        summary: r.resultSummary,
-        error: r.error,
-        sourceChatId: r.sourceChatId,
-        conflict: r.conflict,
-        startedAt: r.startedAt,
-        endedAt: r.endedAt,
-      })),
-    })
-  })
+  // 舰队 UI 收尾 A：升级为筛选分页（任务页数据源）——agent_id/state/before
+  // 游标 + next（before = 上一页末条 startedAt）。
+  app.get<{ Querystring: { limit?: string; agent_id?: string; state?: string; before?: string } }>(
+    '/api/runs',
+    { preHandler: requireUser },
+    async (request, reply) => {
+      const limit = Math.min(Math.max(Number(request.query.limit ?? 50) || 50, 1), 200)
+      const agentId = typeof request.query.agent_id === 'string' && request.query.agent_id !== '' ? request.query.agent_id : null
+      const state = typeof request.query.state === 'string' && request.query.state !== '' ? request.query.state : null
+      const before = Number(request.query.before)
+      const conditions = []
+      if (agentId !== null) conditions.push(eq(schema.run.agentId, agentId))
+      if (state !== null) conditions.push(eq(schema.run.state, state))
+      if (Number.isFinite(before) && before > 0) conditions.push(lt(schema.run.startedAt, before))
+      const rows = db.select().from(schema.run)
+        .where(conditions.length === 0 ? undefined : and(...conditions))
+        .orderBy(desc(schema.run.startedAt))
+        .limit(limit + 1)
+        .all()
+      const hasMore = rows.length > limit
+      const page = hasMore ? rows.slice(0, limit) : rows
+      return reply.header('cache-control', 'no-store').send({
+        next: hasMore && page.length > 0 ? page[page.length - 1]!.startedAt : null,
+        runs: page.map((r) => ({
+          id: r.id,
+          agentId: r.agentId,
+          agentName: config.agents[r.agentId]?.name ?? r.agentId,
+          trigger: r.trigger,
+          state: r.state,
+          summary: r.resultSummary,
+          error: r.error,
+          sourceChatId: r.sourceChatId,
+          conflict: r.conflict,
+          startedAt: r.startedAt,
+          endedAt: r.endedAt,
+        })),
+      })
+    },
+  )
 
   app.get<{ Params: { id: string; runId: string } }>(
     '/api/agents/:id/runs/:runId',

@@ -1,6 +1,10 @@
 <div class="wrap">
   <div class="page-head">
     <h1 class="grow">节点</h1>
+    <div class="topo-toggle" role="group" aria-label="视图切换">
+      <button id="view-topo" class="btn-quiet btn-sm" type="button">拓扑</button>
+      <button id="view-list" class="btn-quiet btn-sm" type="button">列表</button>
+    </div>
     <button id="new-node" class="btn btn-sm" type="button">
       <svg width="14" height="14"><use href="#i-add" /></svg>
       新增节点
@@ -99,6 +103,20 @@
 
   <div id="banners" role="alert"></div>
 
+  <!-- UI 收尾 C-P1：集群拓扑（manager → 机器 → 节点），与列表视图可切换；
+       纯前端聚合 /api/nodes + /api/agents，边在线绿实线/离线红虚线。 -->
+  <section id="topology-section" class="section" hidden>
+    <div class="section-head">
+      <h2>集群拓扑</h2>
+      <span class="muted small">manager → node-agent → DSH 节点 · 点卡片跳到对应列表行</span>
+    </div>
+    <div class="card topo-card">
+      <div id="topology"><p class="muted small">加载中…</p></div>
+    </div>
+  </section>
+
+  <div id="list-view">
+
   <!-- 能力三 v1：节点原生访问配置（SSH 隧道元数据）。私钥永不进 manager。 -->
   <section id="node-access-editor" class="section" hidden>
     <div class="card">
@@ -180,14 +198,5 @@
       <pre id="node-logs-body" class="node-logs-body">加载中…</pre>
     </div>
   </section>
-
-  <section class="section">
-    <div class="section-head">
-      <h2>最近任务</h2>
-      <span class="muted small">全部 agent · 主脑派活也在这里留痕</span>
-    </div>
-    <div class="card">
-      <div id="runs-list" class="nodes-list"><p class="muted small">加载中…</p></div>
-    </div>
-  </section>
+  </div>
 </div>

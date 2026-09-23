@@ -219,6 +219,7 @@ const main = async (): Promise<void> => {
   app.get('/spend', { preHandler: requirePage }, page('spend'))
   app.get('/crons', { preHandler: requirePage }, page('crons'))
   app.get('/nodes', { preHandler: requirePage }, page('nodes'))
+  app.get('/runs', { preHandler: requirePage }, page('runs'))
   app.get('/skills', { preHandler: requirePage }, page('skills'))
   // 蜂群2计划 P3：改密页（强制改密期间的落点）与审计页
   app.get('/password', { preHandler: requirePage }, page('password'))

@@ -1109,6 +1109,7 @@ document.body.appendChild(notifyPanel)
 
 const MORE_NAV = [
   { href: '/nodes', nav: 'nodes', icon: 'server', label: '节点', hint: 'nodes-hint', id: 'nodes-link' },
+  { href: '/runs', nav: 'runs', icon: 'history', label: '任务', hint: null },
   { href: '/skills', nav: 'skills', icon: 'spark', label: '技能', hint: null },
   { href: '/crons', nav: 'crons', icon: 'clock', label: '定时任务', hint: 'cron-hint' },
   { href: '/archive', nav: 'archive', icon: 'archive', label: '已归档', hint: 'archive-hint' },

@@ -4,6 +4,22 @@
 import { esc } from './ui.js'
 
 /**
+ * M4-4：最新指标快照徽标文案（CPU % / 内存 % / 磁盘 %）；无快照返回空数组。
+ * 机器列表与集群拓扑共用同一换算（×10 整数、占比四舍五入）。
+ * @param {{ cpuPercent?: number | null, memTotal?: number | null, memUsed?: number | null, diskTotal?: number | null, diskFree?: number | null } | null | undefined} lm
+ * @returns {string[]}
+ */
+export const machineMetricBits = (lm) => {
+  if (lm === null || lm === undefined) return []
+  const pct = (used, total) => (typeof used === 'number' && typeof total === 'number' && total > 0 ? Math.round((used / total) * 100) : null)
+  return [
+    typeof lm.cpuPercent === 'number' ? `CPU ${lm.cpuPercent / 10}%` : null,
+    pct(lm.memUsed, lm.memTotal) !== null ? `内存 ${pct(lm.memUsed, lm.memTotal)}%` : null,
+    pct(lm.diskTotal - lm.diskFree, lm.diskTotal) !== null ? `磁盘 ${pct(lm.diskTotal - lm.diskFree, lm.diskTotal)}%` : null,
+  ].filter(Boolean)
+}
+
+/**
  * 机器（agent）行：在线点 / 吊销态 / 待执行指令数 / 待更新徽标（M4-3）。
  * @param {{ id: string, hostname: string, os: string, arch: string, nodeVersion: string, joinedAt: number, online: boolean, revoked: boolean, pendingCommands: number, agentVersion?: string | null, managerVersion?: string }} m
  * @returns {string}
@@ -12,16 +28,7 @@ export const machineRowHtml = (m) => {
   const dot = m.revoked ? 'muted' : m.online ? 'ok' : 'err'
   const when = new Date(m.joinedAt).toLocaleString('zh-CN', { hour12: false })
   const stale = typeof m.agentVersion === 'string' && m.agentVersion !== '' && typeof m.managerVersion === 'string' && m.agentVersion !== m.managerVersion
-  // M4-4：最新指标快照（CPU % / 内存 % / 磁盘 %）
-  const lm = m.latestMetric
-  const pct = (used, total) => (typeof used === 'number' && typeof total === 'number' && total > 0 ? Math.round((used / total) * 100) : null)
-  const metricBits = lm === null || lm === undefined
-    ? []
-    : [
-        typeof lm.cpuPercent === 'number' ? `CPU ${lm.cpuPercent / 10}%` : null,
-        pct(lm.memUsed, lm.memTotal) !== null ? `内存 ${pct(lm.memUsed, lm.memTotal)}%` : null,
-        pct(lm.diskTotal - lm.diskFree, lm.diskTotal) !== null ? `磁盘 ${pct(lm.diskTotal - lm.diskFree, lm.diskTotal)}%` : null,
-      ].filter(Boolean)
+  const metricBits = machineMetricBits(m.latestMetric)
   const detail = [
     m.online ? '在线' : '离线',
     `注册于 ${when}`,

@@ -89,6 +89,15 @@ export const PAGES: Record<string, PageDef> = {
     script: 'nodes.js',
     contentClass: 'wide',
   },
+  // UI 收尾 A：全局任务流独立成页（从 /nodes 的「最近任务」迁出并升级为
+  // 筛选 + 分页）；主脑派活在这里留痕。
+  runs: {
+    file: 'runs.html',
+    title: '任务 · Oh! dsh',
+    css: [],
+    script: 'runs.js',
+    contentClass: 'wide',
+  },
   // 蜂群 P5.2：技能清单（v1 只读——文件即真相 + 版本对照）。
   skills: {
     file: 'skills.html',

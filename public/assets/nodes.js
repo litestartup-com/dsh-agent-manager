@@ -1,20 +1,17 @@
 // 节点总览页（蜂群 Q4）：侧栏只放一行汇总 + 异常，全景在这里。
 //
-// 两个列表：全部节点（托管读监督器状态机，外管读探活）+ 全局最近任务
-// 流。15 秒轮询，与侧栏同一数据源 /api/nodes，不另起真相。
+// 两个列表：机器目录（舰队）+ 全部节点（托管读监督器状态机，外管读探活）。
+// 15 秒轮询，与侧栏同一数据源 /api/nodes，不另起真相。
 // 能力三 v1：节点行挂「原生 GUI」卡（隧道命令 + 打开/配置），纯函数层在
-// gui-access.js。
-import { $, ago, esc, setHtml, apiJson, poll } from './ui.js'
+// gui-access.js。UI 收尾 A：全局任务流迁至 /runs（任务页）。
+import { $, esc, setHtml, apiJson, poll } from './ui.js'
 import { guiCardHtml, guiDirectCardHtml, guiSetupButton } from './gui-access.js'
 import { nodeCreatePayload, hostRunnerConfirmText, dangerSandboxConfirmText, versionOptionsHtml } from './node-form.js'
 import { machineRowHtml, joinCommand } from './machines.js'
+import { topologyHtml, edgePairs, drawTopoEdges } from './topology.js'
 
 const NODE_STATE_DOT = { live: 'ok', cold: 'muted', starting: 'warn', restarting: 'warn', offline: 'bad' }
 const NODE_STATE_LABEL = { live: 'live', cold: '未启动', starting: '启动中', restarting: '重启中', offline: 'offline' }
-
-const RUN_STATE_DOT = { pending: 'muted', running: 'busy', done: 'ok', failed: 'bad', missed: 'warn' }
-const RUN_STATE_LABEL = { pending: '排队', running: '跑着', done: '做完', failed: '失败', missed: '错过' }
-const TRIGGER_LABEL = { manual: '人工', cron: '定时', api: 'API', capture: '捕捉', brain: '主脑' }
 
 const nodeRow = (n) => {
   const dot = NODE_STATE_DOT[n.state] ?? 'muted'
@@ -81,31 +78,6 @@ const nodeRow = (n) => {
     </div>
     ${controls}
     ${guiBits}
-  </div>`
-}
-
-const runRow = (r) => {
-  const dot = RUN_STATE_DOT[r.state] ?? 'muted'
-  const label = RUN_STATE_LABEL[r.state] ?? r.state
-  const trigger = TRIGGER_LABEL[r.trigger] ?? r.trigger
-  const summary = r.summary ?? r.error ?? ''
-  const conflict =
-    typeof r.conflict === 'string' && r.conflict !== ''
-      ? `<span class="pill-mini warn" title="${esc(r.conflict)}">冲突</span>`
-      : ''
-  const whenText = r.state === 'running' ? '进行中' : esc(ago(r.startedAt))
-  const link =
-    r.sourceChatId !== null && r.sourceChatId !== undefined
-      ? `<a class="node-link" href="/chat/${encodeURIComponent(r.sourceChatId)}" title="打开这次派活的会话">会话 ›</a>`
-      : ''
-  return `<div class="node-row">
-    <div class="node-main">
-      <div class="node-title">
-        <span class="dot ${dot}"></span>${esc(r.agentName)} <span class="muted">· ${esc(label)} · ${esc(trigger)} · ${whenText}</span> ${conflict}
-      </div>
-      ${summary !== '' ? `<div class="node-detail">${esc(summary)}</div>` : ''}
-    </div>
-    ${link !== '' ? `<div class="node-side">${link}</div>` : ''}
   </div>`
 }
 
@@ -520,10 +492,86 @@ $('machines-list').addEventListener('click', (event) => {
     .catch((error) => alert(`吊销失败：${error.message}`))
 })
 
+// ---- UI 收尾 C-P1：集群拓扑（视图切换 + 边线绘制 + 卡片跳转） ----
+let topoState = { managerVersion: '', origin: window.location.origin, containerForm: false, machines: [], nodes: [] }
+
+const VIEW_KEY = 'nodes-view'
+
+const setRevokedFold = (show) => {
+  const box = $('machines-revoked')
+  const toggle = $('machines-revoked-toggle')
+  if (box === null) return
+  box.hidden = !show
+  if (toggle !== null) toggle.textContent = show ? toggle.textContent.replace('显示', '隐藏') : toggle.textContent.replace('隐藏', '显示')
+}
+
+const redrawTopo = () => {
+  const container = document.querySelector('#topology .topo')
+  if (container === null) return
+  drawTopoEdges(container, edgePairs(topoState.machines, topoState.nodes))
+}
+
+const renderTopo = () => {
+  // 轮询重绘时保留用户展开的「离线/已吊销」折叠区状态。
+  const prev = document.querySelector('#topology details.topo-fold')
+  const wasOpen = prev !== null && prev.open
+  setHtml('topology', topologyHtml(topoState))
+  const next = document.querySelector('#topology details.topo-fold')
+  if (wasOpen && next !== null) next.open = true
+  redrawTopo()
+}
+
+const setView = (view) => {
+  const topo = view === 'topo'
+  $('topology-section').hidden = !topo
+  $('list-view').hidden = topo
+  $('view-topo').classList.toggle('on', topo)
+  $('view-list').classList.toggle('on', !topo)
+  try {
+    localStorage.setItem(VIEW_KEY, view)
+  } catch {
+    // 隐私模式等存储失败忽略——只是记不住偏好，不影响使用。
+  }
+  if (topo) redrawTopo()
+}
+
+$('view-topo').addEventListener('click', () => setView('topo'))
+$('view-list').addEventListener('click', () => setView('list'))
+
+// 点卡片跳到列表对应行；机器行若在已吊销折叠区里，先展开再定位。
+$('topology').addEventListener('click', (event) => {
+  const mach = event.target.closest('[data-topo-machine]')
+  if (mach !== null) {
+    setView('list')
+    const row = document.querySelector(`[data-machine-row="${CSS.escape(mach.dataset.topoMachine)}"]`)
+    if (row !== null) {
+      const fold = row.closest('#machines-revoked')
+      if (fold !== null && fold.hidden) setRevokedFold(true)
+      row.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+    return
+  }
+  const nd = event.target.closest('[data-topo-node]')
+  if (nd !== null) {
+    setView('list')
+    document.querySelector(`[data-node-row="${CSS.escape(nd.dataset.topoNode)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+})
+
+window.addEventListener('resize', redrawTopo)
+
+let savedView = 'list'
+try {
+  savedView = localStorage.getItem(VIEW_KEY) === 'topo' ? 'topo' : 'list'
+} catch {
+  savedView = 'list'
+}
+setView(savedView)
+
 const load = async () => {
   try {
     // 债务 F6:统一 Result 层。
-    const [nodesResult, runsResult, agentsResult] = await Promise.all([apiJson('/api/nodes'), apiJson('/api/runs'), apiJson('/api/agents')])
+    const [nodesResult, agentsResult] = await Promise.all([apiJson('/api/nodes'), apiJson('/api/agents')])
     if (!nodesResult.ok) return
     const { nodes, dockerMode: isDocker, supportedDsh, containerForm } = nodesResult.data
     dockerMode = isDocker === true
@@ -553,6 +601,17 @@ const load = async () => {
         opt.textContent = `${m.hostname}（${m.os}/${m.arch}）`
         hostSel.appendChild(opt)
       }
+      // UI 收尾 C-P1：集群拓扑数据帧（纯前端聚合 /api/nodes + /api/agents，
+      // 不另起真相；拓扑视图可见时才画 SVG 边线）。managerVersion 注入与
+      // 列表行同口径，否则「待更新」徽标在拓扑里永远不亮。
+      topoState = {
+        managerVersion,
+        origin: window.location.origin,
+        containerForm: containerForm === true,
+        machines: machines.map((m) => ({ ...m, managerVersion })),
+        nodes,
+      }
+      renderTopo()
     }
     // 容器形态部署（manager 在容器内）不支持宿主机进程节点——向导里禁用该
     // 选项并改写文案；裸机部署（含混合 docker.sock 部署）不受限。
@@ -585,10 +644,6 @@ const load = async () => {
         : nodes.map(nodeRow).join(''),
     )
 
-    if (runsResult.ok) {
-      const { runs } = runsResult.data
-      setHtml('runs-list', runs.length === 0 ? '<p class="muted small">还没有任务记录。</p>' : runs.map(runRow).join(''))
-    }
     $('nodes-refresh').textContent = `刷新于 ${new Date().toLocaleTimeString('zh-CN', { hour12: false })} · 15 秒自动`
   } catch {
     // 网络失败时保留上一帧，不刷成错误页。
