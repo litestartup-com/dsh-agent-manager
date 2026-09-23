@@ -280,18 +280,27 @@ export class AgentRuntime {
     try {
       const version = typeof payload.dshVersion === 'string' && payload.dshVersion !== '' ? payload.dshVersion : '0.1.2-rc.1'
       const legacy = LEGACY_PEER_DEPS_VERSIONS.includes(version)
-      // 派生下发（M1-6）：profile 文件落盘（幂等，内容不变不重写）+ 依赖安装
+      // 派生下发（M1-6）：profile 文件落盘（幂等，内容不变不重写）+ 依赖安装。
+      // M2 回归：慢盘上 warm npm install 仍以分钟计——文件未变 + 上次安装
+      // 完成标记存在 = 跳过重装（.installed-ok 由安装成功后写入，中断的
+      // 半装态无标记 → 重装兜底）。
       let profileDir = null
       if (payload.profile !== null && payload.profile !== undefined) {
         profileDir = `${dshHome}/${payload.profile.dir}`
         this.fs.mkdir(profileDir)
         const files = payload.profile.files ?? {}
+        let changed = false
         for (const [name, content] of Object.entries(files)) {
           if (this.fs.readFile(`${profileDir}/${name}`) !== String(content)) {
             this.fs.writeFile(`${profileDir}/${name}`, String(content))
+            changed = true
           }
         }
-        await this.proc.installProfile?.(profileDir, legacy)
+        const installedMarker = `${profileDir}/.installed-ok`
+        if (changed || !this.fs.exists(installedMarker)) {
+          await this.proc.installProfile?.(profileDir, legacy)
+          this.fs.writeFile(installedMarker, String(Date.now()))
+        }
       }
       // fleet.md 派生下发（A 清单：节点只读 manager 下发的 fleet.md）
       if (typeof payload.fleetMd === 'string' && payload.fleetMd !== '') {

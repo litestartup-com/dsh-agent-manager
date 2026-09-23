@@ -498,12 +498,17 @@ export class NodeSupervisor {
     this.deps.log?.(`node ${this.id}: agent ${spec.host} spawn 指令 #${commandId} 已入队（profile + keys 随载荷下发）`)
     this.deps.agentResult?.(commandId, (ok: boolean) => {
       if (gen !== this.launchGen || this.status.state !== 'starting') return
-      if (ok) return // 就绪与否交给探活判定（host.describe）
-      this.lastError = `agent 报告 spawn 失败（指令 #${commandId}）`
-      this.deps.log?.(`node ${this.id}: ${this.lastError}`)
-      this.afterAgentFailure(spec)
+      if (!ok) {
+        this.lastError = `agent 报告 spawn 失败（指令 #${commandId}）`
+        this.deps.log?.(`node ${this.id}: ${this.lastError}`)
+        this.afterAgentFailure(spec)
+        return
+      }
+      // M2 回归：就绪探活从 spawn 结果后才开始——远端冷安装可能几分钟，
+      // 立即探活会在安装期间把窗口烧穿（误杀 stop + 重试风暴）。
+      this.deps.log?.(`node ${this.id}: agent 报告 spawn 完成（指令 #${commandId}）——开始就绪探活`)
+      this.armReadyProbe(spec)
     })
-    this.armReadyProbe(spec)
   }
 
   /** 能力四：入队一条 agent 指令（stop 语义的共用入口；未接线 = 静默留痕）。 */

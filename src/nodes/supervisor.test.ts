@@ -69,6 +69,8 @@ const waitFor = async (fn: () => boolean, timeoutMs: number, what: string): Prom
   }
 }
 
+const sleepMs = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
 const keepAliveScript = 'console.log("hello-node"); setInterval(() => {}, 1000)'
 
 /**
@@ -442,7 +444,24 @@ test('能力四 M1-4: agent start——入队 node.spawn（载荷含 nodeId/args
   assert.match(payload.profile.files['package.json'] ?? '', /"@deepseek-ai\/dsh-base": "0.1.5-rc.2"/, 'profile 钉版与载荷一致')
   assert.match(payload.profile.files['package.json'] ?? '', /#b592b4f/, 'facade ref 进 profile')
   assert.equal((payload.profile.files['.seed-version'] ?? '').trim().length, 40, '种子标记随载荷')
+  deps.resultCallbacks.get(1)?.(true)
   await waitFor(() => s.current.state === 'live', 3_000, 'agent node live')
+})
+
+test('能力四 M2 回归: agent 就绪探活必须在 spawn 结果之后（远端冷安装期间不误杀）', async () => {
+  const deps = agentDeps()
+  let probes = 0
+  const s = supervisorWith(deps, async () => {
+    probes += 1
+    return { ok: true, detail: '' }
+  })
+  s.start(agentSpec())
+  await sleepMs(50)
+  assert.equal(probes, 0, 'spawn 结果未回报前绝不探活（安装可能几分钟）')
+  assert.equal(s.current.state, 'starting', '期间保持 starting')
+  deps.resultCallbacks.get(1)?.(true)
+  await waitFor(() => s.current.state === 'live', 3_000, '结果 ok 后才探活 → live')
+  assert.ok(probes >= 1, '结果 ok 后探活启动')
 })
 
 test('能力四 M1-4: agent spawn 失败回报 → 快速失败重试链（不等待就绪超时）', async () => {
@@ -459,7 +478,22 @@ test('能力四 M1-4: 就绪超时入队 node.stop + 失败链；stop → node.s
   const deps = agentDeps()
   const s = supervisorWith(deps, badProbe)
   s.start(agentSpec())
-  await waitFor(() => s.current.state === 'offline', 5_000, 'agent offline after retries')
+  // M2 回归：每次重试的 spawn 都要有结果回报才继续（结果前不探活）。
+  // 指令 id 含 node.stop 在内（spawn=1 → stop=2 → spawn=3），按「未回报过的回调」推进。
+  const fired = new Set<number>()
+  for (let i = 0; i < 2; i += 1) {
+    await waitFor(() => [...deps.resultCallbacks.keys()].some((k) => !fired.has(k)), 2_000, 'spawn enqueued + result cb registered')
+    const id = [...deps.resultCallbacks.keys()].find((k) => !fired.has(k))
+    assert.ok(id !== undefined, '有未回报的 spawn 回调')
+    fired.add(id)
+    deps.resultCallbacks.get(id)?.(true)
+    await waitFor(
+      () => [...deps.resultCallbacks.keys()].some((k) => !fired.has(k)) || s.current.state === 'offline',
+      3_000,
+      'next spawn or offline',
+    )
+  }
+  assert.equal(s.current.state, 'offline', 'agent offline after retries')
   assert.ok(deps.enqueued.filter((e) => e.type === 'node.stop').length >= 2, '每次超时入队 stop')
 
   s.stop()
@@ -468,8 +502,10 @@ test('能力四 M1-4: 就绪超时入队 node.stop + 失败链；stop → node.s
   const deps2 = agentDeps()
   const s2 = supervisorWith(deps2, okProbe)
   s2.start(agentSpec())
+  deps2.resultCallbacks.get(1)?.(true)
   await waitFor(() => s2.current.state === 'live', 2_000, 'live before restart')
   s2.restart(agentSpec())
+  deps2.resultCallbacks.get(2)?.(true)
   await waitFor(
     () => deps2.enqueued.some((e) => e.type === 'node.stop') && deps2.enqueued.filter((e) => e.type === 'node.spawn').length >= 2,
     2_000,

@@ -172,6 +172,37 @@ test('能力四 M1 试点回归: spawn 优先 profile-local bin（prefix 独立�
   assert.equal(a.proc.installed.length, 0, 'prefix 独立安装跳过（其树缺 legacy peer 会崩）')
 })
 
+test('能力四 M2 回归: 文件未变 + 安装完成标记 = 跳过 npm 重装（慢盘重装分钟级）；半装态无标记必须重装', async () => {
+  const a = makeRuntime()
+  await a.runtime.registerOnce()
+  const profileDir = '/agent/nodes/ops01/profiles/ops01'
+  a.fs.store.set(`${profileDir}/node_modules/@deepseek-ai/dsh/lib/bin.js`, '')
+  a.fs.store.set(`${profileDir}/.installed-ok`, '1')
+  a.fs.store.set(`${profileDir}/package.json`, '{"dsh":1}')
+  a.transport.commandBatches.push([
+    { id: 51, type: 'node.spawn', payload: { nodeId: 'ops01', args: ['--profile', 'ops01'], env: { DSH_HOME: '/agent/nodes/ops01' }, dshVersion: '0.1.5-rc.2', profile: { dir: 'profiles/ops01', files: { 'package.json': '{"dsh":1}' } } } },
+  ])
+  await a.runtime.loopOnce()
+  assert.equal(a.proc.profileInstalls.length, 0, '未变 + 标记 = 跳过重装')
+
+  // 文件变了 → 即使有标记也重装
+  a.transport.commandBatches.push([
+    { id: 52, type: 'node.spawn', payload: { nodeId: 'ops01', args: [], env: { DSH_HOME: '/agent/nodes/ops01' }, dshVersion: '0.1.5-rc.2', profile: { dir: 'profiles/ops01', files: { 'package.json': '{"dsh":2}' } } } },
+  ])
+  await a.runtime.loopOnce()
+  assert.equal(a.proc.profileInstalls.length, 1, '内容变化必须重装')
+
+  // 无标记（半装态/旧版）→ 重装兜底
+  const b = makeRuntime()
+  await b.runtime.registerOnce()
+  b.fs.store.set(`${profileDir}/node_modules/x`, '')
+  b.transport.commandBatches.push([
+    { id: 53, type: 'node.spawn', payload: { nodeId: 'ops01', args: [], env: { DSH_HOME: '/agent/nodes/ops01' }, dshVersion: '0.1.5-rc.2', profile: { dir: 'profiles/ops01', files: { 'package.json': '{}' } } } },
+  ])
+  await b.runtime.loopOnce()
+  assert.equal(b.proc.profileInstalls.length, 1, '无完成标记必须重装')
+})
+
 test('能力四 M4-4: 心跳指标——首轮携带主机指标，60s 窗口内不重报', async () => {
   const a = makeRuntime()
   await a.runtime.registerOnce()
