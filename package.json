@@ -27,7 +27,8 @@
     "lint": "eslint src scripts",
     "smoke": "node scripts/smoke.mjs",
     "service": "tsx src/cli/service.ts",
-    "update": "tsx src/cli/update.ts"
+    "update": "tsx src/cli/update.ts",
+    "i18n:check": "node scripts/check-i18n-keys.mjs"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.4.0",

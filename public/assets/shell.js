@@ -20,7 +20,7 @@ const agentHealth = (agent, endpoints) => {
   return 'ok'
 }
 
-const HEALTH_TITLE = { ok: '端点正常', warn: '端点有告警', bad: '端点不可达' }
+const HEALTH_TITLE = { ok: t('side.healthOk'), warn: t('side.healthWarn'), bad: t('side.healthBad') }
 
 /** Endpoint health, independent of any agent. Same rule as agentHealth. */
 const endpointHealth = (ep) => {
@@ -49,9 +49,9 @@ const renderEndpointLines = (status) => {
         const health = endpointHealth(ep)
         // apiproxy 端点没有会话数来源（gateway 老 /health 才有）——未知就
         // 不显示，不拿 0 冒充真数（2026-09-11）。
-        const reach = ep.reachable ? (typeof ep.sessions === 'number' ? ` · 会话 ${ep.sessions}` : '') : ' · 不可达'
-        const label = `${ep.id}${reach}${ep.apiKeySet === false ? ' · 未校验密钥' : ''}`
-        const detail = ep.reachable ? '' : ` — ${ep.error ?? '未知错误'}`
+        const reach = ep.reachable ? (typeof ep.sessions === 'number' ? t('side.sessionsCount', { count: ep.sessions }) : '') : t('side.unreachable')
+        const label = `${ep.id}${reach}${ep.apiKeySet === false ? t('side.keyUnverified') : ''}`
+        const detail = ep.reachable ? '' : ` — ${ep.error ?? t('side.unknownError')}`
         return `<span class="endpoint-line" title="${esc(ep.url)}${esc(detail)}">
           <span class="dot ${health}"></span>${esc(label)}
         </span>`
@@ -100,8 +100,8 @@ const renderBrain = (status) => {
   const rest = chats.length - shown.length
   const latest = chats[0]
   const latestTitle =
-    latest === undefined || latest.title === null || latest.title === '' ? '新会话' : latest.title
-  const openTitle = latest === undefined ? '主脑 · 还没有会话，点击开始第一个' : `主脑 · 最近：${latestTitle}`
+    latest === undefined || latest.title === null || latest.title === '' ? t('side.newChat') : latest.title
+  const openTitle = latest === undefined ? t('side.brain.firstChat') : t('side.brain.lastChat', { title: latestTitle })
   setHtml(
     'side-brain',
     `<div class="side-brain-card${open ? ' open' : ''}">
@@ -109,20 +109,20 @@ const renderBrain = (status) => {
         <button class="side-brain-btn" type="button" data-brain-open title="${esc(openTitle)}">
           <span class="side-brain-icon" aria-hidden="true">${icon('hive', 15)}</span>
           <span class="side-brain-main">
-            <span class="side-brain-name">主脑${
+            <span class="side-brain-name">${esc(t('side.brain.name'))}${
               busy !== null
-                ? `<span class="brain-busy" title="${activeByAgent.get('brain') ?? 1} 个回合进行中">忙</span>`
+                ? `<span class="brain-busy" title="${esc(t('side.brain.busyTitle', { count: activeByAgent.get('brain') ?? 1 }))}">${esc(t('side.brain.busy'))}</span>`
                 : ''
             }</span>
-            <span class="side-brain-sub">总控 agent</span>
+            <span class="side-brain-sub">${esc(t('side.brain.sub'))}</span>
           </span>
         </button>
         <button class="side-brain-ghost" type="button" data-brain-toggle aria-expanded="${open}"
-                title="${open ? '收起' : '展开'}主脑会话列表" aria-label="${open ? '收起' : '展开'}主脑会话列表">
+                title="${esc(open ? t('side.brain.collapse') : t('side.brain.expand'))}" aria-label="${esc(open ? t('side.brain.collapse') : t('side.brain.expand'))}">
           ${CHEV_SVG}
         </button>
         <span class="side-brain-div" aria-hidden="true"></span>
-        <button class="side-brain-ghost" type="button" data-brain-new title="主脑新会话" aria-label="主脑新会话">
+        <button class="side-brain-ghost" type="button" data-brain-new title="${esc(t('side.brain.newChat'))}" aria-label="${esc(t('side.brain.newChat'))}">
           ${ADD_SVG}
         </button>
       </div>
@@ -131,7 +131,7 @@ const renderBrain = (status) => {
           ? `<div class="brain-chats">
             ${
               chats.length === 0
-                ? '<p class="muted small brain-empty">还没有会话，点 ＋ 开始</p>'
+                ? `<p class="muted small brain-empty">${esc(t('side.brain.empty'))}</p>`
                 : shown.map(chatRow).join('') +
                   (rest > 0 ? `<button class="tree-child more" type="button" data-chat-more="brain">Show ${rest} more sessions</button>` : '') +
                   (unfolded && chats.length > BRAIN_CHATS_SHOWN
@@ -161,13 +161,13 @@ const openBrainChat = async (fresh) => {
       body: JSON.stringify({ agentId: 'brain' }),
     })
     if (!response.ok) {
-      banner('主脑会话创建失败', 'warn')
+      banner(t('side.brain.createFailed'), 'warn')
       return
     }
     const { chat } = await response.json()
     window.location.href = `/chat/${encodeURIComponent(chat.id)}`
   } catch (error) {
-    banner(`主脑不可用：${error.message}`, 'warn')
+    banner(t('side.brain.unavailable', { message: error.message }), 'warn')
   }
 }
 
@@ -227,7 +227,7 @@ const renderNodes = (nodesData) => {
   hint.textContent = `${live}/${rows.length}`
   hint.classList.toggle('warn', abnormal.length > 0)
   link.title =
-    abnormal.length === 0 ? '节点总览' : `节点未就绪：${abnormal.map((n) => n.id).join('、')} · 点开看详情`
+    abnormal.length === 0 ? t('side.nodesOverview') : t('side.nodesNotReady', { ids: abnormal.map((n) => n.id).join(', ') })
 }
 
 const segments = window.location.pathname.split('/').filter(Boolean)
@@ -327,13 +327,13 @@ const revealOpenChat = (agents) => {
 
 const chatRow = (chat) => {
   const active = chat.id === openChatId ? ' active' : ''
-  const title = chat.title === null || chat.title === '' ? '新会话' : chat.title
+  const title = chat.title === null || chat.title === '' ? t('side.newChat') : chat.title
   // Time first, count second. The list is ordered by last activity, so the time
   // is what explains the order; the turn count is context once you have found
   // the row. It is a turn count and not an unread count -- nothing here is ever
   // "unread", so it is spelled out rather than shown as a badge, which would be
   // read as unread.
-  const parts = [ago(chat.lastActiveAt), chat.turns > 0 ? `${chat.turns} 轮` : ''].filter((p) => p !== '')
+  const parts = [ago(chat.lastActiveAt), chat.turns > 0 ? t('archive.turns', { count: chat.turns }) : ''].filter((p) => p !== '')
   const meta = parts.length === 0 ? '' : `<span class="chat-row-meta">${esc(parts.join(' · '))}</span>`
   // The row is a link and the actions are a button beside it, not inside it: a
   // button nested in an anchor is invalid, and clicking it would navigate as
@@ -350,7 +350,7 @@ const chatRow = (chat) => {
         </span>
       </a>
       <button class="row-more" type="button" data-more="${esc(chat.id)}"
-              aria-label="${esc(title)} 的更多操作" aria-haspopup="menu">
+              aria-label="${esc(t('side.chatMore', { title }))}" aria-haspopup="menu">
         ${icon('more', 16)}
       </button>
     </div>`
@@ -394,8 +394,8 @@ const agentNav = (status) => {
           <span class="rail-badge" aria-hidden="true">${esc([...agent.name][0] ?? '?')}</span>
           <span class="label">${esc(agent.name)}</span>
         </button>
-        ${busy !== null ? `<span class="dot busy" title="${activeByAgent.get(agent.id) ?? 1} 个回合进行中"></span>` : ''}
-        ${agent.public ? `<span class="meta" title="这个 agent 对外可调">${icon('alert', 12)}</span>` : ''}
+        ${busy !== null ? `<span class="dot busy" title="${esc(t('side.brain.busyTitle', { count: activeByAgent.get(agent.id) ?? 1 }))}"></span>` : ''}
+        ${agent.public ? `<span class="meta" title="${esc(t('side.agentPublic'))}">${icon('alert', 12)}</span>` : ''}
         <!-- The row's action area: endpoint health first, then new chat last --
              the "+" owns the far end of the row. (DAC v1.0.0：大盘入口已下线。) -->
         <!-- The dot is a button, because what it reports is not self-explanatory:
@@ -403,13 +403,13 @@ const agentNav = (status) => {
              go red together. Clicking says which endpoint and who else is on
              it. -->
         <button class="dot-btn ${health}" type="button" data-info="${esc(agent.id)}"
-                title="${esc(HEALTH_TITLE[health])} · 点开看 ${esc(agent.name)} 的详情"
-                aria-label="${esc(agent.name)} 详情（${esc(HEALTH_TITLE[health])}）">
+                title="${esc(t('side.agentDetailTitle', { health: HEALTH_TITLE[health], name: agent.name }))}"
+                aria-label="${esc(t('side.agentDetail', { name: agent.name, health: HEALTH_TITLE[health] }))}">
           ${icon('endpoint', 15)}
           <span class="dot ${health}"></span>
         </button>
         <button class="tree-side" type="button" data-new="${esc(agent.id)}"
-                title="${esc(agent.name)} 新会话" aria-label="${esc(agent.name)} 新会话">
+                title="${esc(t('side.agentNewChat', { name: agent.name }))}" aria-label="${esc(t('side.agentNewChat', { name: agent.name }))}">
           ${icon('add', 14)}
         </button>
       </div>
@@ -528,7 +528,7 @@ export const loadShell = async () => {
     const avatar = $('avatar')
     if (avatar !== null) avatar.textContent = [...me.username][0] ?? '?'
     $('agent-count').textContent = treeAgents(status).length === 0 ? '' : treeAgents(status).length
-    setHtml('agent-nav', treeAgents(status).length === 0 ? '<p class="muted small">未配置 agent</p>' : agentNav(status))
+    setHtml('agent-nav', treeAgents(status).length === 0 ? `<p class="muted small">${esc(t('side.noAgents'))}</p>` : agentNav(status))
     renderBrain(status)
     if (nodesData !== null && Array.isArray(nodesData.nodes)) renderNodes(nodesData)
     else renderEndpointLines(status)
@@ -592,12 +592,12 @@ const syncNavControls = () => {
   const opener = $('nav-open')
   if (collapse === null || opener === null) return
   if (docked()) {
-    const label = railed() ? '展开侧栏' : '收起侧栏'
+    const label = railed() ? t('side.expandRail') : t('side.collapse')
     collapse.setAttribute('aria-label', label)
     collapse.title = `${label}（[）`
   } else {
-    collapse.setAttribute('aria-label', '关闭导航')
-    collapse.title = '关闭导航'
+    collapse.setAttribute('aria-label', t('side.closeNav'))
+    collapse.title = t('side.closeNav')
   }
   opener.setAttribute('aria-expanded', String(drawerOpen()))
 }
@@ -721,10 +721,10 @@ try {
  * appears.
  */
 const SECTION_TITLES = {
-  app: '首页',
-  chat: '对话',
-  archive: '已归档',
-  spend: '花费',
+  app: t('topbar.home'),
+  chat: t('topbar.chat'),
+  archive: t('topbar.archive'),
+  spend: t('topbar.spend'),
 }
 const setTopbarTitle = (text) => {
   $('topbar-title').textContent = text
@@ -781,8 +781,8 @@ const closeMenu = () => {
 const openMenu = (button, chatId) => {
   menuChatId = chatId
   button.setAttribute('aria-expanded', 'true')
-  menu.innerHTML = `<button type="button" role="menuitem" data-act="rename">重命名</button>
-    <button type="button" role="menuitem" data-act="archive">${icon('archive', 13)}归档</button>`
+  menu.innerHTML = `<button type="button" role="menuitem" data-act="rename">${esc(t('menu.rename'))}</button>
+    <button type="button" role="menuitem" data-act="archive">${icon('archive', 13)}${esc(t('menu.archive'))}</button>`
   menu.hidden = false
   // Positioned after unhiding, since a hidden element measures as 0. Clamped to
   // the viewport so a row near the bottom does not open a menu off screen.
@@ -797,11 +797,11 @@ const openMenu = (button, chatId) => {
 const titleOf = (chatId) => {
   const chat = chatById.get(chatId)
   const title = chat?.title ?? ''
-  return title === '' ? '新会话' : title
+  return title === '' ? t('side.newChat') : title
 }
 
 const rename = async (chatId) => {
-  const title = window.prompt('会话名称', titleOf(chatId))
+  const title = window.prompt(t('menu.renamePrompt'), titleOf(chatId))
   if (title === null || title.trim() === '') return
   const response = await apiFetch(`/api/chats/${encodeURIComponent(chatId)}`, {
     method: 'PATCH',
@@ -809,7 +809,7 @@ const rename = async (chatId) => {
     body: JSON.stringify({ title: title.trim() }),
   })
   if (!response.ok) {
-    window.alert('改名失败')
+    window.alert(t('menu.renameFailed'))
     return
   }
   await loadShell()
@@ -818,13 +818,13 @@ const rename = async (chatId) => {
 const archive = async (chatId) => {
   // Says what archiving does *not* do, because "归档" has to be believable: the
   // transcript and the bill both survive it.
-  if (!window.confirm(`归档会话「${titleOf(chatId)}」？\n\n对话记录和账单都会保留，可以在【已归档】里恢复。`)) {
+  if (!window.confirm(t('menu.archiveConfirm', { title: titleOf(chatId) }))) {
     return
   }
   const response = await apiFetch(`/api/chats/${encodeURIComponent(chatId)}/remove`, { method: 'POST' })
   const body = await response.json().catch(() => ({}))
   if (!response.ok) {
-    window.alert(body.detail ?? '归档失败')
+    window.alert(body.detail ?? t('menu.archiveFailed'))
     return
   }
   // Archiving the conversation you are reading leaves the page showing a thread
@@ -896,41 +896,41 @@ const panelBody = (data) => {
   const cost = `${month.unpriced > 0 ? '≥' : ''}$${usd < 1 ? usd.toFixed(4) : usd.toFixed(2)}`
 
   const rows = [
-    kv('端点', `<span class="dot ${health}"></span> ${esc(endpoint.id)} · <code>${esc(endpoint.url)}</code>`),
+    kv(t('panel.endpoint'), `<span class="dot ${health}"></span> ${esc(endpoint.id)} · <code>${esc(endpoint.url)}</code>`),
     kv(
-      '端点状态',
+      t('panel.endpointStatus'),
       endpoint.reachable
-        ? `可达${typeof endpoint.sessions === 'number' ? ` · ${endpoint.sessions} 个会话` : ''}${endpoint.apiKeySet === false ? ' · <span class="warn">未设密钥</span>' : ''}`
-        : `<span class="error">不可达：${esc(endpoint.error ?? '未知原因')}</span>`,
+        ? `${esc(t('panel.reachable'))}${typeof endpoint.sessions === 'number' ? esc(t('panel.reachableSessions', { count: endpoint.sessions })) : ''}${endpoint.apiKeySet === false ? t('panel.keyNotSet') : ''}`
+        : `<span class="error">${esc(t('panel.unreachable', { reason: endpoint.error ?? t('panel.unknownReason') }))}</span>`,
     ),
     // 容器形态：镜像标签即节点 DSH 版本的真相，先于版本行展示。
     ...(typeof endpoint.image === 'string' && endpoint.image !== ''
-      ? [kv('节点镜像', `<code>${esc(endpoint.image)}</code>`)]
+      ? [kv(t('panel.image'), `<code>${esc(endpoint.image)}</code>`)]
       : []),
     kv(
-      'DSH 版本',
+      t('panel.dshVersion'),
       typeof endpoint.dshVersion === 'string' && endpoint.dshVersion !== ''
-        ? `<code>${esc(endpoint.dshVersion)}</code>${endpoint.dshCompatible === false ? ' <span class="warn">与验证版本不符</span>' : ''}`
-        : '<span class="muted">未知</span>',
+        ? `<code>${esc(endpoint.dshVersion)}</code>${endpoint.dshCompatible === false ? ` <span class="warn">${esc(t('panel.versionMismatch'))}</span>` : ''}`
+        : `<span class="muted">${esc(t('panel.unknown'))}</span>`,
     ),
-    kv('工作区', `<code>${esc(agent.workspacePath)}</code>`),
-    kv('preset', agent.preset === null ? '<span class="muted">跟随 DSH 进程默认</span>' : `<code>${esc(agent.preset)}</code>`),
+    kv(t('panel.workspace'), `<code>${esc(agent.workspacePath)}</code>`),
+    kv('preset', agent.preset === null ? `<span class="muted">${esc(t('panel.presetFollow'))}</span>` : `<code>${esc(agent.preset)}</code>`),
     kv(
-      '模型',
+      t('panel.model'),
       agent.model === null
-        ? '<span class="muted">跟随 DSH 进程默认</span>'
+        ? `<span class="muted">${esc(t('panel.presetFollow'))}</span>`
         : `<code>${esc(agent.provider === null ? agent.model : `${agent.provider}/${agent.model}`)}</code>`,
     ),
-    kv('对外可调', agent.public ? '是（独立进程）' : '否'),
-    kv('会话', `${chats.active} 个${chats.archived > 0 ? ` · 已归档 ${chats.archived}` : ''}`),
-    kv('本月花费', `${cost} · ${month.runs} 次运行`),
+    kv(t('panel.public'), agent.public ? t('panel.publicYes') : t('panel.no')),
+    kv(t('panel.sessions'), `${t('panel.sessionsActive', { count: chats.active })}${chats.archived > 0 ? t('panel.sessionsArchived', { count: chats.archived }) : ''}`),
+    kv(t('panel.monthCost'), t('panel.monthCostValue', { cost, runs: month.runs })),
     kv(
-      '当前状态',
+      t('panel.state'),
       data.busyRunId === null
-        ? '空闲'
+        ? t('panel.idle')
         : (data.activeRuns ?? 1) > 1
-          ? `${data.activeRuns} 个回合并发进行中`
-          : '正在运行一个回合',
+          ? t('panel.runningMany', { count: data.activeRuns })
+          : t('panel.runningOne'),
     ),
   ]
 
@@ -939,15 +939,15 @@ const panelBody = (data) => {
   if (sharedWith.length > 0) {
     rows.push(
       kv(
-        '共用端点',
-        `${sharedWith.map((a) => esc(a.name)).join('、')}<div class="muted small">DSH 的沙箱根是按进程的，不是按会话的：共用端点的 agent 能读写彼此的工作区。</div>`,
+        t('panel.shared'),
+        `${sharedWith.map((a) => esc(a.name)).join(', ')}<div class="muted small">${esc(t('panel.sharedNote'))}</div>`,
       ),
     )
   }
 
   const runList =
     runs.length === 0
-      ? '<p class="muted small">还没有运行记录。</p>'
+      ? `<p class="muted small">${esc(t('panel.noRuns'))}</p>`
       : runs
           .map(
             (r) => `<div class="panel-run">
@@ -959,11 +959,11 @@ const panelBody = (data) => {
           .join('')
 
   return `<dl class="kv-list">${rows.join('')}</dl>
-    ${data.warnings.length === 0 ? '' : data.warnings.map((w) => banner('warn', '配置提醒', w)).join('')}
-    <h3 class="panel-sub">最近运行</h3>
+    ${data.warnings.length === 0 ? '' : data.warnings.map((w) => banner('warn', t('panel.configWarning'), w)).join('')}
+    <h3 class="panel-sub">${esc(t('panel.recentRuns'))}</h3>
     ${runList}
     <div class="panel-actions">
-      <a class="btn-quiet btn-sm" href="/spend">花费明细</a>
+      <a class="btn-quiet btn-sm" href="/spend">${esc(t('panel.costDetail'))}</a>
     </div>`
 }
 
@@ -975,14 +975,14 @@ const openPanel = async (agentId) => {
   try {
     const response = await apiFetch(`/api/agents/${encodeURIComponent(agentId)}`)
     if (!response.ok) {
-      setHtml('agent-panel-content', banner('bad', '读不到 agent 详情', `服务端返回 ${response.status}`))
+      setHtml('agent-panel-content', banner('bad', t('panel.detailFailed'), t('panel.serverStatus', { status: response.status })))
       return
     }
     const data = await response.json()
     $('agent-panel-title').textContent = data.agent.name
     setHtml('agent-panel-content', panelBody(data))
   } catch (error) {
-    setHtml('agent-panel-content', banner('bad', '读不到 agent 详情', error.message))
+    setHtml('agent-panel-content', banner('bad', t('panel.detailFailed'), error.message))
   }
 }
 
@@ -1209,7 +1209,7 @@ const setNotifyBadge = (unread) => {
 const renderNotifyPanel = (items) => {
   const list =
     items.length === 0
-      ? '<p class="notify-empty muted small">还没有通知。cron 成败、预算熔断、主脑派工完成都会到这里。</p>'
+      ? `<p class="notify-empty muted small">${esc(t('notify.empty'))}</p>`
       : items
           .map(
             (n) =>
@@ -1221,8 +1221,8 @@ const renderNotifyPanel = (items) => {
           )
           .join('')
   notifyPanel.innerHTML = `<div class="notify-head">
-      <strong>通知</strong>
-      <button type="button" class="btn-quiet btn-sm" data-notify-read-all>全部已读</button>
+      <strong>${esc(t('notify.title'))}</strong>
+      <button type="button" class="btn-quiet btn-sm" data-notify-read-all>${esc(t('notify.readAll'))}</button>
     </div>
     <div class="notify-list">${list}</div>`
 }

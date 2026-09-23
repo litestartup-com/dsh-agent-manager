@@ -211,14 +211,15 @@ export const ago = (ms) => {
   if (ms === null || ms === undefined) return ''
   const diff = Date.now() - ms
   // Clock skew, or a row written a moment ago by a server a second ahead.
-  if (diff < 60_000) return '刚刚'
+  if (diff < 60_000) return t('time.justNow')
   const minutes = Math.floor(diff / 60_000)
-  if (minutes < 60) return `${minutes} 分钟前`
+  if (minutes < 60) return t('time.minutesAgo', { count: minutes })
   const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours} 小时前`
+  if (hours < 24) return t('time.hoursAgo', { count: hours })
   const days = Math.floor(hours / 24)
-  if (days < 7) return `${days} 天前`
-  return new Date(ms).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })
+  if (days < 7) return t('time.daysAgo', { count: days })
+  // 超过一周显示日期：按当前语言格式化，不再写死 zh-CN。
+  return new Date(ms).toLocaleDateString(locale, { month: '2-digit', day: '2-digit' })
 }
 
 /** @param {number | null | undefined} ms @returns {string} */
