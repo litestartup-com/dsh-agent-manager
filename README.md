@@ -27,7 +27,7 @@ irm https://raw.githubusercontent.com/litestartup-com/dsh-agent-manager/v1.1.1/i
 
 The scripts are idempotent: already-installed components are skipped, and re-runs never overwrite config or data.
 The only input needed is your DeepSeek API key (pre-set `DEEPSEEK_API_KEY=...` for a fully unattended install);
-first login forces a password change. Full manual: `docs/USER-GUIDE.md` (Chinese).
+first login forces a password change. Full manual: `docs/USER-GUIDE.md`.
 
 ## What it is
 

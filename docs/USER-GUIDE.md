@@ -1,135 +1,171 @@
-# Oh! dsh 用户手册
+# DAC user manual
 
-> 对应版本 v1.1.1。面向使用者；变更记录见仓库根 `CHANGELOG.md`。
-> 路线图与内部设计文档不在本仓库（内部设计库，不公开发布）。
+> Applies to v1.0.0. Written for people running DAC, not for people changing it —
+> changes are in `CHANGELOG.md`, and how to build it is in the repository README.
+> The Chinese README ([README.zh.md](../README.zh.md)) is the Chinese entry point; the
+> interface itself ships in English and Chinese.
 
-## 0. 一句话
+## 0. In one paragraph
 
-Oh! dsh 在 DeepSeek Harness 之上提供控制面：认证、聊天中继、主脑派工、定时任务、
-节点管理、技能清单、记账、备份恢复。默认三件套：
+DAC sits on top of DeepSeek Harness and provides the control plane: authentication,
+conversation relay, brain dispatch, node and machine management, skill inventory, cost
+accounting, backup and restore. The default install is three things:
 
-| 角色 | 干什么 |
+| Role | What it does |
 | --- | --- |
-| **manager（总办）** | 控制面：登录、页面、调度、记账、备份 |
-| **主脑（总控）** | 跨域规划与派工；对工作区只读，执行永远委托 |
-| **个人（工作区）** | 你的工作区 agent：读文件、写文件、git 留痕 |
+| **manager** | The control plane: sign-in, pages, scheduling, accounting, backups |
+| **brain** | Cross-domain planning and dispatch; read-only on workspaces, execution is always delegated |
+| **personal** | Your own workspace agent: reads files, writes files, leaves a git trail |
 
-## 1. 安装（二选一，都是幂等的一键脚本）
+## 1. Install (either path; both scripts are idempotent)
 
-### Linux 服务器（容器，推荐）
+### Linux server (containers, recommended)
 
 ```bash
-mkdir -p /app && cd /app          # 装进你想要的目录：当前目录 = 安装目录
+mkdir -p /app && cd /app          # the current directory becomes the install directory
 curl -fsSL https://raw.githubusercontent.com/litestartup-com/dsh-agent-manager/v1.1.1/install.sh -o install.sh
-bash install.sh                    # 交互式：API key → 密码 → 域名 → TLS 模式
+bash install.sh                    # interactive: API key → password → domain → TLS mode
 ```
 
-- 直接 `bash install.sh` 交互式逐个问（API key / 初始密码 / 域名留空 = 纯 HTTP / TLS 模式）；
-  全自动部署时用环境变量预置：`DEEPSEEK_API_KEY=... APP_DOMAIN=... TLS_MODE=origin-ca bash install.sh`；
-- 脚本会**跳过已装好的组件**（Docker / git / unzip），重跑不覆盖任何配置与数据；
-- **目录搬家**：整个安装目录移动到新位置后，`cd` 进去重跑一次 `bash install.sh`
-  （幂等，自动把工作区宿主路径重钉到新位置），再 `docker compose up -d`；
-- 家目录本身会被拒绝安装（提示先建专用目录）；想看脚本要做什么：`DRY_RUN=1` 预演。
+- Running `bash install.sh` asks for each answer (API key / initial password / domain — leave it
+  empty for plain HTTP / TLS mode). For unattended installs, preset them:
+  `DEEPSEEK_API_KEY=... APP_DOMAIN=... TLS_MODE=origin-ca bash install.sh`.
+- Already-installed components (Docker / git / unzip) are **skipped**; re-running never
+  overwrites configuration or data.
+- **Moving the install**: move the whole directory, `cd` into it and re-run `bash install.sh`
+  (idempotent — it re-pins the workspace host paths to the new location), then
+  `docker compose up -d`.
+- Installing into your home directory is refused on purpose. To see what the script would do:
+  `DRY_RUN=1`.
 
-### Windows（本机直跑）
+### Windows (bare metal)
 
 ```powershell
 irm https://raw.githubusercontent.com/litestartup-com/dsh-agent-manager/v1.1.1/install.ps1 -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-- 脚本会**跳过已装好的组件**（Docker / Node / git / DSH），重跑不覆盖任何配置与数据；
-- 唯一需要输入的是 **DeepSeek API key**（设 `DEEPSEEK_API_KEY=...` 环境变量可全自动）；
-- 想看脚本要做什么：`DRY_RUN=1` 预演，`--yes` 跳过确认。
+- Already-installed components (Docker / Node / git / DSH) are **skipped**; re-running never
+  overwrites configuration or data.
+- The only input is your **DeepSeek API key** (preset `DEEPSEEK_API_KEY=...` for a fully
+  unattended install).
+- `DRY_RUN=1` dry-runs, `--yes` skips confirmations.
 
-### 域名 + HTTPS（可选进阶，origin-ca 模式）
+### Domain + HTTPS (optional, origin-ca mode)
 
-交互式安装时回答域名、TLS 模式选 origin-ca，然后按提示给证书（三选一）：
+Answer the domain question and pick the origin-ca TLS mode, then supply the certificate in one
+of three ways:
 
-1. **提前放置（推荐）**：把证书放进安装目录的 `ssl/cert.pem` 与 `ssl/key.pem`，
-   安装时直接回车即可；
-2. **安装时输入路径**：提示时粘贴证书/私钥的完整路径；
-3. 无人值守：`SSL_CERT_SRC` / `SSL_KEY_SRC` 环境变量指定。
+1. **Place it ahead of time (recommended)**: put the files at `ssl/cert.pem` and `ssl/key.pem`
+   inside the install directory and press Enter at the prompt.
+2. **Paste the paths** when prompted during the install.
+3. Unattended: `SSL_CERT_SRC` / `SSL_KEY_SRC`.
 
-证书来源（Cloudflare）：控制台 SSL/TLS → Origin Server → Create Certificate 下载，
-得到 `cert.pem` 与 `key.pem` 两份文件。80 自动 301 到 443，manager 自动开启
-secure cookie（`.env` 写入 `NODE_ENV=production`）。letsencrypt 模式：先
-`TLS_MODE=letsencrypt` 跑通 80，再在主机执行 `certbot --nginx -d 你的域名`。
+With Cloudflare, the certificate comes from *SSL/TLS* → *Origin Server* → *Create Certificate*
+(`cert.pem` + `key.pem`). Port 80 redirects to 443 with a 301, and the manager turns on secure
+cookies automatically (`NODE_ENV=production` in `.env`). For Let's Encrypt instead: run once with
+`TLS_MODE=letsencrypt` on port 80, then `certbot --nginx -d your.domain` on the host.
 
-### 安装后
+### After installing
 
-浏览器打开 `http://服务器IP`（Windows 本机：`http://127.0.0.1:8080`）→ 登录 →
-**首次登录强制修改密码** → 进入首页。初始密码：安装时自设，或看 manager 启动日志
-（只打印一次）。
+Open `http://<server-ip>` (Windows bare metal: `http://127.0.0.1:8080`), sign in, **change the
+password on first sign-in** (the UI forces it), and you are in. The initial password is the one
+you set during install, or the one printed once in the manager's boot log.
 
-### 升级
+### Upgrading
 
-- **裸机部署**：安装目录里 `npm run update`（备份 → 拉新 → 构建 → 探活，失败自动回滚）；
-- **容器部署**：`.env` 里把 `MANAGER_VERSION` 改成新 tag → `docker compose up -d`；
-- **节点 DSH 版本**：`/nodes` 页节点行上的版本下拉直接切换（容器 = 换镜像重建；
-  进程 = 重播种 + 重装 + 重启，约 1-2 分钟）；
-- **配置迁移全自动**：旧 `manager.config.yaml` 会在启动时自动升级（原文件备份
-  `.pre-mig.bak`），升级不需要手改配置。
+- **Bare metal**: `npm run update` in the install directory (backup → pull → build → health
+  probe, with automatic rollback on failure).
+- **Containers**: change `MANAGER_VERSION` in `.env` to the new tag, then `docker compose up -d`.
+- **A node's DSH version**: use the version dropdown on the node's row in `/nodes`
+  (containers rebuild with a new image; host processes reseed → reinstall → restart, about 1–2
+  minutes).
+- **Configuration migrates itself**: an older `manager.config.yaml` is upgraded at startup (the
+  original is kept as `.pre-mig.bak`), so upgrading never means editing config by hand.
 
-## 2. 界面导览
+## 2. A tour of the interface
 
-- **侧栏顶部「主脑」卡片**：总控入口，展开看它的会话；
-- **会话列表**：点开即聊；首页直达最近会话；聊天输入框下方会显示当前上下文使用率，并在端点支持时提供会话模型选择和只读/工作区可写访问模式切换；
-- **节点页**：所有节点的起 / 停 / 重启 / 日志，加「新增节点」向导；
-- **技能页**：每个工作区装了哪些技能（版本 = 工作区 git HEAD）；
-- **定时任务页**：cron 自动化；
-- **记账页**：花费明细与汇总；
-- **铃铛**：站内通知（定时任务成败 / 预算熔断 / 主脑任务完成）。
+- **Brain card at the top of the sidebar** — the chief controller; expand it to see its sessions.
+- **Session list** — click to chat; the landing page goes straight to the most recent session.
+  Under the composer you get live context usage, and (when the endpoint supports it) per-session
+  model selection and access-mode switching between read-only and workspace-write.
+- **Nodes page (`/nodes`)** — three views: a **topology** of manager → machines → nodes with
+  heartbeat edges, the **node** list (start / stop / restart / logs, plus the *New node* wizard
+  in a side drawer), and the **machine** directory for hosts that joined through a node agent.
+- **Runs page (`/runs`)** — every dispatched run across all workspaces, filterable by workspace
+  and state, newest first.
+- **Skills page** — what each workspace has installed (version = workspace git HEAD).
+- **Cost page** — spend detail, per-workspace and per-model breakdown.
+- **Bell** — in-app notifications: an offline machine, an abnormal node, a budget breaker, a
+  finished brain dispatch.
+- **⋮ menu at the bottom of the sidebar** — skills / archived / cost / audit / password, the
+  **language switcher** (English ⇄ 中文) and the link to this project on GitHub.
 
-## 3. 主脑怎么用
+## 3. Using the brain
 
-在主脑会话里直接说目标，例如：
+Say what you want in a brain session, for example:
 
-> 「把 product 工作区的 README 改成中文并提交。」
+> "Rewrite the product workspace README in Chinese and commit it."
 
-主脑：规划 → 派工给对应节点 → 回传结果。派工轨迹（delegation 帧）出现在会话里，
-点击可跳回被派会话。**主脑只读工作区，执行永远委托**；主脑日预算熔断（默认 $1/天）
-只拦自动派工，你手动操作不拦。
+The brain plans, dispatches to the right node, and relays the result. Delegation frames appear in
+the conversation and link to the dispatched session. **The brain is read-only on workspaces; it
+always delegates execution**, and its daily dispatch budget (default $1/day) only stops automatic
+dispatch — it never stops you.
 
-## 4. 节点与工作区
+## 4. Nodes, machines and workspaces
 
-- **节点** = 一个 DSH agent 进程（独立 DSH_HOME：会话 / 设置 / 附件互不可见）；
-- **工作区** = 该节点操作的目录，文件即真相：每个工作区一个 git 仓，每次运行落一次提交；
-- **新增节点**：节点页 →「新增」向导 → 填名字和工作区路径，其余自动（端口 / 密钥 /
-  DSH_HOME 自动分配）；删除节点 = 解除托管，磁盘目录保留。
+- **Node** = one DSH agent process with its own `DSH_HOME` (sessions, settings and attachments are
+  invisible to other nodes).
+- **Machine** = a server that joined through the node agent, so the manager can start, stop and
+  read logs from that host. Machines page → *Add machine* produces a one-time join command
+  (15 minutes, single use) to run on the target host.
+- **Workspace** = the directory that node works on. Files are the source of truth: one git
+  repository per workspace, one commit per run.
+- **Adding a node**: nodes page → *New node* → name and workspace path; ports, gateway keys and
+  `DSH_HOME` are allocated for you. Deleting a node stops managing it and keeps its files.
 
-## 5. 技能
+## 5. Skills
 
-工作区里的 `.skills/<名称>/SKILL.md` 就是一个技能（说明 + 工具调用约定），
-技能页按工作区列清单。主脑与个人各自读自己的工作区技能。
+A skill is a `.skills/<name>/SKILL.md` file inside a workspace (instructions plus the tool-call
+conventions). The skills page lists them per workspace; each agent reads its own workspace's
+skills.
 
-## 6. 定时任务
+## 6. Scheduled runs
 
-定时任务页新建：时间表达式、目标节点、任务描述。连续失败自动停用（不会无底洞烧钱）；
-主脑派工受日预算熔断保护。
+Unattended runs are configured through the scheduler API: a schedule, a target node and a task
+description. Repeated failures disable the schedule instead of burning budget, and brain dispatch
+stays behind the daily budget breaker.
 
-## 7. 记账
+## 7. Cost
 
-峰谷计价：工作日 09:00–12:00 / 14:00–18:00（Asia/Shanghai）为高峰；
-**周六周日全天谷价**。每 run 花费、月度汇总、按工作区分账，全在记账页。
+Peak/off-peak pricing: weekdays 09:00–12:00 and 14:00–18:00 (Asia/Shanghai) are peak;
+**weekends are off-peak all day**. Per-run cost, the monthly total and the per-workspace
+breakdown all live on the cost page.
 
-## 8. 备份 / 恢复 / 更新 / 自启
+## 8. Backup / restore / update / autostart
 
-| 操作 | 命令 |
+| Action | Command |
 | --- | --- |
-| 备份（另有 15 分钟自动快照 + 节点 home 加密归档） | `npm run backup [-- list]` |
-| 恢复（自动探测 manager 是否在跑；DB + 节点 home 一起回） | `npm run restore -- latest` |
-| DR 演练（临时目录全链路：备份→删除→恢复→断言） | `npm run drill` |
-| 自更新（备份→拉新→构建→探活，失败自动回滚） | `npm run update` |
-| 开机自启 | `npm run service -- install \| uninstall \| status` |
+| Backup (plus 15-minute automatic snapshots and encrypted node-home archives) | `npm run backup [-- list]` |
+| Restore (detects whether the manager is running; database and node homes together) | `npm run restore -- latest` |
+| DR drill (temporary directory, full chain: backup → delete → restore → assert) | `npm run drill` |
+| Self-update (backup → pull → build → health probe, automatic rollback) | `npm run update` |
+| Start on boot | `npm run service -- install \| uninstall \| status` |
 
-节点 home（会话/技能/settings）随自动备份一起打包**加密**归档（密钥派生自
-SESSION_SECRET，`.env` 丢失 = 备份不可解）；归档保留策略与 DB 快照一致
-（24h 全留 → 每日 30 天 → 每周 12 周）。
+Node homes (sessions, skills, settings) are packed into the automatic backups as **encrypted**
+archives — the key is derived from `SESSION_SECRET`, so losing `.env` means losing the ability to
+decrypt them. Archive retention matches the database snapshots (24h full → 30 days daily → 12
+weeks weekly).
 
-## 9. 常见问题
+## 9. Troubleshooting
 
-- **端口占用**：setup 自检表会红字指出哪个端口被占；换端口用 `--ports 3081,3082`；
-- **DSH 版本警告**：本机 DSH 与验证版本不符时警告，`--skip-version-check` 可跳过（风险自负）；
-- **主脑不回应**：节点页看主脑是否在线；铃铛看预算是否熔断；
-- **忘记登录密码**：`.env` 里改 `MANAGER_INITIAL_PASSWORD` 只对「库里没有用户时」生效；
-  真忘了按本手册「备份与恢复」一节处理。
+- **Port already in use** — the setup self-check names the port in red; change them with
+  `--ports 3081,3082`.
+- **DSH version warning** — the local DSH differs from the verified version;
+  `--skip-version-check` overrides it at your own risk.
+- **The brain does not answer** — check whether its node is online on the nodes page, and whether
+  the budget breaker is on in the bell panel.
+- **Forgot the login password** — `MANAGER_INITIAL_PASSWORD` in `.env` only applies while no user
+  exists in the database; otherwise use the backup/restore procedure above.
+- **A machine shows as unreachable** — its node agent has not sent a heartbeat for 90 seconds;
+  check the agent service on that host (`systemctl --user status dac-agent`, or the scheduled task
+  on Windows) and the firewall allow-list for the manager's egress IP.

@@ -1,24 +1,31 @@
-# ADR-0003 · chat 列表的回合计数用二次分组查询，不用相关子查询
+# ADR-0003 · The chat list counts turns with a second grouped query, not a correlated subquery
 
-- 状态：已接受（事故复盘固化；事故时间 2026-09 初，行为自修复后未变）
-- 相关代码：`src/chat/store.ts` `listChats`
+- Status: accepted (fixed by an incident post-mortem; incident in early 2026-09, behaviour
+  unchanged since the fix)
+- Code: `src/chat/store.ts`, `listChats`
 
-## 事故
+## The incident
 
-早期版本把回合计数写进 select 列表的相关子查询（「聪明」写法），结果
-**静默错误**：drizzle 把插进单表 raw `sql` 片段的列渲染成裸 `"id"`，生成
-`... (SELECT COUNT(*) FROM run WHERE run.chat_id = "id") FROM chat`。
-子查询内层表（run）赢得名字解析，而 run 自己有 `id` 列——谓词静默变成
-`run.chat_id = run.id`，永远为假。每个计数都是 0，**没有报错**：标识符确实
-解析了，只是解析到了错误的表。
+An earlier version put the turn count into a correlated subquery in the select list — the
+"clever" spelling — and was **silently wrong**: drizzle rendered a column interpolated into
+a raw `sql` fragment as a bare `"id"`, producing
 
-## 决策
+```sql
+... (SELECT COUNT(*) FROM run WHERE run.chat_id = "id") FROM chat
+```
 
-回合计数永远作为第二个分组查询单独执行，再在内存中合并。
-不在 select 列表里写相关子查询；如需内联 SQL 片段，列引用必须显式限定表名。
+The inner table (`run`) wins name resolution and `run` has an `id` column of its own, so the
+predicate silently became `run.chat_id = run.id`, which is never true. Every count came back
+as 0, **with no error**: the identifier did resolve — to the wrong table.
 
-## 后果
+## Decision
 
-- 这是「未限定列名 = 静默错误答案」的实锤案例——E9 把聚合改走 drizzle
-  builder 的理由之一（builder 自动限定列名）；任何手写 raw SQL 保留此
-  戒律。
+Turn counts are always fetched by a second grouped query and merged in memory. No correlated
+subqueries in the select list; if a raw SQL fragment is unavoidable, every column reference
+must carry an explicit table qualifier.
+
+## Consequences
+
+- This is the concrete case behind "an unqualified column name means a silently wrong
+  answer" — one of the reasons the E9 aggregation migration moved to the drizzle builder
+  (which qualifies columns for you). Any hand-written raw SQL keeps this rule.

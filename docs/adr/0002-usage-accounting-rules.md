@@ -1,23 +1,25 @@
-# ADR-0002 · usage 账本两条规则（缺费率不是零 / 月是本地）
+# ADR-0002 · Two rules for the usage ledger (a missing rate is not zero / a month is local)
 
-- 状态：已接受（2026-09-12 由 `src/usage/store.ts` 模块注释固化）
-- 相关代码：`src/usage/store.ts`、`src/pricing.ts`
+- Status: accepted (fixed in the `src/usage/store.ts` module comment on 2026-09-12)
+- Code: `src/usage/store.ts`, `src/pricing.ts`
 
-## 决策
+## Decision
 
-1. **缺费率不是零**：模型没有配置单价的记录计入 `unpriced`，钱数里不含它。
-   合计永远被报告为「带可见缺口的底数」，而不是一个碰巧偏低的自信数字。
-   `SUM(cost)` 天然跳过 NULL——这正好，但合计本身看不出「有没有缺」，
-   `unpriced` 计数器就是为此存在。
-2. **月是本地**：分桶由 SQLite 的 `localtime` 修饰符（或等价的本地时区
-   epoch 半开区间，债务 B5）产生。UTC+8 的晚间运行落在操作者以为的那个月。
-   服务器时区是权威——一个操作者、一台机器。
+1. **A missing rate is not zero.** Records whose model has no configured price are counted
+   in `unpriced` and left out of the money totals. A total is therefore always reported as
+   a floor *with a visible gap*, never as a confident number that happens to be too low.
+   `SUM(cost)` skips NULL rows by nature — which is fine, but the sum itself cannot show
+   whether anything is missing; that is what the `unpriced` counter exists for.
+2. **A month is local.** Bucketing uses SQLite's `localtime` modifier (or the equivalent
+   local-time half-open epoch range, debt B5). An evening run in UTC+8 lands in the month
+   the operator thinks it did. The server's timezone is authoritative — one operator, one
+   machine.
 
-## 后果
+## Consequences
 
-- 日预算熔断依赖这两条规则：把未知成本当零的预算守卫会在「看不见账单」
-  的当口继续花钱——所以 `daySpend` 返回 `unpriced`，调用方（cron 调度）
-  看到非零缺口即拒绝运行而不是猜。
-- 索引红线：分桶过滤必须命中 `usage_at` 索引（`query-plan.test.ts` 的
-  EXPLAIN 断言守护），任何聚合改造（E9 drizzle builder 化）不得回退到
-  strftime 全表扫写法。
+- The daily budget breaker depends on both rules. A guard that treats unknown cost as zero
+  keeps spending while the bill is invisible — which is why `daySpend` returns `unpriced`
+  and the caller (the cron scheduler) refuses to run on a non-zero gap instead of guessing.
+- Index red line: bucket filters must hit the `usage_at` index (an `EXPLAIN` assertion in
+  `query-plan.test.ts` guards it). No aggregation rewrite (the E9 drizzle-builder
+  migration) may fall back to a full-table `strftime` scan.
