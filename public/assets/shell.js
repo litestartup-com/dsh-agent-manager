@@ -551,12 +551,13 @@ const loadSpendHint = async () => {
   try {
     const response = await apiFetch('/api/usage')
     if (!response.ok) return
-    const t = (await response.json()).totals
-    if (t.runs === 0) return
-    const usd = t.costMicroUsd / 1e6
+    // 变量名不要用 t：它会遮蔽 ui.js 的翻译函数（2026-09-24 线上事故的同一类）。
+    const totals = (await response.json()).totals
+    if (totals.runs === 0) return
+    const usd = totals.costMicroUsd / 1e6
     const amount = usd < 0.01 ? `$${usd.toFixed(4)}` : usd < 1 ? `$${usd.toFixed(3)}` : `$${usd.toFixed(2)}`
     // A floor, not a total, whenever some model had no configured rate.
-    $('spend-hint').textContent = `${t.unpriced > 0 ? '≥' : ''}${amount}`
+    $('spend-hint').textContent = `${totals.unpriced > 0 ? '≥' : ''}${amount}`
   } catch {
     // A missing figure must never take the page down with it.
   }

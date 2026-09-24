@@ -151,8 +151,10 @@ export const makeRenderer = ({ getState, openTools, openContext, mdCache: inject
     if (usage !== null && usage !== undefined && usage.outputTokens > 0 && durationSec > 0) {
       parts.push(`${Math.round(usage.outputTokens / durationSec)} tok/s`)
     }
-    const t = tokens(usage)
-    if (t !== null) parts.push(esc(t))
+    // 变量名不要用 t：它会遮蔽 ui.js 的翻译函数（2026-09-24 线上事故，
+    // 症状是"footer 里 t is not a function"，即回答底部的三个按钮）。
+    const tokenText = tokens(usage)
+    if (tokenText !== null) parts.push(esc(tokenText))
     if (run !== undefined && run !== null && run.usage !== null && run.usage.costMicroUsd !== null) {
       parts.push(esc(money(run.usage.costMicroUsd)))
     }

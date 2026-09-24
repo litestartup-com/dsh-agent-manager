@@ -75,6 +75,38 @@ test('债务 F1: footer 失败态优先于统计行', () => {
   assert.ok(!failed.includes('turn-actions'), '失败态不渲染反馈按钮')
 })
 
+test('2026-09-24 事故回归: footer 正常态渲染三个动作按钮（文案走字典，不得抛 t is not a function）', () => {
+  const { footer } = setup()
+  const block = {
+    role: 'agent',
+    error: null,
+    streaming: false,
+    usage: { inputTokens: 12, outputTokens: 34 },
+    run: { id: 'run-1', startedAt: 1_000, endedAt: 5_000, usage: null },
+  }
+  let html = ''
+  assert.doesNotThrow(() => {
+    html = footer(block, 2, true)
+  }, 'footer 不得因为局部变量遮蔽 t() 而抛错（线上事故现场）')
+  assert.ok(html.includes('data-act="copy"'), '复制按钮在')
+  assert.ok(html.includes('aria-label="Copy answer"'), '复制按钮的 aria-label 走字典')
+  assert.ok(html.includes('aria-label="Helpful"'), '点赞按钮的 aria-label 走字典')
+  assert.ok(html.includes('aria-label="Not helpful"'), '反对按钮的 aria-label 走字典')
+  // 统计行照旧：耗时 + token 数
+  assert.ok(html.includes('4s'), '显示回合耗时')
+  assert.ok(html.includes('12 in · 34 out'), 'token 统计仍来自 tokens()')
+})
+
+test('2026-09-24 事故回归: 空标题的新会话不得抛错（chatTitle 同款遮蔽）', async () => {
+  // chat.js 是页面脚本（模块级就摸 DOM），无法在 Node 里整份加载；
+  // 这里直接验证同一模式的正确写法：标题为空时回退到字典文案。
+  const { t } = await import('./ui.js')
+  const titleOf = (title) => (title === null || title === '' ? t('side.newChat') : title)
+  assert.equal(titleOf(''), 'New session')
+  assert.equal(titleOf(null), 'New session')
+  assert.equal(titleOf('既定标题'), '既定标题')
+})
+
 test('债务 F1: userTurn 不渲染 markdown,纯文本转义', () => {
   const { userTurn } = setup()
   const html = userTurn({ role: 'user', text: '**加粗** <script>x</script>', injected: false })

@@ -33,18 +33,19 @@ const utcToLocal = (hhmm) => {
  * `≥` and the models responsible are named, which is also the fix.
  */
 const renderTotals = (data) => {
-  const t = data.totals
-  const gap = t.unpriced > 0
+  // 变量名不要用 t：它会遮蔽 ui.js 的翻译函数 t()（2026-09-24 线上事故）。
+  const totals = data.totals
+  const gap = totals.unpriced > 0
 
-  $('total-cost').textContent = `${gap ? '≥ ' : ''}${moneyAdaptive(t.costMicroUsd)}`
+  $('total-cost').textContent = `${gap ? '≥ ' : ''}${moneyAdaptive(totals.costMicroUsd)}`
   $('total-note').textContent = gap
-    ? t('spend.unpricedNote', { count: t.unpriced })
-    : t.runs === 0
+    ? t('spend.unpricedNote', { count: totals.unpriced })
+    : totals.runs === 0
       ? t('spend.noRuns')
       : ''
 
-  const share = t.costMicroUsd > 0 ? Math.round((t.peakCostMicroUsd / t.costMicroUsd) * 100) : 0
-  $('peak-share').textContent = t.costMicroUsd > 0 ? `${share}%` : '—'
+  const share = totals.costMicroUsd > 0 ? Math.round((totals.peakCostMicroUsd / totals.costMicroUsd) * 100) : 0
+  $('peak-share').textContent = totals.costMicroUsd > 0 ? `${share}%` : '—'
   const windows = (data.peakWindowsUtc ?? [])
     .map((w) => `${utcToLocal(w.start)}–${utcToLocal(w.end)}`)
     .join('、')
@@ -55,8 +56,8 @@ const renderTotals = (data) => {
         ? t('spend.peakDoubled', { windows })
         : t('spend.allOffPeak', { windows })
 
-  $('total-tokens').textContent = `${tokens(t.inputTokens)} / ${tokens(t.outputTokens)}`
-  $('runs-note').textContent = t('spend.tokensNote', { runs: t.runs })
+  $('total-tokens').textContent = `${tokens(totals.inputTokens)} / ${tokens(totals.outputTokens)}`
+  $('runs-note').textContent = t('spend.tokensNote', { runs: totals.runs })
 }
 
 const renderChart = (days) => {

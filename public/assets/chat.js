@@ -645,8 +645,9 @@ el.log.addEventListener('click', (event) => {
 
 const chatTitle = () => {
   if (state === null) return t('chat.defaultTitle')
-  const t = state.chat.title
-  return t === null || t === '' ? t('side.newChat') : t
+  // 变量名不要用 t：它会遮蔽 ui.js 的翻译函数（2026-09-24 线上事故）。
+  const title = state.chat.title
+  return title === null || title === '' ? t('side.newChat') : title
 }
 
 const renderHead = () => {
